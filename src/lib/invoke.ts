@@ -9,6 +9,7 @@ import type {
   DatabaseRow,
   DatabaseTemplate,
   DatabaseWithSchema,
+  ExportFormat,
   Page,
   PageSnapshot,
   PageSummary,
@@ -168,4 +169,15 @@ export const api = {
 
   restoreSnapshot: (snapshotId: string): Promise<void> =>
     invoke('restore_snapshot', { snapshotId }),
+
+  // --- Export (M5 §5.5.2) ------------------------------------------------
+  exportPage: (pageId: string, format: ExportFormat): Promise<string> =>
+    invoke('export_page', { pageId, format }),
+
+  // --- Import (M5 §5.5.1) ------------------------------------------------
+  importMarkdown: (mdPath: string, parentId?: string): Promise<Page> =>
+    invoke('import_markdown', { mdPath, parentId }),
+
+  importHtml: (htmlPath: string, parentId?: string): Promise<Page> =>
+    invoke('import_html', { htmlPath, parentId }),
 } as const;

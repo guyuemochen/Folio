@@ -340,3 +340,10 @@ export interface PageSnapshot {
   source: SnapshotSource;
   createdAt: number;
 }
+
+// =============================================================================
+// M5: Import / Export (PRD §5.5)
+// =============================================================================
+
+/** Export format sent to the `export_page` Tauri command. */
+export type ExportFormat = 'markdown' | 'html';
