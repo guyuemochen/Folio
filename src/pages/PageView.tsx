@@ -6,6 +6,7 @@ import { Editor } from '../editor/Editor';
 import { DatabaseView } from '../components/database/DatabaseView';
 import { RowPropertyPanel } from '../components/database/RowPropertyPanel';
 import { EmojiPicker } from '../components/EmojiPicker';
+import { ImportExportModal } from '../components/ImportExportModal';
 
 /**
  * Single-page view. Routes by `page.type`:
@@ -46,6 +47,7 @@ export function PageView({ pageId }: { pageId: string }) {
   const [moreMenuAnchor, setMoreMenuAnchor] = useState<DOMRect | null>(null);
   const [fullWidth, setFullWidth] = useState(false);
   const [coverPickerOpen, setCoverPickerOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   // Increments when a snapshot restore happens — bumps the editor's key so it
   // remounts with the freshly-overwritten doc.
   const [restoreEpoch, setRestoreEpoch] = useState(0);
@@ -356,9 +358,10 @@ export function PageView({ pageId }: { pageId: string }) {
         <MoreMenu
           anchorRect={moreMenuAnchor}
           onClose={() => setMoreMenuAnchor(null)}
-          onExport={() =>
-            window.dispatchEvent(new CustomEvent('folio:toast', { detail: 'Export — coming in M5' }))
-          }
+          onExport={() => {
+            setMoreMenuAnchor(null);
+            setExportOpen(true);
+          }}
           onSaveSnapshot={async () => {
             try {
               await api.createSnapshot(pageData.id, pageData.doc, titleDraft, 'manual');
@@ -392,6 +395,14 @@ export function PageView({ pageId }: { pageId: string }) {
           "Save snapshot" action. The 5s autosave path is wired and ready for
           the M2 deep agent to emit `folio:doc-updated` events. */}
       <DocUpdatedBridge pageId={pageData.id} onDocUpdated={scheduleSnapshot} />
+
+      {exportOpen && (
+        <ImportExportModal
+          pageId={pageData.id}
+          pageTitle={pageData.title}
+          onClose={() => setExportOpen(false)}
+        />
+      )}
     </main>
   );
 }
