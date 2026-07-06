@@ -24,6 +24,11 @@ thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 parking_lot = "0.12"
+# M5: Import/Export — markdown parse (comrak), html parse (scraper), zip read/write, base64 IPC transfer
+comrak = "0.52"
+scraper = "0.26"
+zip = "2"
+base64 = "0.22"
 
 [features]
 # this feature is used for production builds or when `devUrl` points to the filesystem
