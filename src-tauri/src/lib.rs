@@ -10,6 +10,9 @@ use tauri::{Manager, State};
 
 mod db;
 mod database;
+mod export;
+mod import;
+mod prosemirror;
 mod schema;
 
 /// Unified error type for all backend commands. Serializes as a string
@@ -533,6 +536,87 @@ fn search(state: State<'_, AppState>, query: String, limit: Option<i64>) -> Resu
 }
 
 // =============================================================================
+// Export (M5 §5.5.2) — page-level Markdown / HTML export
+// =============================================================================
+
+/// Export a single page's document as Markdown or HTML.
+///
+/// `format` is `"markdown"` or `"html"`. Returns the serialized content as a
+/// string; the frontend wraps it in a Blob and triggers a download (matching
+/// the established CSV-export pattern in `DatabaseView`).
+#[tauri::command]
+fn export_page(
+    state: State<'_, AppState>,
+    page_id: String,
+    format: String,
+) -> Result<String> {
+    let fmt = export::ExportFormat::parse(&format)
+        .ok_or_else(|| Error::Other(format!("unknown export format: {format}")))?;
+    let db = state.db.lock();
+    let (page, doc) = db::fetch_page_with_doc(&db, &page_id)?;
+    let doc_value = prosemirror::parse_doc(&doc);
+    Ok(match fmt {
+        export::ExportFormat::Markdown => export::markdown::serialize(&doc_value)?,
+        export::ExportFormat::Html => export::html::serialize(&doc_value, &page.title)?,
+    })
+}
+
+// =============================================================================
+// Import (M5 §5.5.1) — Markdown / HTML file import
+// =============================================================================
+
+/// Shared backend for the import commands: given a parsed ProseMirror doc,
+/// create a page (with an auto-derived title) and persist the document.
+fn import_doc_to_page(
+    db: &rusqlite::Connection,
+    parent_id: Option<&str>,
+    doc_value: &serde_json::Value,
+) -> Result<Page> {
+    let title = prosemirror::extract_title(doc_value);
+    let doc_json = serde_json::to_string(doc_value)
+        .map_err(|e| Error::Other(format!("doc serialize failed: {e}")))?;
+    let workspace = db::get_or_create_workspace(db)?;
+    let parent_type = if parent_id.is_some() { "page" } else { "workspace" };
+    let page = db::create_page(
+        db,
+        &workspace.id,
+        parent_id,
+        parent_type,
+        Some(&title),
+        None,
+    )?;
+    db::update_page_doc(db, &page.id, &doc_json)?;
+    Ok(page)
+}
+
+/// Import a single Markdown file as a new page.
+/// `parent_id = None` creates the page at workspace root.
+#[tauri::command]
+fn import_markdown(
+    state: State<'_, AppState>,
+    md_path: String,
+    parent_id: Option<String>,
+) -> Result<Page> {
+    let md = std::fs::read_to_string(&md_path)?;
+    let doc_value = import::markdown::convert(&md)?;
+    let db = state.db.lock();
+    import_doc_to_page(&db, parent_id.as_deref(), &doc_value)
+}
+
+/// Import a single HTML file as a new page.
+#[tauri::command]
+fn import_html(
+    state: State<'_, AppState>,
+    html_path: String,
+    parent_id: Option<String>,
+) -> Result<Page> {
+    let html = std::fs::read_to_string(&html_path)?;
+    let doc_value = import::html::convert(&html)?;
+    let db = state.db.lock();
+    import_doc_to_page(&db, parent_id.as_deref(), &doc_value)
+}
+
+// =============================================================================
 // Entry point
 // =============================================================================
 
@@ -626,6 +710,11 @@ pub fn run() {
             attach_file,
             // Search
             search,
+            // Export (M5)
+            export_page,
+            // Import (M5)
+            import_markdown,
+            import_html,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Folio");
