@@ -18,6 +18,7 @@ export interface PageSummary {
   parentType: 'workspace' | 'page' | 'database';
   isTrashed: boolean;
   updatedAt: number;
+  favorite: boolean;
 }
 
 export interface Page {
@@ -34,6 +35,7 @@ export interface Page {
   isArchived: boolean;
   isTrashed: boolean;
   trashedAt: number | null;
+  favorite: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -115,14 +117,29 @@ export interface PropertyDef {
   createdAt: number;
 }
 
-/** Filter tree node. Recursive AND/OR with comparison leaves. */
+/**
+ * Filter tree. Recursive AND/OR groups with comparison leaves.
+ * Discriminated union on `kind` so consumers can narrow without casts.
+ *
+ * Persistence: serialized to JSON into `database_view.filter`.
+ * Evaluation: client-side (see applyFilter in DatabaseView).
+ */
 export interface FilterLeaf {
-  op: 'and' | 'or' | 'compare';
-  propertyId?: string;
-  operator?: string; // 'contains' | 'is' | 'is_before' | ...
-  value?: unknown;
-  children?: FilterLeaf[];
+  kind: 'leaf';
+  propertyId: string;
+  /** e.g. 'contains' | 'is' | 'is_before'. Varies by property type. */
+  operator: string;
+  /** Comparison target; shape depends on property + operator. */
+  value: unknown;
 }
+
+export interface FilterGroup {
+  kind: 'group';
+  op: 'and' | 'or';
+  children: FilterNode[];
+}
+
+export type FilterNode = FilterGroup | FilterLeaf;
 
 export interface SortEntry {
   propertyId: string;
@@ -131,7 +148,8 @@ export interface SortEntry {
 
 export interface GroupConfig {
   propertyId: string;
-  hiddenGroups?: string[];
+  /** Group values that are collapsed in the UI (persisted per view). */
+  collapsedGroups?: string[];
 }
 
 export interface ViewConfig {
@@ -139,7 +157,7 @@ export interface ViewConfig {
   databaseId: string;
   name: string;
   type: 'table' | 'board' | 'calendar' | 'timeline' | 'gallery' | 'list';
-  filter?: FilterLeaf | null;
+  filter?: FilterNode | null;
   sort?: SortEntry[] | null;
   group?: GroupConfig | null;
   hiddenProperties?: string[] | null;
@@ -164,6 +182,51 @@ export interface DatabaseRow {
   isTrashed: boolean;
   updatedAt: number;
   properties: Record<string, unknown>;
+}
+
+// ============================================================================
+// Database templates (§5.3.7)
+// ============================================================================
+
+export interface DatabaseTemplate {
+  id: string;
+  databaseId: string;
+  name: string;
+  icon: string | null;
+  /** Map of propertyId -> default value applied on new-row creation. */
+  defaultPropertyValues: Record<string, unknown>;
+  /** TipTap/ProseMirror doc JSON string used to seed the row page's content. */
+  defaultContent: string;
+  isDefault: boolean;
+  createdAt: number;
+}
+
+export interface CreateTemplateInput {
+  databaseId: string;
+  name: string;
+  icon?: string;
+  defaultPropertyValues?: Record<string, unknown>;
+  defaultContent?: string;
+}
+
+export interface UpdateTemplateInput {
+  name?: string;
+  icon?: string | null;
+  defaultPropertyValues?: Record<string, unknown>;
+  defaultContent?: string;
+  isDefault?: boolean;
+}
+
+// ============================================================================
+// File attachments (files property type)
+// ============================================================================
+
+export interface AttachmentInfo {
+  /** Original file name shown in the chip. */
+  name: string;
+  /** Path relative to app data dir (for Rust-side resolution). */
+  path: string;
+  size: number;
 }
 
 // === Input types for create/update calls ==================================
@@ -202,7 +265,7 @@ export interface CreateViewInput {
 
 export interface UpdateViewInput {
   name?: string;
-  filter?: FilterLeaf | null;
+  filter?: FilterNode | null;
   sort?: SortEntry[] | null;
   group?: GroupConfig | null;
   hiddenProperties?: string[] | null;
@@ -222,4 +285,58 @@ export interface SearchHit {
   snippet: string;
   rank: number;
   matchedIn: 'title' | 'content';
+}
+
+// ============================================================================
+// Trash / Favorites / Snapshots (M3 PRD §5.2.4)
+// ============================================================================
+
+/** A trashed page plus breadcrumb info for the Trash view (PRD §5.2.4). */
+export interface TrashedPage {
+  id: string;
+  title: string;
+  icon: string | null;
+  parentId: string | null;
+  parentType: 'workspace' | 'page' | 'database';
+  /** Title of the parent page (null when restored to workspace root). */
+  parentTitle: string | null;
+  trashedAt: number | null;
+}
+
+// ============================================================================
+// Linked database block (§5.3.8)
+// ============================================================================
+
+/**
+ * Attributes persisted on a `linkedDatabase` TipTap node (PRD §5.3.8).
+ *
+ * The block renders a DatabaseView inline that mirrors a source database.
+ * `sourceDatabaseId` points at the row in `page` of `type='database'`.
+ * `viewId` selects which of the source database's views to display; null falls
+ * back to the source database's default view. Mutations propagate
+ * automatically because both views query the same source via query_database.
+ */
+export interface LinkedDatabaseAttrs {
+  sourceDatabaseId: string;
+  viewId: string | null;
+}
+
+/** Window event payload for inserting a block via loose coupling with the editor. */
+export interface InsertBlockEventDetail {
+  type: 'linkedDatabase';
+  attrs: LinkedDatabaseAttrs;
+}
+
+/** Snapshot source: 'auto' = debounced save, 'manual' = user action. */
+export type SnapshotSource = 'auto' | 'manual';
+
+/** One snapshot row for the page History UI (PRD §5.2.4). */
+export interface PageSnapshot {
+  id: string;
+  pageId: string;
+  /** Full TipTap doc JSON string at the snapshot point. */
+  content: string;
+  title: string;
+  source: SnapshotSource;
+  createdAt: number;
 }

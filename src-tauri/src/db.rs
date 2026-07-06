@@ -95,7 +95,7 @@ pub fn fetch_page(conn: &rusqlite::Connection, page_id: &str) -> Result<Page> {
     let page = conn.query_row(
         "SELECT id, workspace_id, parent_id, parent_type, type, title, icon, cover, \
                 full_width, small_text, is_archived, is_trashed, trashed_at, \
-                created_at, updated_at \
+                favorite, created_at, updated_at \
          FROM page WHERE id = ?1",
         params![page_id],
         map_page_full,
@@ -156,6 +156,11 @@ pub fn update_page_meta(
 }
 
 /// Persist the page document JSON. Called from frontend (debounced 200ms).
+///
+/// Per PRD §5.2.4: also creates an `auto` snapshot when (a) the doc content
+/// differs from the most recent snapshot, AND (b) the most recent snapshot is
+/// older than 5 seconds. The throttle check is one indexed lookup, so this
+/// stays cheap on every save.
 pub fn update_page_doc(
     conn: &rusqlite::Connection,
     page_id: &str,
@@ -174,6 +179,51 @@ pub fn update_page_doc(
         "UPDATE page SET updated_at = ?1 WHERE id = ?2",
         params![now, page_id],
     )?;
+
+    // Auto-snapshot throttled to one every 5s per page (PRD §5.2.4).
+    maybe_auto_snapshot(conn, page_id, doc, now)?;
+
+    Ok(())
+}
+
+/// Snapshot the doc if (a) content differs from the latest snapshot AND
+/// (b) the latest snapshot for this page is older than `AUTOSNAPSHOT_INTERVAL_MS`.
+fn maybe_auto_snapshot(
+    conn: &rusqlite::Connection,
+    page_id: &str,
+    doc: &str,
+    now_ms: i64,
+) -> Result<()> {
+    const AUTOSNAPSHOT_INTERVAL_MS: i64 = 5_000;
+
+    let latest: Option<(String, i64)> = conn
+        .query_row(
+            "SELECT content, created_at FROM page_snapshot \
+             WHERE page_id = ?1 ORDER BY created_at DESC LIMIT 1",
+            params![page_id],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+        )
+        .ok();
+
+    let (same_content, recent_enough) = match latest {
+        Some((content, ts)) => (content == doc, now_ms - ts < AUTOSNAPSHOT_INTERVAL_MS),
+        None => (false, false),
+    };
+    if same_content || recent_enough {
+        return Ok(());
+    }
+
+    // Pull the current page title (cheap indexed lookup) so the snapshot's
+    // title field stays useful in the History UI.
+    let title: String = conn
+        .query_row(
+            "SELECT COALESCE(title, '') FROM page WHERE id = ?1",
+            params![page_id],
+            |r| r.get::<_, String>(0),
+        )
+        .unwrap_or_default();
+
+    create_snapshot(conn, page_id, doc, &title, "auto")?;
     Ok(())
 }
 
@@ -191,14 +241,48 @@ pub fn trash_page(conn: &rusqlite::Connection, page_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Restore a trashed page to its original parent.
+/// Restore a trashed page. Per PRD §5.2.4:
+///   - if `parent_id` is null OR the parent itself is trashed, restore to
+///     workspace root (parent_id = NULL, parent_type = 'workspace').
+///   - otherwise restore to the original parent.
 pub fn restore_page(conn: &rusqlite::Connection, page_id: &str) -> Result<()> {
     let now = chrono::Utc::now().timestamp_millis();
-    let affected = conn.execute(
-        "UPDATE page SET is_trashed = 0, trashed_at = NULL, updated_at = ?1 \
-         WHERE id = ?2",
-        params![now, page_id],
-    )?;
+
+    // Look up the current parent and check whether it's still alive.
+    let row: Option<(Option<String>, i64)> = conn
+        .query_row(
+            "SELECT p.parent_id, \
+                    COALESCE((SELECT is_trashed FROM page WHERE id = p.parent_id), 1) \
+             FROM page p WHERE p.id = ?1",
+            params![page_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .ok();
+
+    let needs_root_fallback = match row {
+        // parent_id is NULL → already at root (rare, but possible) → safe to keep.
+        Some((None, _)) => false,
+        // parent exists and is not trashed → restore in place.
+        Some((Some(_), 0)) => false,
+        // parent is trashed or missing → restore to workspace root.
+        _ => true,
+    };
+
+    let affected = if needs_root_fallback {
+        conn.execute(
+            "UPDATE page \
+             SET is_trashed = 0, trashed_at = NULL, updated_at = ?1, \
+                 parent_id = NULL, parent_type = 'workspace' \
+             WHERE id = ?2",
+            params![now, page_id],
+        )?
+    } else {
+        conn.execute(
+            "UPDATE page SET is_trashed = 0, trashed_at = NULL, updated_at = ?1 \
+             WHERE id = ?2",
+            params![now, page_id],
+        )?
+    };
     if affected == 0 {
         return Err(Error::NotFound(format!("page {}", page_id)));
     }
@@ -223,7 +307,7 @@ pub fn list_pages(
     let rows: Vec<PageSummary> = match parent_id {
         Some(pid) => {
             let mut stmt = conn.prepare(
-                "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at \
+                "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at, favorite \
                  FROM page \
                  WHERE parent_id = ?1 AND is_trashed = 0 \
                  ORDER BY title ASC",
@@ -233,7 +317,7 @@ pub fn list_pages(
         }
         None => {
             let mut stmt = conn.prepare(
-                "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at \
+                "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at, favorite \
                  FROM page \
                  WHERE parent_id IS NULL AND parent_type = 'workspace' AND is_trashed = 0 \
                  ORDER BY title ASC",
@@ -339,6 +423,9 @@ pub fn search(
 
 fn map_page_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<PageSummary> {
     let is_trashed_int: i64 = row.get(5)?;
+    // Column 7 (when present) is the favorite flag joined from `page.favorite`.
+    // Older callers that don't select it fall back to false via get_or(false).
+    let favorite_int: i64 = row.get(7).unwrap_or(0);
     Ok(PageSummary {
         id: row.get(0)?,
         title: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
@@ -347,6 +434,7 @@ fn map_page_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<PageSummary> {
         parent_type: row.get(4)?,
         is_trashed: is_trashed_int != 0,
         updated_at: row.get(6)?,
+        favorite: favorite_int != 0,
     })
 }
 
@@ -355,6 +443,7 @@ fn map_page_full(row: &rusqlite::Row<'_>) -> rusqlite::Result<Page> {
     let small_text: i64 = row.get(9)?;
     let is_archived: i64 = row.get(10)?;
     let is_trashed: i64 = row.get(11)?;
+    let favorite: i64 = row.get(13)?;
     Ok(Page {
         id: row.get(0)?,
         workspace_id: row.get(1)?,
@@ -369,7 +458,261 @@ fn map_page_full(row: &rusqlite::Row<'_>) -> rusqlite::Result<Page> {
         is_archived: is_archived != 0,
         is_trashed: is_trashed != 0,
         trashed_at: row.get(12)?,
-        created_at: row.get(13)?,
-        updated_at: row.get(14)?,
+        favorite: favorite != 0,
+        created_at: row.get(14)?,
+        updated_at: row.get(15)?,
     })
+}
+
+// =============================================================================
+// Trash (PRD §5.2.4)
+// =============================================================================
+
+/// A trashed page plus breadcrumb info (its parent's title, when present) for
+/// the Trash view UI.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashedPage {
+    pub id: String,
+    pub title: String,
+    pub icon: Option<String>,
+    pub parent_id: Option<String>,
+    pub parent_type: String,
+    pub parent_title: Option<String>,
+    pub trashed_at: Option<i64>,
+}
+
+/// List all trashed pages (any depth), newest-trashed first.
+pub fn list_trashed_pages(conn: &rusqlite::Connection) -> Result<Vec<TrashedPage>> {
+    let mut stmt = conn.prepare(
+        "SELECT p.id, p.title, p.icon, p.parent_id, p.parent_type, \
+                parent.title, p.trashed_at \
+         FROM page p \
+         LEFT JOIN page parent ON parent.id = p.parent_id \
+         WHERE p.is_trashed = 1 \
+         ORDER BY p.trashed_at DESC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(TrashedPage {
+            id: row.get(0)?,
+            title: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+            icon: row.get(2)?,
+            parent_id: row.get(3)?,
+            parent_type: row.get(4)?,
+            parent_title: row.get(5)?,
+            trashed_at: row.get(6)?,
+        })
+    })?;
+    rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+/// Hard-delete every trashed page older than `max_age_seconds`. Runs on every
+/// app launch (PRD §5.2.4: "30-day auto-purge ... check-on-launch").
+pub fn purge_old_trash(conn: &rusqlite::Connection, max_age_seconds: i64) -> Result<usize> {
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let cutoff_ms = now_ms - (max_age_seconds * 1000);
+    let affected = conn.execute(
+        "DELETE FROM page WHERE is_trashed = 1 AND trashed_at IS NOT NULL AND trashed_at < ?1",
+        params![cutoff_ms],
+    )?;
+    Ok(affected)
+}
+
+// =============================================================================
+// Favorites (PRD §5.2.3)
+// =============================================================================
+
+/// Mark/unmark a page as favorite. Mirrors the change to both the `favorites`
+/// table (source of truth for ordering) and the `page.favorite` denormalized
+/// flag (cheap read for tree rows).
+pub fn set_favorite(
+    conn: &rusqlite::Connection,
+    page_id: &str,
+    is_favorite: bool,
+) -> Result<()> {
+    let now = chrono::Utc::now().timestamp_millis();
+    // Flip the denormalized flag.
+    conn.execute(
+        "UPDATE page SET favorite = ?1 WHERE id = ?2",
+        params![if is_favorite { 1 } else { 0 }, page_id],
+    )?;
+    if is_favorite {
+        // Append at the end of the favorites list (largest sort_order + 1).
+        let max_order: f64 = conn
+            .query_row("SELECT COALESCE(MAX(sort_order), 0) FROM favorites", [], |r| {
+                r.get(0)
+            })
+            .unwrap_or(0.0);
+        conn.execute(
+            "INSERT OR IGNORE INTO favorites (page_id, sort_order, created_at) \
+             VALUES (?1, ?2, ?3)",
+            params![page_id, max_order + 1.0, now],
+        )?;
+    } else {
+        conn.execute(
+            "DELETE FROM favorites WHERE page_id = ?1",
+            params![page_id],
+        )?;
+    }
+    Ok(())
+}
+
+/// Return favorited pages ordered by their sort_order.
+pub fn list_favorites(conn: &rusqlite::Connection) -> Result<Vec<PageSummary>> {
+    let mut stmt = conn.prepare(
+        "SELECT p.id, p.title, p.icon, p.parent_id, p.parent_type, p.is_trashed, \
+                p.updated_at, p.favorite \
+         FROM favorites f \
+         JOIN page p ON p.id = f.page_id \
+         WHERE p.is_trashed = 0 \
+         ORDER BY f.sort_order ASC",
+    )?;
+    let rows = stmt.query_map([], map_page_summary)?;
+    rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+/// Rewrite favorites ordering from a client-supplied ordered id list.
+/// Assigns fractional sort_order = index (1.0, 2.0, 3.0, ...).
+pub fn reorder_favorites(
+    conn: &rusqlite::Connection,
+    ordered_page_ids: &[String],
+) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    for (i, id) in ordered_page_ids.iter().enumerate() {
+        let order = (i as f64) + 1.0;
+        tx.execute(
+            "UPDATE favorites SET sort_order = ?1 WHERE page_id = ?2",
+            params![order, id],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+// =============================================================================
+// Page snapshots / History (PRD §5.2.4)
+// =============================================================================
+
+/// One snapshot row.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageSnapshot {
+    pub id: String,
+    pub page_id: String,
+    pub content: String,
+    pub title: String,
+    pub source: String,
+    pub created_at: i64,
+}
+
+/// Create a new snapshot for `page_id` and prune to the retention policy
+/// (last 50 per page OR 30 days, whichever smaller).
+pub fn create_snapshot(
+    conn: &rusqlite::Connection,
+    page_id: &str,
+    content: &str,
+    title: &str,
+    source: &str,
+) -> Result<PageSnapshot> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().timestamp_millis();
+    conn.execute(
+        "INSERT INTO page_snapshot (id, page_id, content, title, source, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![&id, page_id, content, title, source, now],
+    )?;
+    prune_snapshots(conn, page_id)?;
+    fetch_snapshot(conn, &id)
+}
+
+pub fn fetch_snapshot(
+    conn: &rusqlite::Connection,
+    snapshot_id: &str,
+) -> Result<PageSnapshot> {
+    let row = conn.query_row(
+        "SELECT id, page_id, content, title, source, created_at \
+         FROM page_snapshot WHERE id = ?1",
+        params![snapshot_id],
+        |r| {
+            Ok(PageSnapshot {
+                id: r.get(0)?,
+                page_id: r.get(1)?,
+                content: r.get(2)?,
+                title: r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                source: r.get(4)?,
+                created_at: r.get(5)?,
+            })
+        },
+    )?;
+    Ok(row)
+}
+
+/// List snapshots for a page, newest first.
+pub fn list_snapshots(
+    conn: &rusqlite::Connection,
+    page_id: &str,
+) -> Result<Vec<PageSnapshot>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, page_id, content, title, source, created_at \
+         FROM page_snapshot WHERE page_id = ?1 \
+         ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map(params![page_id], |r| {
+        Ok(PageSnapshot {
+            id: r.get(0)?,
+            page_id: r.get(1)?,
+            content: r.get(2)?,
+            title: r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+            source: r.get(4)?,
+            created_at: r.get(5)?,
+        })
+    })?;
+    rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+/// Restore a snapshot: overwrite the page's current doc + bump updated_at.
+/// The snapshot row itself is left intact (it stays in history).
+pub fn restore_snapshot(
+    conn: &rusqlite::Connection,
+    snapshot_id: &str,
+) -> Result<()> {
+    let snap = fetch_snapshot(conn, snapshot_id)?;
+    let now = chrono::Utc::now().timestamp_millis();
+    let affected = conn.execute(
+        "UPDATE page_doc SET doc = ?1, updated_at = ?2 WHERE page_id = ?3",
+        params![snap.content, now, snap.page_id],
+    )?;
+    if affected == 0 {
+        // page_doc missing — recreate it so the restore still takes effect.
+        conn.execute(
+            "INSERT INTO page_doc (page_id, doc, updated_at) VALUES (?1, ?2, ?3)",
+            params![snap.page_id, snap.content, now],
+        )?;
+    }
+    conn.execute(
+        "UPDATE page SET title = ?1, updated_at = ?2 WHERE id = ?3",
+        params![snap.title, now, snap.page_id],
+    )?;
+    Ok(())
+}
+
+/// Retention policy (PRD §5.2.4): keep the last 50 OR the last 30 days,
+/// whichever is smaller in row count. Runs after every new snapshot.
+fn prune_snapshots(conn: &rusqlite::Connection, page_id: &str) -> Result<()> {
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let cutoff_ms = now_ms - (30 * 24 * 60 * 60 * 1000); // 30 days ago
+    // 1. Drop everything older than 30 days.
+    conn.execute(
+        "DELETE FROM page_snapshot WHERE page_id = ?1 AND created_at < ?2",
+        params![page_id, cutoff_ms],
+    )?;
+    // 2. If more than 50 remain (within 30 days), keep newest 50.
+    conn.execute(
+        "DELETE FROM page_snapshot WHERE page_id = ?1 AND id NOT IN ( \
+            SELECT id FROM page_snapshot WHERE page_id = ?2 \
+            ORDER BY created_at DESC LIMIT 50 \
+         )",
+        params![page_id, page_id],
+    )?;
+    Ok(())
 }

@@ -357,3 +357,417 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ============================================================================
+ * M2 — Block system styles (PRD §5.1)
+ * Appended below; do NOT modify the tokens above.
+ * ========================================================================== */
+
+/* --- Callout (§5.1.1) ---------------------------------------------------- */
+.prose-mirror .ln-callout,
+.prose-mirror [data-type="callout"] {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 14px 12px 12px;
+  margin: 6px 0;
+  border-radius: 4px;
+  background: var(--color-bg-section);
+  border: 1px solid var(--color-border-hairline);
+}
+.prose-mirror [data-type="callout"][data-variant="blue"]   { background: rgba(35, 131, 226, 0.08); }
+.prose-mirror [data-type="callout"][data-variant="green"]  { background: rgba(26, 174, 57, 0.10); }
+.prose-mirror [data-type="callout"][data-variant="yellow"] { background: rgba(255, 177, 16, 0.14); }
+.prose-mirror [data-type="callout"][data-variant="red"]    { background: rgba(224, 62, 49, 0.10); }
+.prose-mirror [data-type="callout"][data-variant="pink"]   { background: rgba(224, 62, 49, 0.10); }
+.prose-mirror [data-type="callout"][data-variant="purple"] { background: rgba(105, 64, 165, 0.10); }
+.prose-mirror [data-type="callout"]::before {
+  content: attr(data-icon);
+  font-size: 18px;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+.prose-mirror [data-type="callout"] > * { flex: 1; min-width: 0; }
+
+/* --- Toggle (§5.1.1) ----------------------------------------------------- */
+.prose-mirror .ln-toggle,
+.prose-mirror [data-type="toggle"] {
+  position: relative;
+  padding-left: 24px;
+  margin: 4px 0;
+}
+.prose-mirror [data-type="toggle"]::before {
+  content: '▸';
+  position: absolute;
+  left: 4px;
+  top: 2px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  transition: transform 120ms ease-out;
+  cursor: pointer;
+  user-select: none;
+}
+.prose-mirror [data-type="toggle"][data-open="true"]::before {
+  content: '▾';
+}
+.prose-mirror [data-type="toggle"][data-open="false"] > :not(:first-child) {
+  display: none;
+}
+
+/* --- Equation (§5.1.1, KaTeX block) ------------------------------------- */
+.prose-mirror .ln-equation,
+.prose-mirror [data-type="equation"],
+.prose-mirror [data-type="block-math"] {
+  display: block;
+  padding: 12px 16px;
+  margin: 8px 0;
+  background: var(--color-bg-section);
+  border-radius: 4px;
+  text-align: center;
+  font-size: 1.05em;
+  overflow-x: auto;
+}
+.prose-mirror .ln-equation-preview {
+  min-height: 1.4em;
+  cursor: text;
+}
+.prose-mirror .ln-equation-editor textarea {
+  resize: vertical;
+  min-height: 60px;
+  width: 100%;
+}
+.ln-equation-wrapper { margin: 8px 0; }
+
+/* --- Bookmark (§5.1.1) --------------------------------------------------- */
+.prose-mirror .ln-bookmark,
+.prose-mirror [data-type="bookmark"] {
+  display: block;
+  margin: 6px 0;
+}
+.ln-bookmark-wrapper { margin: 6px 0; }
+.ln-bookmark-card {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--color-bg-page);
+  cursor: pointer;
+  transition: background 120ms ease-out;
+}
+.ln-bookmark-card:hover {
+  background: var(--color-bg-hover);
+}
+.ln-bookmark-wrapper[data-selected="true"] .ln-bookmark-card {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+.ln-bookmark-text {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ln-bookmark-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ln-bookmark-desc {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.ln-bookmark-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+.ln-bookmark-favicon {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+}
+.ln-bookmark-image {
+  width: 180px;
+  max-height: 120px;
+  background-size: cover;
+  background-position: center;
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .ln-bookmark-image { display: none; }
+}
+
+/* --- Embed (§5.1.1, iframe) ---------------------------------------------- */
+.prose-mirror .ln-embed,
+.prose-mirror [data-type="embed"] {
+  display: block;
+  margin: 6px 0;
+}
+.ln-embed-wrapper { margin: 6px 0; }
+.ln-embed-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  background: var(--color-bg-section);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: 6px;
+}
+.ln-embed-card {
+  position: relative;
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.ln-embed-wrapper[data-selected="true"] .ln-embed-card {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+.ln-embed-iframe {
+  width: 100%;
+  min-height: 280px;
+  border: 0;
+  display: block;
+}
+.ln-embed-open {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 4px 6px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ln-embed-open:hover { background: var(--color-bg-page); }
+
+/* --- Column (§5.1.1) ----------------------------------------------------- */
+.prose-mirror .ln-columns,
+.prose-mirror [data-type="columns"] {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 6px 0;
+}
+.prose-mirror .ln-column,
+.prose-mirror [data-type="column"] {
+  min-width: 0;
+}
+
+/* --- Sub-page chip (§5.1.1) ---------------------------------------------- */
+.prose-mirror .ln-subpage,
+.prose-mirror [data-type="subpage"] {
+  display: inline-flex;
+}
+.ln-subpage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(35, 131, 226, 0.08);
+  color: var(--color-accent);
+  font-size: 0.95em;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 100ms ease-out;
+}
+.ln-subpage-chip:hover {
+  background: rgba(35, 131, 226, 0.18);
+}
+.ln-subpage-icon { font-size: 0.95em; }
+.ln-subpage-title { font-weight: 500; }
+
+/* --- Simple table (§5.1.1) ----------------------------------------------- */
+.prose-mirror .ln-table,
+.prose-mirror table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 8px 0;
+  overflow: hidden;
+  border-radius: 4px;
+}
+.prose-mirror .ln-table th,
+.prose-mirror .ln-table td,
+.prose-mirror table th,
+.prose-mirror table td {
+  border: 1px solid var(--color-border-hairline);
+  padding: 6px 10px;
+  vertical-align: top;
+  font-size: 14px;
+}
+.prose-mirror .ln-table th,
+.prose-mirror table th {
+  background: var(--color-bg-section);
+  font-weight: 600;
+  text-align: left;
+}
+.prose-mirror .ln-table td > p,
+.prose-mirror table td > p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* --- Code block (lowlight) ----------------------------------------------- */
+.prose-mirror .ln-codeblock pre,
+.prose-mirror pre code .hljs {
+  font-family: var(--font-mono);
+  background: transparent;
+}
+.prose-mirror pre code .hljs-keyword,
+.prose-mirror pre code .hljs-built_in,
+.prose-mirror pre code .hljs-type {
+  color: #1976d2;
+}
+.prose-mirror pre code .hljs-string,
+.prose-mirror pre code .hljs-attr {
+  color: #2e7d32;
+}
+.prose-mirror pre code .hljs-comment,
+.prose-mirror pre code .hljs-quote {
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}
+.prose-mirror pre code .hljs-number,
+.prose-mirror pre code .hljs-literal {
+  color: #c2185b;
+}
+.prose-mirror pre code .hljs-title,
+.prose-mirror pre code .hljs-section,
+.prose-mirror pre code .hljs-function .hljs-title {
+  color: #6a1b9a;
+}
+
+/* --- Drag handle drop indicator (§5.1.4) --------------------------------- */
+.ln-drop-indicator {
+  background: var(--color-accent);
+}
+.ln-drop-indicator-sibling {
+  height: 2px;
+  border-radius: 1px;
+}
+.ln-drop-indicator-nested {
+  height: 2px;
+  border-radius: 1px;
+  background: transparent;
+  border-top: 2px dashed var(--color-accent);
+}
+.ln-drop-indicator-column {
+  width: 2px;
+  border-radius: 1px;
+}
+
+/* --- Multi-select marquee (§5.1.4) --------------------------------------- */
+.ln-block-marquee {
+  background: rgba(35, 131, 226, 0.10);
+  border: 1px solid rgba(35, 131, 226, 0.35);
+  pointer-events: none;
+}
+.ln-block-selected {
+  background: rgba(35, 131, 226, 0.08);
+  border-radius: 2px;
+}
+
+/* --- In-page find bar (§5.1.5) ------------------------------------------- */
+.ln-find-bar {
+  position: fixed;
+  top: 16px;
+  right: 24px;
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--color-bg-page);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 6px;
+  box-shadow: var(--shadow-popover);
+}
+.ln-find-input {
+  width: 220px;
+  padding: 4px 8px;
+  font-size: 13px;
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 4px;
+  outline: none;
+  background: var(--color-bg-page);
+  color: var(--color-text-primary);
+}
+.ln-find-input:focus { border-color: var(--color-accent); }
+.ln-find-toggle {
+  padding: 2px 6px;
+  font-size: 11px;
+  border-radius: 3px;
+  background: var(--color-bg-section);
+  border: 1px solid var(--color-border-hairline);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.ln-find-toggle[aria-pressed="true"] {
+  background: var(--color-bg-active);
+  color: var(--color-accent);
+}
+.ln-find-count {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  min-width: 36px;
+  text-align: center;
+}
+.ln-find-nav,
+.ln-find-close {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border-radius: 3px;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.ln-find-nav:hover:not(:disabled),
+.ln-find-close:hover {
+  background: var(--color-bg-hover);
+}
+.ln-find-nav:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+mark.ln-find-match {
+  background: rgba(255, 213, 79, 0.45);
+  color: inherit;
+  border-radius: 2px;
+}
+mark.ln-find-active {
+  background: rgba(255, 145, 0, 0.55);
+  color: inherit;
+  border-radius: 2px;
+}
+
+/* --- Block menu Color submenu swatches (§5.1.3) -------------------------- */
+.ln-color-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--color-border-hairline);
+}
+.ln-color-swatch:hover { transform: scale(1.1); }
+

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import type { Editor as TiptapEditor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
@@ -12,11 +12,43 @@ import Highlight from '@tiptap/extension-highlight';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import Typography from '@tiptap/extension-typography';
+import { Table } from '@tiptap/extension-table';
+import { TableRow } from '@tiptap/extension-table-row';
+import { TableCell } from '@tiptap/extension-table-cell';
+import { TableHeader } from '@tiptap/extension-table-header';
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
+import { createLowlight, common } from 'lowlight';
+import { marked } from 'marked';
+import type { EditorView } from '@tiptap/pm/view';
+import { DOMParser as PmDOMParser } from '@tiptap/pm/model';
+
+/** Editor-storage additions for our custom extensions (e.g. sub-page slash command). */
+declare module '@tiptap/core' {
+  interface Storage {
+    folioPageId?: string;
+  }
+}
 
 import { SlashCommand, type SlashState } from './extensions/SlashCommand';
+import { Callout } from './extensions/Callout';
+import { Toggle } from './extensions/Toggle';
+import { Equation } from './extensions/Equation';
+import { Bookmark } from './extensions/Bookmark';
+import { Embed } from './extensions/Embed';
+import { Columns, Column } from './extensions/Column';
+import { SubPage } from './extensions/SubPage';
+import { KeyboardShortcuts } from './extensions/KeyboardShortcuts';
+
+// Cross-milestone integration: linked-database node is owned by M4 but must be
+// registered here (M2 owns Editor.tsx) per the integration contract documented
+// in src/components/database/linkedDatabaseNode.ts.
+import { linkedDatabaseNode } from '../components/database/linkedDatabaseNode';
+import { openLinkedDatabasePicker } from '../components/database/LinkedDatabasePicker';
+
 import { SlashMenu } from './components/SlashMenu';
 import { BubbleToolbar } from './components/BubbleToolbar';
 import { BlockDragHandle } from './components/BlockDragHandle';
+import { FindBar } from './components/FindBar';
 import { api } from '../lib/invoke';
 
 interface EditorProps {
@@ -27,13 +59,17 @@ interface EditorProps {
   onReady?: () => void;
 }
 
+/** One lowlight instance with the common grammars — shared across editor instances. */
+const lowlightInstance = createLowlight(common);
+
 /**
- * Page editor with Notion-like behavior:
- *   - Slash command palette (10 block types) via custom extension
+ * Page editor with Notion-like behavior (PRD §5.1):
+ *   - 20+ block types via slash palette + TipTap extensions
  *   - Selection bubble toolbar (B/I/U/S/code/link)
- *   - Block drag handle (⋮⋮) on left edge: hover-aware, click for menu, drag to move
- *   - Smart paste: URL → bookmark, image binary → placeholder, Markdown auto
- *   - Debounced 200ms persistence to SQLite via update_page_doc
+ *   - Block drag handle (⋮⋮) with drop indicator + nested threshold + multi-select
+ *   - Smart paste: URL → link, image binary → img, YouTube → embed, Markdown → blocks, HTML → cleaned blocks
+ *   - In-page find bar (Mod+F)
+ *   - Debounced 200ms persistence to SQLite via update_page_doc + doc-updated event
  */
 export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
   const [slashState, setSlashState] = useState<SlashState>({
@@ -41,14 +77,15 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
     query: '',
     anchor: null,
   });
+  const [findOpen, setFindOpen] = useState(false);
   const editorContainerRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<TiptapEditor | null>(null);
 
   // Persistence state
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedDocRef = useRef<string>(initialDoc);
   const pageIdRef = useRef<string>(pageId);
 
-  // Track which page we're saving to (in case the prop changes)
   useEffect(() => {
     pageIdRef.current = pageId;
     lastSavedDocRef.current = initialDoc;
@@ -64,11 +101,24 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
     }
   };
 
+  const keyboardShortcutsOptions = useMemo(
+    () => ({
+      onOpenFind: () => setFindOpen(true),
+      onOpenGlobalSearch: () => window.dispatchEvent(new CustomEvent('folio:open-search')),
+    }),
+    [],
+  );
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
-        codeBlock: { HTMLAttributes: { class: 'ln-codeblock' } },
+        // Replace built-in CodeBlock with the lowlight-backed one (PRD §5.1.1).
+        codeBlock: false,
+      }),
+      CodeBlockLowlight.configure({
+        lowlight: lowlightInstance,
+        HTMLAttributes: { class: 'ln-codeblock' },
       }),
       Underline,
       Link.configure({
@@ -90,7 +140,25 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
       Placeholder.configure({
         placeholder: "Press '/' for commands, or just start typing...",
       }),
+      // === Tables (simple, not database) ===
+      Table.configure({ HTMLAttributes: { class: 'ln-table' } }),
+      TableRow,
+      TableHeader,
+      TableCell,
+      // === Custom block extensions ===
+      Callout,
+      Toggle,
+      Equation,
+      Bookmark,
+      Embed,
+      Columns,
+      Column,
+      SubPage,
+      // === Cross-milestone: M4 linked-database block (PRD §5.3.8) ===
+      linkedDatabaseNode,
+      // === Slash palette detection + keyboard shortcuts ===
       SlashCommand.configure({ onChange: setSlashState }),
+      KeyboardShortcuts.configure(keyboardShortcutsOptions),
     ],
     content: tryParseDoc(initialDoc),
     editorProps: {
@@ -98,75 +166,12 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
         class: 'prose-mirror',
         spellcheck: 'true',
       },
-      handlePaste: (view, event) => {
-        // Shift+Paste → plain-text fallback (Notion behavior).
-        const shiftHeld = (event as Event & { shiftKey?: boolean }).shiftKey === true;
-        const data = event.clipboardData;
-        if (!data) return false;
-
-        if (shiftHeld) {
-          event.preventDefault();
-          const text = data.getData('text/plain') ?? '';
-          view.pasteText(text);
-          return true;
-        }
-
-        // Image binary paste → insert placeholder (M5+ will upload).
-        const items = data.items;
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i];
-          if (item.type.startsWith('image/')) {
-            const file = item.getAsFile();
-            if (file) {
-              event.preventDefault();
-              const reader = new FileReader();
-              reader.onload = () => {
-                const dataUrl = reader.result as string;
-                const schema = view.state.schema;
-                const imageNode = schema.nodes.image?.create({ src: dataUrl, alt: file.name });
-                if (imageNode) {
-                  const tr = view.state.tr.replaceSelectionWith(imageNode);
-                  view.dispatch(tr);
-                }
-              };
-              reader.readAsDataURL(file);
-              return true;
-            }
-          }
-        }
-
-        // URL-only paste into an empty paragraph → wrap as link on the
-        // inserted text (closest to "URL → bookmark" without OG fetching yet).
-        const text = data.getData('text/plain') ?? '';
-        const trimmed = text.trim();
-        const isEmptyParagraph =
-          view.state.selection.empty &&
-          view.state.doc.childCount === 1 &&
-          view.state.doc.firstChild?.type.name === 'paragraph' &&
-          view.state.doc.firstChild?.content.size === 0;
-        if (
-          trimmed.length > 0 &&
-          trimmed.length < 2048 &&
-          /^https?:\/\/\S+$/i.test(trimmed) &&
-          isEmptyParagraph
-        ) {
-          event.preventDefault();
-          const schema = view.state.schema;
-          const textNode = schema.text(trimmed, [
-            schema.marks.link?.create({ href: trimmed }),
-          ].filter(Boolean));
-          if (textNode) {
-            const paragraph = schema.nodes.paragraph.create(null, textNode);
-            const tr = view.state.tr.replaceSelectionWith(paragraph);
-            view.dispatch(tr);
-            return true;
-          }
-        }
-
-        return false;
-      },
+      handlePaste: (view, event) => handlePaste(view, event),
     },
-    onCreate: () => {
+    onCreate: (ctx) => {
+      editorRef.current = ctx.editor;
+      // Expose the current page id for slash commands that need it (sub-page creation).
+      ctx.editor.storage.folioPageId = pageId;
       onReady?.();
     },
     onUpdate: ({ editor: e }) => {
@@ -181,6 +186,10 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
         try {
           await api.updatePageDoc(targetPageId, doc);
           lastSavedDocRef.current = doc;
+          // PageView's DocUpdatedBridge listens to this for snapshot scheduling.
+          window.dispatchEvent(
+            new CustomEvent('folio:doc-updated', { detail: { pageId: targetPageId, doc } }),
+          );
         } catch (err) {
           console.error('[Folio] failed to save page', targetPageId, err);
         }
@@ -188,7 +197,14 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
     },
   });
 
-  // Clean up timer on unmount
+  // Sync pageId into editor storage when it changes.
+  useEffect(() => {
+    if (editor) {
+      editor.storage.folioPageId = pageId;
+    }
+  }, [editor, pageId]);
+
+  // Clean up save timer on unmount.
   useEffect(() => {
     return () => {
       if (saveTimerRef.current) {
@@ -197,6 +213,44 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
     };
   }, []);
 
+  // Listen for folio:open-slash emitted by Mod-/ when there's no slash plugin
+  // capturing it (e.g. when fired from outside the editor DOM).
+  useEffect(() => {
+    if (!editor) return;
+    const onOpenSlash = () => {
+      const { empty } = editor.state.selection;
+      if (empty) {
+        // Insert `/` at caret so the SlashCommand plugin opens the palette.
+        editor.chain().focus().insertContent('/').run();
+      }
+    };
+    window.addEventListener('folio:open-slash', onOpenSlash);
+    return () => window.removeEventListener('folio:open-slash', onOpenSlash);
+  }, [editor]);
+
+  // Cross-milestone integration: the `/linked-database` slash command (owned by
+  // M4 in slashCommands.ts) emits `folio:create-linked-database`. We open M4's
+  // picker here (we own the editor instance), then insert the linkedDatabase
+  // node on selection. PRD §5.3.8.
+  useEffect(() => {
+    if (!editor) return;
+    const onCreateLinkedDatabase = async () => {
+      const sourceDatabaseId = await openLinkedDatabasePicker();
+      if (!sourceDatabaseId) return;
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: 'linkedDatabase',
+          attrs: { sourceDatabaseId, viewId: null },
+        })
+        .run();
+    };
+    window.addEventListener('folio:create-linked-database', onCreateLinkedDatabase);
+    return () =>
+      window.removeEventListener('folio:create-linked-database', onCreateLinkedDatabase);
+  }, [editor]);
+
   if (!editor) return null;
 
   return (
@@ -204,6 +258,8 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
       <BubbleToolbar editor={editor} />
       <BlockDragHandle editor={editor} containerRef={editorContainerRef} />
       <EditorContent editor={editor} />
+
+      {findOpen && <FindBar editor={editor} onClose={() => setFindOpen(false)} />}
 
       {slashState.active && slashState.anchor && (
         <SlashMenu
@@ -223,4 +279,175 @@ function tryParseDoc(initialDoc: string): Record<string, unknown> {
   } catch {
     return { type: 'doc', content: [{ type: 'paragraph' }] };
   }
+}
+
+// === Smart paste (PRD §5.1.6) ===========================================
+
+/**
+ * Multi-format paste handler. Order matters:
+ *   1. Shift+Paste → plain-text fallback
+ *   2. Image binary → inline image node (M5 will upload)
+ *   3. YouTube URL on empty paragraph → embed block
+ *   4. Markdown text → blocks (parse via marked + DOMParser)
+ *   5. URL on empty paragraph → link-wrapped text (existing behavior)
+ *   6. Table HTML → simple table block (falls into the generic HTML path which
+ *      preserves <table> thanks to our schema)
+ *   7. Other HTML → strip styles, parse via ProseMirror DOMParser
+ */
+function handlePaste(view: EditorView, event: ClipboardEvent): boolean {
+  // ClipboardEvent inherits from Event, not MouseEvent, so shiftKey isn't on
+  // the static type — but it IS set in real browsers when shift was held.
+  const shiftHeld = (event as Event & { shiftKey?: boolean }).shiftKey === true;
+  const data = event.clipboardData;
+  if (!data) return false;
+
+  // 1. Shift+Paste → plain text.
+  if (shiftHeld) {
+    event.preventDefault();
+    const text = data.getData('text/plain') ?? '';
+    view.pasteText(text);
+    return true;
+  }
+
+  // 2. Image binary.
+  const items = data.items;
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (it.type.startsWith('image/')) {
+      const file = it.getAsFile();
+      if (file) {
+        event.preventDefault();
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          const schema = view.state.schema;
+          const imageNode = schema.nodes.image?.create({ src: dataUrl, alt: file.name });
+          if (imageNode) {
+            const tr = view.state.tr.replaceSelectionWith(imageNode);
+            view.dispatch(tr);
+          }
+        };
+        reader.readAsDataURL(file);
+        return true;
+      }
+    }
+  }
+
+  const text = data.getData('text/plain') ?? '';
+  const trimmed = text.trim();
+  const html = data.getData('text/html') ?? '';
+
+  const isEmptyParagraph =
+    view.state.selection.empty &&
+    view.state.doc.childCount === 1 &&
+    view.state.doc.firstChild?.type.name === 'paragraph' &&
+    view.state.doc.firstChild?.content.size === 0;
+
+  // 3. YouTube URL on empty paragraph → embed.
+  const yt = detectYouTubeEmbed(trimmed);
+  if (yt && isEmptyParagraph) {
+    event.preventDefault();
+    const embed = view.state.schema.nodes.embed?.create({
+      src: yt.embedUrl,
+      provider: 'youtube',
+    });
+    if (embed) {
+      view.dispatch(view.state.tr.replaceSelectionWith(embed));
+      return true;
+    }
+  }
+
+  // 4. Markdown text → blocks.
+  if (trimmed && looksLikeMarkdown(trimmed)) {
+    event.preventDefault();
+    insertMarkdownAsHtml(view, trimmed);
+    return true;
+  }
+
+  // 5. URL → link (existing behavior).
+  if (
+    trimmed.length > 0 &&
+    trimmed.length < 2048 &&
+    /^https?:\/\/\S+$/i.test(trimmed) &&
+    isEmptyParagraph
+  ) {
+    event.preventDefault();
+    const schema = view.state.schema;
+    const linkMark = schema.marks.link?.create({ href: trimmed });
+    const textNode = linkMark ? schema.text(trimmed, [linkMark]) : null;
+    if (textNode) {
+      const paragraph = schema.nodes.paragraph.create(null, textNode);
+      const tr = view.state.tr.replaceSelectionWith(paragraph);
+      view.dispatch(tr);
+      return true;
+    }
+  }
+
+  // 6/7. Generic HTML (covers table HTML too) → strip styles + parse via PM DOMParser.
+  if (html) {
+    event.preventDefault();
+    insertStrippedHtml(view, html);
+    return true;
+  }
+
+  return false;
+}
+
+interface YtEmbed {
+  embedUrl: string;
+}
+
+/** Detect YouTube URLs across the common shapes (watch?v=, youtu.be, /embed/, /v/). */
+function detectYouTubeEmbed(url: string): YtEmbed | null {
+  const re =
+    /^(?:(?:https?:)?\/\/)?(?:www\.|m\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})(?:[?&]\S*)?$/;
+  const m = re.exec(url.trim());
+  if (!m) return null;
+  return { embedUrl: `https://www.youtube-nocookie.com/embed/${m[1]}` };
+}
+
+/**
+ * Heuristic: paste looks like Markdown when at least ~1/3 of non-blank lines
+ * start with a Markdown block marker. Conservative — won't fire on prose.
+ */
+function looksLikeMarkdown(text: string): boolean {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length === 0) return false;
+  let hits = 0;
+  for (const line of lines) {
+    if (
+      /^#{1,6}\s+\S/.test(line) ||
+      /^>\s+\S/.test(line) ||
+      /^[-*+]\s+\S/.test(line) ||
+      /^\d+\.\s+\S/.test(line) ||
+      /^```/.test(line) ||
+      /^\[(.+)\]\((.+)\)/.test(line) ||
+      /^---+$/.test(line)
+    ) {
+      hits++;
+    }
+  }
+  return hits >= 1 && hits >= Math.ceil(lines.length / 3);
+}
+
+function insertMarkdownAsHtml(view: EditorView, md: string) {
+  // marked → HTML, then parse with ProseMirror DOMParser to keep schema happy.
+  const html = marked.parse(md, { async: false }) as string;
+  insertStrippedHtml(view, html);
+}
+
+/**
+ * Strip inline styles/classes from an HTML fragment and insert it as a
+ * ProseMirror slice. Preserves structure (tables, lists, headings, code blocks).
+ */
+function insertStrippedHtml(view: EditorView, html: string) {
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  container.querySelectorAll<HTMLElement>('[style]').forEach((el) => el.removeAttribute('style'));
+  container.querySelectorAll<HTMLElement>('[class]').forEach((el) => el.removeAttribute('class'));
+
+  const parser = PmDOMParser.fromSchema(view.state.schema);
+  const slice = parser.parseSlice(container);
+  const tr = view.state.tr.replaceSelection(slice);
+  view.dispatch(tr);
 }

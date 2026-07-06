@@ -38,6 +38,11 @@ interface PropertyMenuProps {
     numberFormat?: string;
   }) => void;
   onDelete?: () => void;
+  /** Column-level quick actions (only shown when editing an existing column). */
+  onSort?: () => void;
+  onFilter?: () => void;
+  onHide?: () => void;
+  onDuplicate?: () => void;
 }
 
 /**
@@ -46,8 +51,21 @@ interface PropertyMenuProps {
  * Renders via Popover (React Portal) so it isn't clipped by the table's
  * `overflow-x-auto` container. Anchor rect is computed by the caller and
  * passed in.
+ *
+ * When editing an existing column, a quick-actions row (Sort / Filter / Hide /
+ * Duplicate) is shown at the top per PRD §5.3.3.
  */
-export function PropertyMenu({ anchorRect, property, onClose, onSubmit, onDelete }: PropertyMenuProps) {
+export function PropertyMenu({
+  anchorRect,
+  property,
+  onClose,
+  onSubmit,
+  onDelete,
+  onSort,
+  onFilter,
+  onHide,
+  onDuplicate,
+}: PropertyMenuProps) {
   const [name, setName] = useState(property?.name ?? '');
   const [type, setType] = useState<PropertyType>(property?.type ?? 'rich_text');
   const [options, setOptions] = useState<SelectOption[]>(property?.options ?? []);
@@ -81,6 +99,24 @@ export function PropertyMenu({ anchorRect, property, onClose, onSubmit, onDelete
         <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-tertiary">
           {isEditing ? 'Edit property' : 'New property'}
         </div>
+
+        {/* Quick actions — column-level (Sort / Filter / Hide / Duplicate) */}
+        {isEditing && (onSort || onFilter || onHide || onDuplicate) && (
+          <div className="mb-3 grid grid-cols-2 gap-1">
+            {onSort && (
+              <QuickAction icon="↕" label="Sort" onClick={() => run(onSort)} />
+            )}
+            {onFilter && (
+              <QuickAction icon="▽" label="Filter" onClick={() => run(onFilter)} />
+            )}
+            {onHide && (
+              <QuickAction icon="◐" label="Hide" onClick={() => run(onHide)} />
+            )}
+            {onDuplicate && (
+              <QuickAction icon="⧉" label="Duplicate" onClick={() => run(onDuplicate)} />
+            )}
+          </div>
+        )}
 
         {/* Name */}
         <label className="block text-xs text-text-secondary mb-1">Name</label>
@@ -250,4 +286,24 @@ const COLOR_MAP: Record<string, { dot: string }> = {
 
 function dotClass(color: string): string {
   return (COLOR_MAP[color] ?? COLOR_MAP.gray).dot;
+}
+
+// === Quick-action button for the column menu (Sort/Filter/Hide/Duplicate) ===
+
+function QuickAction({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md hover:bg-bg-hover text-text-secondary transition-colors"
+    >
+      <span className="w-4 text-center text-[11px]">{icon}</span>
+      <span>{label}</span>
+    </button>
+  );
+}
+
+/** Invoke a quick action then close the menu. */
+function run(fn: () => void) {
+  fn();
 }

@@ -405,11 +405,12 @@ pub fn fetch_database_row(
     page_id: &str,
 ) -> Result<DatabaseRow> {
     let summary = conn.query_row(
-        "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at \
+        "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at, favorite \
          FROM page WHERE id = ?1",
         params![page_id],
         |row| {
             let is_trashed: i64 = row.get(5)?;
+            let favorite: i64 = row.get(7)?;
             Ok(PageSummary {
                 id: row.get(0)?,
                 title: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
@@ -418,6 +419,7 @@ pub fn fetch_database_row(
                 parent_type: row.get(4)?,
                 is_trashed: is_trashed != 0,
                 updated_at: row.get(6)?,
+                favorite: favorite != 0,
             })
         },
     )?;
@@ -644,4 +646,418 @@ pub fn delete_view(conn: &rusqlite::Connection, view_id: &str) -> Result<()> {
         return Err(Error::NotFound(format!("view {}", view_id)));
     }
     Ok(())
+}
+
+// =============================================================================
+// Property duplication (§5.3.3 Duplicate column menu item)
+// =============================================================================
+
+/// Clone a property (and its options/number_format) under the same database
+/// with a fresh id. The new column is appended right after the source.
+pub fn duplicate_property(
+    conn: &rusqlite::Connection,
+    property_id: &str,
+) -> Result<PropertyDef> {
+    let src = conn.query_row(
+        "SELECT id, database_id, name, type, options, number_format, \"order\" \
+         FROM database_property WHERE id = ?1",
+        params![property_id],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, f64>(6)?,
+            ))
+        },
+    )?;
+
+    let new_id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().timestamp_millis();
+    let new_name = format!("{} copy", src.2);
+    // Insert just after the source order, then nudge everything later down by
+    // a small epsilon so order stays monotonic without rewriting the table.
+    let new_order = src.6 + 0.5;
+
+    conn.execute(
+        "INSERT INTO database_property \
+         (id, database_id, name, type, options, number_format, is_required, \"order\", created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8)",
+        params![&new_id, &src.1, &new_name, &src.3, &src.4, &src.5, new_order, now],
+    )?;
+
+    list_properties(conn, &src.1)?
+        .into_iter()
+        .find(|p| p.id == new_id)
+        .ok_or_else(|| Error::NotFound(format!("property {}", new_id)))
+}
+
+// =============================================================================
+// Row duplication (§5.3.3 row right-click Duplicate)
+// =============================================================================
+
+/// Create a new row under the same database, copying all property values from
+/// the source row page. The title gets a " (copy)" suffix if non-empty.
+pub fn duplicate_database_row(
+    conn: &rusqlite::Connection,
+    workspace_id: &str,
+    source_row_id: &str,
+) -> Result<DatabaseRow> {
+    let new_id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().timestamp_millis();
+
+    let (parent_id, title): (String, String) = conn.query_row(
+        "SELECT parent_id, title FROM page WHERE id = ?1 AND parent_type = 'database'",
+        params![source_row_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+
+    let cloned_title = if title.trim().is_empty() {
+        String::new()
+    } else {
+        format!("{} (copy)", title)
+    };
+
+    conn.execute(
+        "INSERT INTO page \
+         (id, workspace_id, parent_id, parent_type, type, title, icon, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, 'database', 'page', ?4, NULL, ?5, ?5)",
+        params![&new_id, workspace_id, &parent_id, &cloned_title, now],
+    )?;
+
+    // Copy doc (clone the source page_doc if present, else seed empty).
+    let doc: Option<String> = conn
+        .query_row(
+            "SELECT doc FROM page_doc WHERE page_id = ?1",
+            params![source_row_id],
+            |row| row.get(0),
+        )
+        .ok();
+    let doc = doc.unwrap_or_else(|| {
+        "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\"}]}".to_string()
+    });
+    conn.execute(
+        "INSERT INTO page_doc (page_id, doc, updated_at) VALUES (?1, ?2, ?3)",
+        params![&new_id, &doc, now],
+    )?;
+
+    // Copy all cell values.
+    let mut stmt = conn.prepare(
+        "SELECT property_id, value FROM page_property WHERE page_id = ?1",
+    )?;
+    let copies: Vec<(String, Option<String>)> = stmt
+        .query_map(params![source_row_id], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    drop(stmt);
+    for (pid, val) in copies {
+        conn.execute(
+            "INSERT INTO page_property (page_id, property_id, value) VALUES (?1, ?2, ?3)",
+            params![&new_id, &pid, &val],
+        )?;
+    }
+
+    fetch_database_row(conn, &new_id)
+}
+
+// =============================================================================
+// CSV export (§5.3.3 Export CSV)
+// =============================================================================
+
+/// Export every non-trashed row of a database as CSV.
+///
+/// Columns = property schema order. Cell values are JSON-decoded into their
+/// scalar form (strings for text/select, "true"/"false" for checkbox, ISO
+/// string for date, comma-joined for multi-select). Fields containing commas,
+/// quotes or newlines are RFC-4180 quoted.
+pub fn export_database_csv(
+    conn: &rusqlite::Connection,
+    database_id: &str,
+) -> Result<String> {
+    let properties = list_properties(conn, database_id)?;
+    let rows = query_database(conn, database_id)?;
+
+    let mut out = String::new();
+    // Header
+    let headers: Vec<&str> = properties.iter().map(|p| p.name.as_str()).collect();
+    out.push_str(&csv_row(headers));
+    out.push('\n');
+
+    for row in rows {
+        let mut cells: Vec<String> = Vec::with_capacity(properties.len());
+        for prop in &properties {
+            let v = row
+                .properties
+                .get(&prop.id)
+                .unwrap_or(&serde_json::Value::Null);
+            cells.push(render_cell_for_csv(v, prop));
+        }
+        out.push_str(&csv_row(cells.iter().map(|s| s.as_str()).collect()));
+        out.push('\n');
+    }
+    Ok(out)
+}
+
+fn render_cell_for_csv(v: &serde_json::Value, prop: &PropertyDef) -> String {
+    match v {
+        serde_json::Value::Null => String::new(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(arr) if prop.r#type == "multi_select" => arr
+            .iter()
+            .filter_map(|x| x.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
+        _ => v.to_string(),
+    }
+}
+
+/// Quote a CSV row per RFC 4180. Every field that contains `"`, `,`, `\n` or
+/// `\r` is wrapped in double quotes with embedded quotes doubled.
+fn csv_row(fields: Vec<&str>) -> String {
+    fields
+        .iter()
+        .map(|f| {
+            if f.contains(',') || f.contains('"') || f.contains('\n') || f.contains('\r') {
+                format!("\"{}\"", f.replace('"', "\"\""))
+            } else {
+                (*f).to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+// =============================================================================
+// Templates (§5.3.7)
+// =============================================================================
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseTemplate {
+    pub id: String,
+    pub database_id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    /// JSON object { propertyId: value } applied to a new row.
+    pub default_property_values: serde_json::Value,
+    /// TipTap doc JSON string used to seed the row page's editor.
+    pub default_content: String,
+    pub is_default: bool,
+    pub created_at: i64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTemplateInput {
+    pub database_id: String,
+    pub name: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub default_property_values: Option<serde_json::Value>,
+    #[serde(default)]
+    pub default_content: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTemplateInput {
+    pub name: Option<String>,
+    pub icon: Option<Option<String>>,
+    pub default_property_values: Option<serde_json::Value>,
+    pub default_content: Option<String>,
+    pub is_default: Option<bool>,
+}
+
+const EMPTY_DOC: &str = "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\"}]}";
+
+fn map_template(row: &rusqlite::Row<'_>) -> rusqlite::Result<DatabaseTemplate> {
+    let dpv_str: Option<String> = row.get(4)?;
+    let content_str: Option<String> = row.get(5)?;
+    let is_default: i64 = row.get(6)?;
+    let dpv = dpv_str
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or(serde_json::Value::Object(Default::default()));
+    Ok(DatabaseTemplate {
+        id: row.get(0)?,
+        database_id: row.get(1)?,
+        name: row.get(2)?,
+        icon: row.get(3)?,
+        default_property_values: dpv,
+        default_content: content_str.unwrap_or_else(|| EMPTY_DOC.to_string()),
+        is_default: is_default != 0,
+        created_at: row.get(7)?,
+    })
+}
+
+pub fn list_templates(
+    conn: &rusqlite::Connection,
+    database_id: &str,
+) -> Result<Vec<DatabaseTemplate>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, database_id, name, icon, default_property_values, \
+                content_blocks, is_default, created_at \
+         FROM database_template WHERE database_id = ?1 ORDER BY created_at ASC",
+    )?;
+    let rows = stmt.query_map(params![database_id], map_template)?;
+    rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn create_template(
+    conn: &rusqlite::Connection,
+    input: CreateTemplateInput,
+) -> Result<DatabaseTemplate> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().timestamp_millis();
+    let dpv = input
+        .default_property_values
+        .unwrap_or(serde_json::Value::Object(Default::default()));
+    let dpv_str = serde_json::to_string(&dpv).unwrap_or_else(|_| "{}".to_string());
+    let content = input.default_content.unwrap_or_else(|| EMPTY_DOC.to_string());
+
+    conn.execute(
+        "INSERT INTO database_template \
+         (id, database_id, name, icon, default_property_values, content_blocks, is_default, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7)",
+        params![&id, &input.database_id, &input.name, &input.icon, &dpv_str, &content, now],
+    )?;
+
+    list_templates(conn, &input.database_id)?
+        .into_iter()
+        .find(|t| t.id == id)
+        .ok_or_else(|| Error::NotFound(format!("template {}", id)))
+}
+
+pub fn update_template(
+    conn: &rusqlite::Connection,
+    template_id: &str,
+    input: UpdateTemplateInput,
+) -> Result<DatabaseTemplate> {
+    if let Some(name) = input.name.as_deref() {
+        conn.execute(
+            "UPDATE database_template SET name = ?1 WHERE id = ?2",
+            params![name, template_id],
+        )?;
+    }
+    if let Some(icon) = input.icon.as_ref() {
+        conn.execute(
+            "UPDATE database_template SET icon = ?1 WHERE id = ?2",
+            params![icon, template_id],
+        )?;
+    }
+    if let Some(dpv) = input.default_property_values.as_ref() {
+        let json = serde_json::to_string(dpv).unwrap_or_else(|_| "{}".to_string());
+        conn.execute(
+            "UPDATE database_template SET default_property_values = ?1 WHERE id = ?2",
+            params![json, template_id],
+        )?;
+    }
+    if let Some(content) = input.default_content.as_ref() {
+        conn.execute(
+            "UPDATE database_template SET content_blocks = ?1 WHERE id = ?2",
+            params![content, template_id],
+        )?;
+    }
+    if let Some(is_default) = input.is_default {
+        // Enforce a single default per database: clear siblings then set this one.
+        let db_id: String = conn.query_row(
+            "SELECT database_id FROM database_template WHERE id = ?1",
+            params![template_id],
+            |row| row.get(0),
+        )?;
+        if is_default {
+            conn.execute(
+                "UPDATE database_template SET is_default = 0 WHERE database_id = ?1",
+                params![&db_id],
+            )?;
+            conn.execute(
+                "UPDATE database_template SET is_default = 1 WHERE id = ?1",
+                params![template_id],
+            )?;
+        } else {
+            conn.execute(
+                "UPDATE database_template SET is_default = 0 WHERE id = ?1",
+                params![template_id],
+            )?;
+        }
+    }
+
+    let db_id: String = conn.query_row(
+        "SELECT database_id FROM database_template WHERE id = ?1",
+        params![template_id],
+        |row| row.get(0),
+    )?;
+    list_templates(conn, &db_id)?
+        .into_iter()
+        .find(|t| t.id == template_id)
+        .ok_or_else(|| Error::NotFound(format!("template {}", template_id)))
+}
+
+pub fn delete_template(conn: &rusqlite::Connection, template_id: &str) -> Result<()> {
+    let affected =
+        conn.execute("DELETE FROM database_template WHERE id = ?1", params![template_id])?;
+    if affected == 0 {
+        return Err(Error::NotFound(format!("template {}", template_id)));
+    }
+    Ok(())
+}
+
+/// Create a new row seeded from a template: applies default property values
+/// and clones the template's doc into the new row page.
+pub fn add_database_row_from_template(
+    conn: &rusqlite::Connection,
+    workspace_id: &str,
+    database_id: &str,
+    template_id: &str,
+) -> Result<DatabaseRow> {
+    let row = add_database_row(conn, workspace_id, database_id)?;
+    let templates = list_templates(conn, database_id)?;
+    let template = templates
+        .into_iter()
+        .find(|t| t.id == template_id)
+        .ok_or_else(|| Error::NotFound(format!("template {}", template_id)))?;
+
+    // Seed property values.
+    if let Some(obj) = template.default_property_values.as_object() {
+        for (pid, val) in obj {
+            let s = serde_json::to_string(val).unwrap_or_else(|_| "null".to_string());
+            conn.execute(
+                "INSERT INTO page_property (page_id, property_id, value) \
+                 VALUES (?1, ?2, ?3) \
+                 ON CONFLICT(page_id, property_id) DO UPDATE SET value = ?3",
+                params![&row.page.id, pid, &s],
+            )?;
+            // If the seeded property is the title, mirror into page.title.
+            let ptype: Option<String> = conn
+                .query_row(
+                    "SELECT type FROM database_property WHERE id = ?1",
+                    params![pid],
+                    |r| r.get(0),
+                )
+                .ok();
+            if ptype.as_deref() == Some("title") {
+                if let Some(t) = val.as_str() {
+                    conn.execute(
+                        "UPDATE page SET title = ?1 WHERE id = ?2",
+                        params![t, &row.page.id],
+                    )?;
+                }
+            }
+        }
+    }
+
+    // Seed page doc from the template's default content.
+    conn.execute(
+        "UPDATE page_doc SET doc = ?1 WHERE page_id = ?2",
+        params![&template.default_content, &row.page.id],
+    )?;
+
+    fetch_database_row(conn, &row.page.id)
 }

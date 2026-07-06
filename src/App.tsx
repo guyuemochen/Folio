@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { SearchModal } from './components/SearchModal';
+import { TrashModal } from './components/TrashModal';
+import { HistoryModal } from './components/HistoryModal';
 import { PageView } from './pages/PageView';
 import { useWorkspaceStore } from './store/workspaceStore';
+import type { SnapshotSource } from './lib/types';
 
 /**
  * App shell:
@@ -17,7 +20,14 @@ export default function App() {
   const createRootPage = useWorkspaceStore((s) => s.createRootPage);
   const createRootDatabase = useWorkspaceStore((s) => s.createRootDatabase);
   const setCurrentPage = useWorkspaceStore((s) => s.setCurrentPage);
+  const loadRootPages = useWorkspaceStore((s) => s.loadRootPages);
+  const loadFavorites = useWorkspaceStore((s) => s.loadFavorites);
+  const removePageLocally = useWorkspaceStore((s) => s.removePageLocally);
+
   const [searchOpen, setSearchOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<{ pageId: string; title: string } | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -42,13 +52,49 @@ export default function App() {
     const onCreateDatabase = () => {
       createRootDatabase('Untitled database').then((db) => setCurrentPage(db.id));
     };
+    const onOpenSearch = () => setSearchOpen(true);
+    const onOpenTrash = () => setTrashOpen(true);
+    const onOpenHistory = (e: Event) => {
+      const detail = (e as CustomEvent<{ pageId: string; title: string }>).detail;
+      if (detail) setHistoryTarget(detail);
+    };
+    const onToast = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail;
+      setToast(typeof detail === 'string' ? detail : '');
+      window.setTimeout(() => setToast(null), 2200);
+    };
+    const onPageTrashed = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      if (typeof id === 'string') removePageLocally(id);
+      // Refresh sidebar lists so caches are consistent.
+      void loadRootPages();
+      void loadFavorites();
+    };
+    // Cross-milestone integration: clicking a sub-page reference inside the
+    // editor (M2 SubPageView) emits `folio:navigate-page` with the target id.
+    const onNavigatePage = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      if (typeof id === 'string') setCurrentPage(id);
+    };
     window.addEventListener('keydown', onKey);
     window.addEventListener('folio:create-database', onCreateDatabase);
+    window.addEventListener('folio:open-search', onOpenSearch);
+    window.addEventListener('folio:open-trash', onOpenTrash);
+    window.addEventListener('folio:open-history', onOpenHistory);
+    window.addEventListener('folio:toast', onToast);
+    window.addEventListener('folio:page-trashed', onPageTrashed);
+    window.addEventListener('folio:navigate-page', onNavigatePage);
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('folio:create-database', onCreateDatabase);
+      window.removeEventListener('folio:open-search', onOpenSearch);
+      window.removeEventListener('folio:open-trash', onOpenTrash);
+      window.removeEventListener('folio:open-history', onOpenHistory);
+      window.removeEventListener('folio:toast', onToast);
+      window.removeEventListener('folio:page-trashed', onPageTrashed);
+      window.removeEventListener('folio:navigate-page', onNavigatePage);
     };
-  }, [createRootPage, createRootDatabase, setCurrentPage]);
+  }, [createRootPage, createRootDatabase, setCurrentPage, loadRootPages, loadFavorites, removePageLocally]);
 
   return (
     <div className="flex h-screen bg-bg-page text-text-primary font-sans overflow-hidden">
@@ -59,9 +105,30 @@ export default function App() {
         <EmptyState onOpenSearch={() => setSearchOpen(true)} />
       )}
       {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}
+      {trashOpen && <TrashModal onClose={() => setTrashOpen(false)} />}
+      {historyTarget && (
+        <HistoryModal
+          pageId={historyTarget.pageId}
+          currentTitle={historyTarget.title}
+          onClose={() => setHistoryTarget(null)}
+          onRestored={() => {
+            // Force the open PageView to reload the doc + title from disk.
+            window.dispatchEvent(new CustomEvent('folio:snapshot-restored'));
+          }}
+        />
+      )}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[1200] px-4 py-2 rounded-md bg-bg-section border border-border-hairline shadow-popover text-[13px] text-text-primary">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
+
+// Inline import to avoid pulling SnapshotSource value when only used as a type
+// (kept for symmetry; referenced by callers that pass source to api.createSnapshot).
+export type { SnapshotSource };
 
 function EmptyState({ onOpenSearch }: { onOpenSearch: () => void }) {
   const createRootPage = useWorkspaceStore((s) => s.createRootPage);

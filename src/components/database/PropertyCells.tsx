@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import type { PropertyDef, SelectOption } from '../../lib/types';
+import { open } from '@tauri-apps/plugin-dialog';
+import { api } from '../../lib/invoke';
+import type { AttachmentInfo, PropertyDef, SelectOption } from '../../lib/types';
 import { Popover } from '../ui/Popover';
 
 // ============================================================================
@@ -7,19 +9,33 @@ import { Popover } from '../ui/Popover';
 //   - `value`: current value (raw JSON from backend)
 //   - `property`: schema (type + options + numberFormat)
 //   - `onChange(newVal)`: commit (immediately calls backend)
+// FilesCell additionally uses `pageId` + `databaseId` to copy the picked file.
 // ============================================================================
 
 interface CellProps {
   value: unknown;
   property: PropertyDef;
   onChange: (next: unknown) => void;
+  /** Row page id — needed by FilesCell to scope attachment writes. */
+  pageId?: string;
+  /** Owning database id — needed by FilesCell for the attachments subdir. */
+  databaseId?: string;
+  /** Called after FilesCell persists so the parent can refetch. */
+  onAfterCommit?: () => void;
 }
 
 /** Cell types that don't need the property schema. */
 type SimpleCellProps = Pick<CellProps, 'value' | 'onChange'>;
 
 /** Dispatch to the right editor by property.type. */
-export function PropertyCell({ value, property, onChange }: CellProps) {
+export function PropertyCell({
+  value,
+  property,
+  onChange,
+  pageId,
+  databaseId,
+  onAfterCommit,
+}: CellProps) {
   switch (property.type) {
     case 'title':
       return <TitleCell value={value} onChange={onChange} />;
@@ -43,9 +59,18 @@ export function PropertyCell({ value, property, onChange }: CellProps) {
     case 'date':
       return <DateCell value={value} onChange={onChange} />;
     case 'person':
-      return <PlaceholderCell label="person (M3.5)" />;
+      return <PersonCell value={value} onChange={onChange} />;
     case 'files':
-      return <PlaceholderCell label="files (M3.5)" />;
+      return (
+        <FilesCell
+          value={value}
+          property={property}
+          onChange={onChange}
+          pageId={pageId}
+          databaseId={databaseId}
+          onAfterCommit={onAfterCommit}
+        />
+      );
     default:
       return <PlaceholderCell label={property.type} />;
   }
@@ -239,6 +264,121 @@ function DateCell({ value, onChange }: SimpleCellProps) {
       className="bg-transparent outline-none text-sm text-text-primary"
     />
   );
+}
+
+/**
+ * Person cell — MVP simplification (PRD §5.3.2): single fixed option "Me".
+ * Behaves like a single-select with one option. Click toggles between set/clear.
+ */
+function PersonCell({ value, onChange }: SimpleCellProps) {
+  const isMe = value === 'Me';
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(isMe ? null : 'Me')}
+      className="w-full text-left flex items-center gap-1.5 min-h-[20px]"
+    >
+      {isMe ? (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-bg-active text-accent">
+          <span className="w-2 h-2 rounded-full bg-accent" />
+          Me
+        </span>
+      ) : (
+        <span className="text-text-tertiary">Empty</span>
+      )}
+    </button>
+  );
+}
+
+/**
+ * Files cell — picks a file via the Tauri dialog, copies it into the per-db
+ * attachments dir (Rust side), and stores {name, path, size} as the cell value.
+ * Renders a filename chip with a download icon.
+ */
+function FilesCell({
+  value,
+  property,
+  onChange,
+  pageId,
+  databaseId,
+  onAfterCommit,
+}: CellProps) {
+  const info = toAttachment(value);
+  const [busy, setBusy] = useState(false);
+
+  const handlePick = async () => {
+    if (!pageId || !databaseId || busy) return;
+    try {
+      setBusy(true);
+      const selected = await open({ multiple: false });
+      if (typeof selected !== 'string' || selected.length === 0) return;
+      const result: AttachmentInfo = await api.attachFile(
+        selected,
+        databaseId,
+        pageId,
+        property.id,
+      );
+      onChange({ name: result.name, path: result.path, size: result.size });
+      onAfterCommit?.();
+    } catch (err) {
+      console.error('[Folio] attach file failed', err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (info) {
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-bg-hover text-text-primary max-w-full">
+        <span className="truncate max-w-[160px]" title={info.name}>
+          {info.name}
+        </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onChange(null);
+          }}
+          className="text-text-tertiary hover:text-status-red"
+          title="Remove"
+        >
+          ×
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handlePick}
+      disabled={!pageId || !databaseId || busy}
+      className="text-text-tertiary hover:text-text-primary text-xs disabled:opacity-40"
+      title={pageId ? 'Attach file' : 'Save row first'}
+    >
+      {busy ? '…' : '+ Add file'}
+    </button>
+  );
+}
+
+interface AttachmentShape {
+  name: string;
+  path: string;
+  size?: number;
+}
+
+function toAttachment(value: unknown): AttachmentShape | null {
+  if (value && typeof value === 'object') {
+    const v = value as { name?: unknown; path?: unknown; size?: unknown };
+    if (typeof v.name === 'string' && typeof v.path === 'string') {
+      return {
+        name: v.name,
+        path: v.path,
+        size: typeof v.size === 'number' ? v.size : undefined,
+      };
+    }
+  }
+  return null;
 }
 
 function PlaceholderCell({ label }: { label: string }) {

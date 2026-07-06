@@ -187,10 +187,66 @@ INSERT OR IGNORE INTO page_fts(page_id, title, content)
     WHERE p.is_trashed = 0 AND NOT EXISTS (
         SELECT 1 FROM page_fts f WHERE f.page_id = p.id
     );
+
+-- M3: Page snapshots for History (PRD §5.2.4). One row per snapshot.
+-- `content` stores the full TipTap doc JSON at the snapshot point.
+-- `source` is 'auto' (debounced save) or 'manual' (user action).
+CREATE TABLE IF NOT EXISTS page_snapshot (
+    id          TEXT PRIMARY KEY,
+    page_id     TEXT NOT NULL REFERENCES page(id) ON DELETE CASCADE,
+    content     TEXT NOT NULL,                 -- TipTap doc JSON
+    title       TEXT NOT NULL DEFAULT '',
+    source      TEXT NOT NULL DEFAULT 'auto',  -- 'auto' | 'manual'
+    created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_snapshot_page ON page_snapshot(page_id, created_at DESC);
+
+-- M3: Favorites (PRD §5.2.3 sidebar). One row per favorited page.
+-- `sort_order` uses fractional indexing for drag-rearrange (matches block pattern).
+CREATE TABLE IF NOT EXISTS favorites (
+    page_id     TEXT PRIMARY KEY REFERENCES page(id) ON DELETE CASCADE,
+    sort_order  REAL NOT NULL,
+    created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_favorites_order ON favorites(sort_order);
 "#;
 
 /// Apply the schema. Idempotent — safe to call on every startup.
+///
+/// After the base schema runs, lightweight in-place migrations are applied
+/// (additive column additions wrapped in "ignore if exists" so re-running on
+/// an already-migrated DB is a no-op). Existing data is never touched.
 pub fn apply(conn: &rusqlite::Connection) -> Result<()> {
     conn.execute_batch(SCHEMA_SQL)?;
+    apply_migrations(conn)?;
+    Ok(())
+}
+
+/// Additive, idempotent column additions for tables that already exist on
+/// older installs. Each statement is allowed to fail with "duplicate column"
+/// — that just means the column was added on a previous launch.
+fn apply_migrations(conn: &rusqlite::Connection) -> Result<()> {
+    // M3: add `favorite` flag on page for quick "is this page favorited?"
+    // checks without a join. The `favorites` table remains the source of
+    // truth for ordering; this column is a denormalized boolean mirror.
+    add_column_if_missing(conn, "page", "favorite", "INTEGER NOT NULL DEFAULT 0")?;
+    Ok(())
+}
+
+fn add_column_if_missing(
+    conn: &rusqlite::Connection,
+    table: &str,
+    column: &str,
+    decl: &str,
+) -> Result<()> {
+    // PRAGMA table_info returns one row per column; match by name.
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
+    let exists: bool = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .any(|c| c == column);
+    if !exists {
+        conn.execute(&format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, decl), [])?;
+    }
     Ok(())
 }

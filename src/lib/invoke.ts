@@ -1,19 +1,26 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
   AddPropertyInput,
+  AttachmentInfo,
   CreateDatabaseInput,
   CreatePageInput,
+  CreateTemplateInput,
   CreateViewInput,
   DatabaseRow,
+  DatabaseTemplate,
   DatabaseWithSchema,
   Page,
+  PageSnapshot,
   PageSummary,
   PageWithDoc,
   PropertyDef,
   SearchHit,
+  SnapshotSource,
+  TrashedPage,
   UpdateCellInput,
   UpdatePageMetaInput,
   UpdatePropertyInput,
+  UpdateTemplateInput,
   UpdateViewInput,
   ViewConfig,
   Workspace,
@@ -93,7 +100,72 @@ export const api = {
 
   deleteView: (viewId: string): Promise<void> => invoke('delete_view_cmd', { viewId }),
 
+  // --- Database — M4 extras (templates, duplicate, csv, files) -------------
+  duplicateProperty: (propertyId: string): Promise<PropertyDef> =>
+    invoke('duplicate_property_cmd', { propertyId }),
+
+  duplicateDatabaseRow: (rowId: string): Promise<DatabaseRow> =>
+    invoke('duplicate_database_row', { rowId }),
+
+  exportDatabaseCsv: (databaseId: string): Promise<string> =>
+    invoke('export_database_csv', { databaseId }),
+
+  addDatabaseRowFromTemplate: (databaseId: string, templateId: string): Promise<DatabaseRow> =>
+    invoke('add_database_row_from_template_cmd', { databaseId, templateId }),
+
+  listTemplates: (databaseId: string): Promise<DatabaseTemplate[]> =>
+    invoke('list_templates', { databaseId }),
+
+  createTemplate: (input: CreateTemplateInput): Promise<DatabaseTemplate> =>
+    invoke('create_template', { input }),
+
+  updateTemplate: (templateId: string, input: UpdateTemplateInput): Promise<DatabaseTemplate> =>
+    invoke('update_template_cmd', { templateId, input }),
+
+  deleteTemplate: (templateId: string): Promise<void> =>
+    invoke('delete_template_cmd', { templateId }),
+
+  attachFile: (
+    srcPath: string,
+    databaseId: string,
+    pageId: string,
+    propertyId: string,
+  ): Promise<AttachmentInfo> =>
+    invoke('attach_file', {
+      srcPath,
+      databaseId,
+      pageId,
+      propertyId,
+    }),
+
   // --- Search (M4) -------------------------------------------------------
   search: (query: string, limit?: number): Promise<SearchHit[]> =>
     invoke('search', { query, limit: limit ?? 50 }),
+
+  // --- Trash / Favorites / Snapshots (M3 §5.2.4) -------------------------
+  listTrashedPages: (): Promise<TrashedPage[]> => invoke('list_trashed_pages'),
+
+  purgeOldTrash: (): Promise<number> => invoke('purge_old_trash'),
+
+  setFavorite: (pageId: string, isFavorite: boolean): Promise<void> =>
+    invoke('set_favorite', { pageId, isFavorite }),
+
+  listFavorites: (): Promise<PageSummary[]> => invoke('list_favorites'),
+
+  reorderFavorites: (orderedPageIds: string[]): Promise<void> =>
+    invoke('reorder_favorites', { orderedPageIds }),
+
+  createSnapshot: (
+    pageId: string,
+    content: string,
+    title: string,
+    source?: SnapshotSource,
+  ): Promise<PageSnapshot> =>
+    invoke('create_snapshot_cmd', { pageId, content, title, source: source ?? 'auto' }),
+
+  listSnapshots: (pageId: string): Promise<PageSnapshot[]> =>
+    invoke('list_snapshots', { pageId }),
+
+  restoreSnapshot: (snapshotId: string): Promise<void> =>
+    invoke('restore_snapshot', { snapshotId }),
 } as const;
