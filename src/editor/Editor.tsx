@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useEditor, EditorContent } from '@tiptap/react';
 import type { Editor as TiptapEditor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
@@ -138,6 +139,7 @@ function triggerLowlightLoad(editor: TiptapEditor): void {
  *   - Debounced 200ms persistence to SQLite via update_page_doc + doc-updated event
  */
 export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
+  const { t } = useTranslation();
   const [slashState, setSlashState] = useState<SlashState>({
     active: false,
     query: '',
@@ -204,7 +206,7 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
       TaskItem.configure({ nested: true }),
       Typography,
       Placeholder.configure({
-        placeholder: "Press '/' for commands, or just start typing...",
+        placeholder: t('editor.placeholder'),
       }),
       // === Tables (simple, not database) ===
       Table.configure({ HTMLAttributes: { class: 'ln-table' } }),

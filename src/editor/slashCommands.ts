@@ -7,6 +7,7 @@
 
 import type { Editor } from '@tiptap/core';
 import { api } from '../lib/invoke';
+import i18n from '../i18n/config';
 
 /**
  * Slash menu tab. Drives the visible filter on the slash palette (PRD §5.1.2).
@@ -55,8 +56,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   // === Basic ==============================================================
   {
     key: 'paragraph',
-    label: 'Text',
-    description: 'Plain text paragraph',
+    label: i18n.t('editor.slashText'),
+    description: i18n.t('editor.slashTextDesc'),
     icon: '📝',
     aliases: ['text', 'paragraph', 'p', 'plain'],
     category: 'basic',
@@ -64,8 +65,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'heading1',
-    label: 'Heading 1',
-    description: 'Large section heading',
+    label: i18n.t('editor.slashHeading1'),
+    description: i18n.t('editor.slashHeading1Desc'),
     icon: 'H₁',
     aliases: ['h1', 'heading1', 'title', 'big'],
     category: 'basic',
@@ -73,8 +74,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'heading2',
-    label: 'Heading 2',
-    description: 'Medium section heading',
+    label: i18n.t('editor.slashHeading2'),
+    description: i18n.t('editor.slashHeading2Desc'),
     icon: 'H₂',
     aliases: ['h2', 'heading2', 'medium'],
     category: 'basic',
@@ -82,8 +83,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'heading3',
-    label: 'Heading 3',
-    description: 'Small section heading',
+    label: i18n.t('editor.slashHeading3'),
+    description: i18n.t('editor.slashHeading3Desc'),
     icon: 'H₃',
     aliases: ['h3', 'heading3', 'small'],
     category: 'basic',
@@ -91,8 +92,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'bullet-list',
-    label: 'Bulleted list',
-    description: 'Create a simple bulleted list',
+    label: i18n.t('editor.slashBulletedList'),
+    description: i18n.t('editor.slashBulletedListDesc'),
     icon: '•',
     aliases: ['bullet', 'ul', 'list', 'unordered'],
     category: 'basic',
@@ -100,8 +101,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'numbered-list',
-    label: 'Numbered list',
-    description: 'Create a numbered list',
+    label: i18n.t('editor.slashNumberedList'),
+    description: i18n.t('editor.slashNumberedListDesc'),
     icon: '1.',
     aliases: ['numbered', 'ol', 'ordered', 'list'],
     category: 'basic',
@@ -109,8 +110,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'todo',
-    label: 'To-do list',
-    description: 'Track tasks with a checkbox',
+    label: i18n.t('editor.slashTodoList'),
+    description: i18n.t('editor.slashTodoListDesc'),
     icon: '☐',
     aliases: ['todo', 'task', 'check', 'checklist', 'done'],
     category: 'basic',
@@ -118,8 +119,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'quote',
-    label: 'Quote',
-    description: 'Capture a quote',
+    label: i18n.t('editor.slashQuote'),
+    description: i18n.t('editor.slashQuoteDesc'),
     icon: '❝',
     aliases: ['quote', 'blockquote', 'citation'],
     category: 'basic',
@@ -127,8 +128,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'callout',
-    label: 'Callout',
-    description: 'Boxed text with icon — make a point stand out',
+    label: i18n.t('editor.slashCallout'),
+    description: i18n.t('editor.slashCalloutDesc'),
     icon: '💡',
     aliases: ['callout', 'box', 'info', 'tip', 'note', 'highlight'],
     category: 'basic',
@@ -138,8 +139,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'toggle',
-    label: 'Toggle',
-    description: 'Collapsible section — hide content under a summary',
+    label: i18n.t('editor.slashToggle'),
+    description: i18n.t('editor.slashToggleDesc'),
     icon: '▸',
     aliases: ['toggle', 'collapse', 'expand', 'details', 'accordion', 'spoiler'],
     category: 'basic',
@@ -149,8 +150,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'code',
-    label: 'Code',
-    description: 'Code block with syntax highlighting + language selector',
+    label: i18n.t('editor.slashCode'),
+    description: i18n.t('editor.slashCodeDesc'),
     icon: '</>',
     aliases: ['code', 'snippet', 'pre', 'mono', 'syntax'],
     category: 'basic',
@@ -158,8 +159,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'equation',
-    label: 'Equation',
-    description: 'Block math expression (KaTeX)',
+    label: i18n.t('editor.slashEquation'),
+    description: i18n.t('editor.slashEquationDesc'),
     icon: '∑',
     aliases: ['equation', 'math', 'katex', 'latex', 'tex', 'formula'],
     category: 'basic',
@@ -169,8 +170,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'divider',
-    label: 'Divider',
-    description: 'Visually divide blocks',
+    label: i18n.t('editor.slashDivider'),
+    description: i18n.t('editor.slashDividerDesc'),
     icon: '---',
     aliases: ['divider', 'hr', 'line', 'separator', 'rule'],
     category: 'basic',
@@ -180,8 +181,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   // === Database ===========================================================
   {
     key: 'database',
-    label: 'Database',
-    description: 'Create a full database (table/board/calendar) at the page root',
+    label: i18n.t('editor.slashDatabase'),
+    description: i18n.t('editor.slashDatabaseDesc'),
     icon: '📊',
     aliases: ['database', 'table', 'db', 'grid', 'spreadsheet'],
     category: 'database',
@@ -192,8 +193,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'linked-database',
-    label: 'Linked database',
-    description: 'Reference an existing database as a linked view',
+    label: i18n.t('editor.slashLinkedDatabase'),
+    description: i18n.t('editor.slashLinkedDatabaseDesc'),
     icon: '🔗',
     aliases: ['linked', 'linked-database', 'link', 'reference'],
     category: 'database',
@@ -204,8 +205,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'simple-table',
-    label: 'Table',
-    description: 'Simple table (3×3) — not a database',
+    label: i18n.t('editor.slashTable'),
+    description: i18n.t('editor.slashTableDesc'),
     icon: '⊞',
     aliases: ['table', 'grid', 'matrix', 'cells', 'simple'],
     category: 'database',
@@ -217,14 +218,14 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   // === Media ==============================================================
   {
     key: 'image',
-    label: 'Image',
-    description: 'Embed or upload an image',
+    label: i18n.t('editor.slashImage'),
+    description: i18n.t('editor.slashImageDesc'),
     icon: '🖼',
     aliases: ['image', 'img', 'picture', 'photo', 'upload'],
     category: 'media',
     apply: (editor) => {
       // Inline: prompt for URL (file upload hook deferred to M5).
-      const url = window.prompt('Image URL:');
+      const url = window.prompt(i18n.t('editor.imageUrlPrompt'));
       if (url) {
         editor.chain().focus().deleteCurrentNode().setImage({ src: url.trim() }).run();
       } else {
@@ -234,13 +235,13 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'bookmark',
-    label: 'Bookmark',
-    description: 'Web link with title + preview',
+    label: i18n.t('editor.slashBookmark'),
+    description: i18n.t('editor.slashBookmarkDesc'),
     icon: '🔖',
     aliases: ['bookmark', 'link', 'card', 'web', 'url', 'preview'],
     category: 'media',
     apply: (editor) => {
-      const url = window.prompt('Paste link:');
+      const url = window.prompt(i18n.t('editor.pasteLinkPrompt'));
       if (!url) {
         editor.chain().focus().deleteCurrentNode().run();
         return;
@@ -250,8 +251,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'embed',
-    label: 'Embed',
-    description: 'Embed YouTube / Vimeo / Figma / CodePen / etc.',
+    label: i18n.t('editor.slashEmbed'),
+    description: i18n.t('editor.slashEmbedDesc'),
     icon: '🎬',
     aliases: ['embed', 'iframe', 'youtube', 'vimeo', 'figma', 'video'],
     category: 'media',
@@ -263,8 +264,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   // === Advanced ===========================================================
   {
     key: 'column',
-    label: 'Column',
-    description: 'Two-column layout side-by-side',
+    label: i18n.t('editor.slashColumn'),
+    description: i18n.t('editor.slashColumnDesc'),
     icon: '⫴',
     aliases: ['column', 'columns', 'split', 'two-column', 'layout'],
     category: 'advanced',
@@ -274,8 +275,8 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
   },
   {
     key: 'sub-page',
-    label: 'Sub-page',
-    description: 'Create a new child page and link to it inline',
+    label: i18n.t('editor.slashSubpage'),
+    description: i18n.t('editor.slashSubpageDesc'),
     icon: '📄',
     aliases: ['subpage', 'sub-page', 'child', 'page', 'link-page'],
     category: 'advanced',
@@ -290,7 +291,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
       } catch (err) {
         console.error('[Folio] slash: sub-page creation failed', err);
         window.dispatchEvent(
-          new CustomEvent('folio:toast', { detail: 'Could not create sub-page' }),
+          new CustomEvent('folio:toast', { detail: i18n.t('editor.subpageCreateFailed') }),
         );
         editor.chain().focus().deleteCurrentNode().run();
       }

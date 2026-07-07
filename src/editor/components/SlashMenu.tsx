@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Editor } from '@tiptap/core';
 import {
   filterCommands,
@@ -19,12 +20,12 @@ interface SlashMenuProps {
   onClose: () => void;
 }
 
-const TABS: { id: SlashTab; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'basic', label: 'Basic' },
-  { id: 'database', label: 'Database' },
-  { id: 'media', label: 'Media' },
-  { id: 'advanced', label: 'Advanced' },
+const TABS: { id: SlashTab; tabKey: string }[] = [
+  { id: 'all', tabKey: 'editor.tabAll' },
+  { id: 'basic', tabKey: 'editor.tabBasic' },
+  { id: 'database', tabKey: 'editor.tabDatabase' },
+  { id: 'media', tabKey: 'editor.tabMedia' },
+  { id: 'advanced', tabKey: 'editor.tabAdvanced' },
 ];
 
 /**
@@ -41,6 +42,7 @@ const TABS: { id: SlashTab; label: string }[] = [
  *   - selecting a command records it in localStorage and persists recent.
  */
 export function SlashMenu({ editor, query, anchor, onClose }: SlashMenuProps) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<SlashTab>('all');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -146,15 +148,15 @@ export function SlashMenu({ editor, query, anchor, onClose }: SlashMenuProps) {
     >
       {/* Tab bar */}
       <div className="flex items-center gap-0 border-b border-border-hairline px-1 pt-1">
-        {TABS.map((t) => {
-          const active = tab === t.id;
+        {TABS.map((tabDef) => {
+          const active = tab === tabDef.id;
           return (
             <button
-              key={t.id}
+              key={tabDef.id}
               type="button"
               onMouseDown={(e) => {
                 e.preventDefault();
-                setTab(t.id);
+                setTab(tabDef.id);
               }}
               className={[
                 'px-2 py-1 text-[11px] rounded-t transition-colors',
@@ -163,7 +165,7 @@ export function SlashMenu({ editor, query, anchor, onClose }: SlashMenuProps) {
                   : 'text-text-tertiary hover:text-text-primary',
               ].join(' ')}
             >
-              {t.label}
+              {t(tabDef.tabKey)}
             </button>
           );
         })}
@@ -171,13 +173,13 @@ export function SlashMenu({ editor, query, anchor, onClose }: SlashMenuProps) {
 
       <div className="max-h-[280px] overflow-y-auto py-1">
         {isEmpty ? (
-          <div className="px-3 py-4 text-text-tertiary">No matching blocks</div>
+          <div className="px-3 py-4 text-text-tertiary">{t('editor.noMatchingBlocks')}</div>
         ) : (
           <>
             {showRecent && recent.length > 0 && (
               <div className="mb-1">
                 <div className="px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-text-tertiary">
-                  Recent
+                  {t('editor.recent')}
                 </div>
                 {recent.map((cmd) => {
                   const idx = runningIndex++;
@@ -195,7 +197,7 @@ export function SlashMenu({ editor, query, anchor, onClose }: SlashMenuProps) {
               .map((cat) => (
                 <div key={cat} className="mb-1">
                   <div className="px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-text-tertiary">
-                    {tabLabel(cat)}
+                    {tabLabel(cat, t)}
                   </div>
                   {(grouped[cat] ?? []).map((cmd) => {
                     const idx = runningIndex++;
@@ -249,16 +251,16 @@ function renderCommand(
   );
 }
 
-function tabLabel(cat: SlashTab): string {
+function tabLabel(cat: SlashTab, t: (key: string) => string): string {
   switch (cat) {
     case 'basic':
-      return 'Basic';
+      return t('editor.categoryBasic');
     case 'database':
-      return 'Database';
+      return t('editor.categoryDatabase');
     case 'media':
-      return 'Media';
+      return t('editor.categoryMedia');
     case 'advanced':
-      return 'Advanced';
+      return t('editor.categoryAdvanced');
     default:
       return cat;
   }
