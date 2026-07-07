@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { api } from '../../lib/invoke';
 import { useWorkspaceStore } from '../../store/workspaceStore';
@@ -54,6 +55,7 @@ const COL_GROUPABLE: PropertyDef['type'][] = ['select', 'multi_select', 'status'
 const ROW_HEIGHT = 40;
 
 export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) {
+  const { t } = useTranslation();
   const setCurrentPage = useWorkspaceStore((s) => s.setCurrentPage);
 
   const { data: schema, refetch: refetchSchema } = useQuery({
@@ -140,7 +142,7 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
   );
 
   if (!schema) {
-    return <div className="py-12 text-center text-text-tertiary">Loading database…</div>;
+    return <div className="py-12 text-center text-text-tertiary">{t('database.loading')}</div>;
   }
 
   // --- Handlers ------------------------------------------------------------
@@ -202,7 +204,7 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
   };
 
   const handleDeleteProperty = async (propId: string) => {
-    if (!confirm('Delete this property and all its values?')) return;
+    if (!confirm(t('database.deletePropertyConfirm'))) return;
     await api.deleteProperty(propId);
     setMenuOpenFor(null);
     refetchSchema();
@@ -361,16 +363,16 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
       <div className="flex items-center gap-3 px-3 py-1.5 border-b border-border-hairline">
         {linked && (
           <span className="inline-flex items-center gap-1 text-[11px] text-accent bg-bg-active px-1.5 py-0.5 rounded">
-            🔗 linked
+            {t('database.linked')}
           </span>
         )}
         <div className="flex items-center gap-1.5 text-[13px]">
           <span className="font-medium text-text-primary">
-            {activeView?.name ?? 'Table'}
+            {activeView?.name ?? t('database.table')}
           </span>
         </div>
         <span className="text-[11px] text-text-tertiary">
-          {sortedRows.length} row{sortedRows.length === 1 ? '' : 's'}
+          {t('database.rowCount', { count: sortedRows.length })}
         </span>
         <div className="ml-auto flex items-center gap-1">
           {/* Sort/group/filter quick buttons */}
@@ -378,18 +380,18 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
             type="button"
             onClick={() => setFilterEditorOpen(true)}
             className="px-2 py-1 text-[12px] rounded text-text-secondary hover:bg-bg-hover transition-colors"
-            title="Filter"
+            title={t('database.filter')}
           >
-            ▽ Filter
+            ▽ {t('database.filter')}
           </button>
           <div className="relative">
             <button
               type="button"
               onClick={() => setGroupMenuOpen((v) => !v)}
               className="px-2 py-1 text-[12px] rounded text-text-secondary hover:bg-bg-hover transition-colors"
-              title="Group"
+              title={t('database.group')}
             >
-              ◐ Group{group ? ' ✓' : ''}
+              {group ? `◐ ${t('database.groupActive')}` : `◐ ${t('database.group')}`}
             </button>
             {groupMenuOpen && (
               <GroupMenu
@@ -404,7 +406,7 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
             type="button"
             onClick={handleExportCsv}
             className="px-2 py-1 text-[12px] rounded text-text-secondary hover:bg-bg-hover transition-colors"
-            title="Export CSV"
+            title={t('database.exportCsv')}
           >
             ⤓ CSV
           </button>
@@ -415,14 +417,14 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
               onClick={handleAddRowBlank}
               className="px-2.5 py-1 text-[12px] rounded bg-bg-hover text-text-primary hover:bg-bg-active transition-colors"
             >
-              + New
+              {t('database.newRow')}
             </button>
             {(templates?.length ?? 0) > 0 && (
               <button
                 type="button"
                 onClick={() => setNewMenuOpen((v) => !v)}
                 className="ml-0.5 px-1.5 py-1 text-[12px] rounded bg-bg-hover text-text-primary hover:bg-bg-active transition-colors"
-                title="New from template"
+                title={t('database.newFromTemplate')}
               >
                 ▾
               </button>
@@ -442,16 +444,18 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
       {/* Hidden columns indicator */}
       {hidden.length > 0 && (
         <div className="px-3 py-1 text-[11px] text-text-tertiary border-b border-border-hairline bg-bg-section/50">
-          {hidden.length} hidden column(s):{' '}
-          {hidden
-            .map((id) => allProps.find((p) => p.id === id)?.name ?? id)
-            .join(', ')}
+          {t('database.hiddenColumns', {
+            hidden: hidden.length,
+            names: hidden
+              .map((id) => allProps.find((p) => p.id === id)?.name ?? id)
+              .join(', '),
+          })}
           <button
             type="button"
             onClick={() => { setHidden([]); persistView({ hiddenProperties: [] }); }}
             className="ml-2 text-accent hover:underline"
           >
-            show all
+            {t('database.showAll')}
           </button>
         </div>
       )}
@@ -531,7 +535,7 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
                     })
                   }
                   className="text-text-tertiary hover:text-text-primary text-lg leading-none px-2"
-                  title="Add property"
+                  title={t('database.addProperty')}
                 >
                   +
                 </button>
@@ -595,7 +599,7 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
         <RowContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
-          hasMultiple={selectedRowIds.size > 1}
+          count={selectedRowIds.size}
           onClose={() => setContextMenu(null)}
           onDelete={handleDeleteSelected}
           onDuplicate={() => contextMenu.rowId && handleDuplicateRow(contextMenu.rowId)}
@@ -641,6 +645,7 @@ function FlatBody({
   onAfterCellCommit,
   scrollRef,
 }: BodyProps & { rows: DatabaseRow[]; scrollRef: RefObject<HTMLDivElement | null> }) {
+  const { t } = useTranslation();
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
@@ -652,7 +657,7 @@ function FlatBody({
     return (
       <tr>
         <td colSpan={visibleProps.length + 1} className="px-3 py-16 text-center text-[13px] text-text-tertiary">
-          No rows match. Adjust filters or click <strong>+ New</strong>.
+          {t('database.emptyRows')}
         </td>
       </tr>
     );
@@ -782,6 +787,7 @@ function RowLine({
   databaseId,
   onAfterCellCommit,
 }: Omit<BodyProps, 'selectedRowIds'> & { row: DatabaseRow; selected: boolean }) {
+  const { t } = useTranslation();
   return (
     <tr
       className={[
@@ -817,13 +823,13 @@ function RowLine({
           type="button"
           onClick={async (e) => {
             e.stopPropagation();
-            if (confirm('Delete this row?')) {
+            if (confirm(t('database.deleteRowConfirm'))) {
               await api.deleteDatabaseRow(row.id);
               onAfterCellCommit();
             }
           }}
           className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-status-red px-1 transition-opacity"
-          title="Delete row"
+          title={t('database.deleteRow')}
         >
           ×
         </button>
@@ -839,7 +845,7 @@ function RowLine({
 function RowContextMenu({
   x,
   y,
-  hasMultiple,
+  count,
   onClose,
   onDelete,
   onDuplicate,
@@ -847,12 +853,14 @@ function RowContextMenu({
 }: {
   x: number;
   y: number;
-  hasMultiple: boolean;
+  count: number;
   onClose: () => void;
   onDelete: () => void;
   onDuplicate: () => void;
   onExportCsv: () => void;
 }) {
+  const { t } = useTranslation();
+  const hasMultiple = count > 1;
   return (
     <>
       <div className="fixed inset-0 z-[1050]" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }} />
@@ -861,9 +869,13 @@ function RowContextMenu({
         className="fixed z-[1051] w-44 rounded-md border border-border-hairline bg-bg-page shadow-popover py-1 text-sm"
         style={{ left: x, top: y }}
       >
-        <ContextItem label={hasMultiple ? `Delete ${''} selected` : 'Delete'} danger onClick={onDelete} />
-        {!hasMultiple && <ContextItem label="Duplicate" onClick={onDuplicate} />}
-        <ContextItem label="Export CSV" onClick={onExportCsv} />
+        <ContextItem
+          label={hasMultiple ? t('database.deleteSelected', { count }) : t('common.delete')}
+          danger
+          onClick={onDelete}
+        />
+        {!hasMultiple && <ContextItem label={t('common.duplicate')} onClick={onDuplicate} />}
+        <ContextItem label={t('database.exportCsv')} onClick={onExportCsv} />
       </div>
     </>
   );
@@ -900,6 +912,7 @@ function NewRowMenu({
   onPick: (tpl: DatabaseTemplate) => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <>
       <div className="fixed inset-0 z-[1050]" onClick={onClose} />
@@ -913,11 +926,11 @@ function NewRowMenu({
           className="w-full text-left px-3 py-1.5 hover:bg-bg-hover flex items-center gap-2"
         >
           <span>📄</span>
-          <span>Blank</span>
+          <span>{t('database.blank')}</span>
         </button>
         <div className="my-1 border-t border-border-hairline" />
         <div className="px-3 py-0.5 text-[10px] uppercase tracking-wider text-text-tertiary">
-          Templates
+          {t('database.templates')}
         </div>
         {templates.map((tpl) => (
           <button
@@ -928,7 +941,7 @@ function NewRowMenu({
           >
             <span>{tpl.icon ?? '📝'}</span>
             <span className="flex-1 truncate">{tpl.name}</span>
-            {tpl.isDefault && <span className="text-[10px] text-text-tertiary">default</span>}
+            {tpl.isDefault && <span className="text-[10px] text-text-tertiary">{t('database.default')}</span>}
           </button>
         ))}
       </div>
@@ -947,6 +960,7 @@ function GroupMenu({
   onPick: (id: string | null) => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const groupable = properties.filter((p) => COL_GROUPABLE.includes(p.type));
   return (
     <>
@@ -960,7 +974,7 @@ function GroupMenu({
           onClick={() => onPick(null)}
           className="w-full text-left px-3 py-1.5 hover:bg-bg-hover"
         >
-          No grouping
+          {t('database.noGrouping')}
         </button>
         {groupable.length > 0 && <div className="my-1 border-t border-border-hairline" />}
         {groupable.map((p) => (

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import type { FilterNode, PropertyDef } from '../../lib/types';
 import { flattenChips } from './filterEngine';
 
@@ -15,6 +16,7 @@ import type { FilterLeaf } from '../../lib/types';
  * table header. Shows one pill chip per leaf filter with a × to remove.
  */
 export function FilterBar({ filter, properties, onOpenEditor, onRemoveLeaf }: FilterBarProps) {
+  const { t } = useTranslation();
   const chips = flattenChips(filter, properties);
   if (chips.length === 0) {
     return (
@@ -24,7 +26,7 @@ export function FilterBar({ filter, properties, onOpenEditor, onRemoveLeaf }: Fi
           onClick={onOpenEditor}
           className="text-xs text-accent hover:underline"
         >
-          + Add filter
+          {t('database.addFilter')}
         </button>
       </div>
     );
@@ -44,7 +46,7 @@ export function FilterBar({ filter, properties, onOpenEditor, onRemoveLeaf }: Fi
             type="button"
             onClick={() => onRemoveLeaf(chip.leaf)}
             className="text-text-tertiary hover:text-status-red leading-none"
-            title="Remove filter"
+            title={t('database.removeFilter')}
           >
             ×
           </button>
@@ -55,7 +57,7 @@ export function FilterBar({ filter, properties, onOpenEditor, onRemoveLeaf }: Fi
         onClick={onOpenEditor}
         className="text-xs text-accent hover:underline ml-1"
       >
-        + Add filter
+        {t('database.addFilter')}
       </button>
     </div>
   );

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import type {
   FilterGroup,
   FilterLeaf,
@@ -23,6 +24,7 @@ interface FilterEditorProps {
  * are capped at 2 levels deep (root + one sub-group) per the PRD.
  */
 export function FilterEditor({ filter, properties, onClose, onChange }: FilterEditorProps) {
+  const { t } = useTranslation();
   const [root, setRoot] = useState<FilterGroup>(() =>
     filter && filter.kind === 'group' ? filter : { kind: 'group', op: 'and', children: filter && filter.kind === 'leaf' ? [filter] : [] },
   );
@@ -49,7 +51,7 @@ export function FilterEditor({ filter, properties, onClose, onChange }: FilterEd
         className="relative w-[600px] max-h-[76vh] overflow-y-auto rounded-lg border border-border-hairline bg-bg-page shadow-popover"
       >
         <div className="px-5 py-4 border-b border-border-hairline flex items-center justify-between">
-          <span className="text-sm font-semibold">Filter</span>
+          <span className="text-sm font-semibold">{t('database.filter')}</span>
           <button
             type="button"
             onClick={onClose}
@@ -82,14 +84,14 @@ export function FilterEditor({ filter, properties, onClose, onChange }: FilterEd
               onClick={onClose}
               className="px-3 py-1.5 text-xs rounded-md hover:bg-bg-hover text-text-secondary"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               type="button"
               onClick={save}
               className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover transition-colors"
             >
-              Done
+              {t('common.done')}
             </button>
           </div>
         </div>
@@ -109,6 +111,7 @@ interface GroupEditorProps {
 const MAX_DEPTH = 1; // root(0) + one nested group(1) = 2 levels per PRD
 
 function GroupEditor({ group, depth, properties, onChange }: GroupEditorProps) {
+  const { t } = useTranslation();
   const setOp = (op: 'and' | 'or') => onChange({ ...group, op });
 
   const addLeaf = () => {
@@ -134,12 +137,12 @@ function GroupEditor({ group, depth, properties, onChange }: GroupEditorProps) {
   return (
     <div className={depth > 0 ? 'ml-3 pl-3 border-l-2 border-border-strong/40' : ''}>
       <div className="flex items-center gap-1 mb-2">
-        <span className="text-xs text-text-tertiary mr-1">Match</span>
+        <span className="text-xs text-text-tertiary mr-1">{t('database.match')}</span>
         <Toggle active={group.op === 'and'} onClick={() => setOp('and')}>
-          AND
+          {t('database.and')}
         </Toggle>
         <Toggle active={group.op === 'or'} onClick={() => setOp('or')}>
-          OR
+          {t('database.or')}
         </Toggle>
       </div>
 
@@ -160,7 +163,7 @@ function GroupEditor({ group, depth, properties, onChange }: GroupEditorProps) {
                   type="button"
                   onClick={() => removeChild(idx)}
                   className="mt-1 text-text-tertiary hover:text-status-red px-1"
-                  title="Remove group"
+                  title={t('database.removeGroup')}
                 >
                   ×
                 </button>
@@ -183,7 +186,7 @@ function GroupEditor({ group, depth, properties, onChange }: GroupEditorProps) {
           onClick={addLeaf}
           className="text-xs text-accent hover:underline"
         >
-          + Add filter
+          {t('database.addFilter')}
         </button>
         {depth < MAX_DEPTH && (
           <button
@@ -191,7 +194,7 @@ function GroupEditor({ group, depth, properties, onChange }: GroupEditorProps) {
             onClick={addSubgroup}
             className="text-xs text-text-tertiary hover:text-text-primary"
           >
-            + Add group
+            {t('database.addGroup')}
           </button>
         )}
       </div>
@@ -230,6 +233,7 @@ interface LeafRowProps {
 }
 
 function LeafRow({ leaf, properties, onChange, onRemove }: LeafRowProps) {
+  const { t } = useTranslation();
   const prop = properties.find((p) => p.id === leaf.propertyId) ?? properties[0];
   const type: PropertyType = prop?.type ?? 'rich_text';
   const ops = operatorsFor(type);
@@ -272,7 +276,7 @@ function LeafRow({ leaf, properties, onChange, onRemove }: LeafRowProps) {
         type="button"
         onClick={onRemove}
         className="text-text-tertiary hover:text-status-red px-1"
-        title="Remove"
+        title={t('common.remove')}
       >
         ×
       </button>
@@ -289,6 +293,7 @@ function ValueInput({
   type: PropertyType;
   onChange: (next: FilterLeaf) => void;
 }) {
+  const { t } = useTranslation();
   const setText = (v: string) => onChange({ ...leaf, value: v });
   const setNum = (v: string) => onChange({ ...leaf, value: v === '' ? null : Number(v) });
 
@@ -302,8 +307,8 @@ function ValueInput({
         onChange={(e) => onChange({ ...leaf, value: e.target.value === 'true' })}
         className={inputCls}
       >
-        <option value="true">checked</option>
-        <option value="false">unchecked</option>
+        <option value="true">{t('database.checked')}</option>
+        <option value="false">{t('database.unchecked')}</option>
       </select>
     );
   }
@@ -335,7 +340,7 @@ function ValueInput({
     <input
       type="text"
       value={typeof leaf.value === 'string' ? leaf.value : ''}
-      placeholder="value"
+      placeholder={t('database.value')}
       onChange={(e) => setText(e.target.value)}
       className={inputCls}
     />
