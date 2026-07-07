@@ -188,57 +188,53 @@ export function BlockDragHandle({ editor, containerRef }: BlockDragHandleProps) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, containerRef]);
 
-  // === Multi-select left-edge marquee ===================================
+  // === Multi-select: clear block selection when the user clicks text ===
+  // The marquee drag itself is initiated from the gutter overlay (see render),
+  // so a mousedown landing on the editor content is always a text-editing
+  // gesture — exit block-selection mode, like Notion.
   useEffect(() => {
     const dom = editor.view.dom;
+    const onContentMouseDown = () => setSelectedBlocks(new Set());
+    dom.addEventListener('mousedown', onContentMouseDown);
+    return () => dom.removeEventListener('mousedown', onContentMouseDown);
+  }, [editor]);
+
+  // === Marquee multi-select, initiated from the left gutter ==============
+  // The gutter lives in the page's left padding (outside the editor content),
+  // so dragging there never collides with text-cursor placement. Sits below
+  // the drag handle (z-30) so handle clicks still open the block menu.
+  const handleGutterMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     const container = containerRef.current;
     if (!container) return;
+    const containerRect = container.getBoundingClientRect();
+    const startY = e.clientY;
 
-    let marqueeStart: number | null = null;
-    let marqueeEl: HTMLDivElement | null = null;
+    const marqueeEl = document.createElement('div');
+    marqueeEl.className = 'ln-block-marquee';
+    marqueeEl.style.position = 'absolute';
+    marqueeEl.style.left = '0';
+    marqueeEl.style.width = `${containerRect.width}px`;
+    marqueeEl.style.pointerEvents = 'none';
+    marqueeEl.style.zIndex = '20';
+    container.appendChild(marqueeEl);
+    drawMarquee(marqueeEl, startY, e.clientY, container);
+    e.preventDefault();
 
-    const onMouseDown = (e: MouseEvent) => {
-      const rect = dom.getBoundingClientRect();
-      const inLeftEdge = e.clientX - rect.left >= 0 && e.clientX - rect.left <= 24;
-      if (!inLeftEdge) {
-        setSelectedBlocks(new Set());
-        return;
+    const onMove = (mv: MouseEvent) => {
+      drawMarquee(marqueeEl, startY, mv.clientY, container);
+      const selected = collectBlocksInRect(startY, mv.clientY, editor);
+      setSelectedBlocks(new Set(selected));
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (marqueeEl.parentNode) {
+        marqueeEl.parentNode.removeChild(marqueeEl);
       }
-      marqueeStart = e.clientY;
-      marqueeEl = document.createElement('div');
-      marqueeEl.className = 'ln-block-marquee';
-      marqueeEl.style.position = 'absolute';
-      marqueeEl.style.left = '0';
-      marqueeEl.style.width = `${rect.width}px`;
-      marqueeEl.style.pointerEvents = 'none';
-      marqueeEl.style.zIndex = '20';
-      container.appendChild(marqueeEl);
-      drawMarquee(marqueeEl, marqueeStart, e.clientY, container);
-      e.preventDefault();
-
-      const onMove = (mv: MouseEvent) => {
-        if (marqueeStart === null || !marqueeEl) return;
-        drawMarquee(marqueeEl, marqueeStart, mv.clientY, container);
-        const selected = collectBlocksInRect(marqueeStart, mv.clientY, editor);
-        setSelectedBlocks(new Set(selected));
-      };
-      const onUp = () => {
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
-        if (marqueeEl && marqueeEl.parentNode) {
-          marqueeEl.parentNode.removeChild(marqueeEl);
-        }
-        marqueeEl = null;
-        marqueeStart = null;
-      };
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
     };
-    dom.addEventListener('mousedown', onMouseDown);
-    return () => {
-      dom.removeEventListener('mousedown', onMouseDown);
-    };
-  }, [editor, containerRef]);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
 
   // === Cleanup auto-scroll on unmount ===================================
   useEffect(() => {
@@ -266,10 +262,25 @@ export function BlockDragHandle({ editor, containerRef }: BlockDragHandleProps) 
     autoScrollRafRef.current = window.requestAnimationFrame(tick);
   }
 
-  if (!handle.visible && !menuRect) return null;
-
   return (
     <>
+      {/* Left gutter overlay — hosts marquee multi-select in the page's left
+          padding. Always mounted so the marquee is available even before the
+          drag handle appears. Sits below the handle (z-30) so ⋮⋮ clicks still
+          open the block menu. Width matches PageView's `px-10` (40px). */}
+      <div
+        className="ln-block-gutter"
+        style={{
+          position: 'absolute',
+          left: -40,
+          top: 0,
+          bottom: 0,
+          width: 40,
+          zIndex: 5,
+        }}
+        onMouseDown={handleGutterMouseDown}
+      />
+
       {/* Selection highlight backgrounds for multi-selected blocks */}
       {Array.from(selectedBlocks).map((pos) => {
         const nodeDom = editor.view.nodeDOM(pos) as HTMLElement | null;
@@ -294,18 +305,21 @@ export function BlockDragHandle({ editor, containerRef }: BlockDragHandleProps) 
         );
       })}
 
-      <div
-        className="absolute z-30 left-[-36px] flex items-center justify-center w-6 h-6 cursor-grab active:cursor-grabbing text-text-tertiary hover:text-text-primary transition-colors"
-        style={{ top: handle.top }}
-        title="Drag to move · Click for actions"
-        contentEditable={false}
-        onMouseDown={handleClick}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        draggable
-      >
-        <span className="text-[16px] leading-none select-none">⋮⋮</span>
-      </div>
+      {/* Drag handle (⋮⋮) — only while hovered/focused on a block */}
+      {handle.visible && (
+        <div
+          className="absolute z-30 left-[-36px] flex items-center justify-center w-6 h-6 cursor-grab active:cursor-grabbing text-text-tertiary hover:text-text-primary transition-colors"
+          style={{ top: handle.top }}
+          title="Drag to move · Click for actions"
+          contentEditable={false}
+          onMouseDown={handleClick}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          draggable
+        >
+          <span className="text-[16px] leading-none select-none">⋮⋮</span>
+        </div>
+      )}
 
       {/* Drop indicator */}
       {indicator && (
