@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { memo, useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { api } from '../../lib/invoke';
 import type { PropertyDef } from '../../lib/types';
 import { PropertyCell } from './PropertyCells';
@@ -54,6 +55,7 @@ export const RowPropertyPanel = memo(function RowPropertyPanel({
   rowPageId,
   databaseId,
 }: RowPropertyPanelProps) {
+  const { t } = useTranslation();
   const { data: schema } = useQuery({
     queryKey: ['database', databaseId],
     queryFn: () => api.getDatabase(databaseId),
@@ -91,7 +93,7 @@ export const RowPropertyPanel = memo(function RowPropertyPanel({
   if (shownProps.length === 0) {
     return (
       <div className="mb-4 p-2 rounded-md border border-border-hairline bg-bg-section text-xs text-text-tertiary">
-        This row has no extra properties. Edit them in the database.
+        {t('database.noPropertiesHint')}
       </div>
     );
   }
@@ -103,12 +105,12 @@ export const RowPropertyPanel = memo(function RowPropertyPanel({
           type="button"
           onClick={() => setCollapsed((v) => !v)}
           className="text-xs text-text-tertiary hover:text-text-primary w-4"
-          title={collapsed ? 'Expand' : 'Collapse'}
+          title={collapsed ? t('common.expand') : t('common.collapse')}
         >
           {collapsed ? '▸' : '▾'}
         </button>
         <span className="text-xs font-semibold uppercase tracking-wider text-text-tertiary">
-          Properties
+          {t('common.properties')}
         </span>
       </div>
       {!collapsed && (

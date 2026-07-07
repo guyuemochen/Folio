@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { PropertyDef, PropertyType, SelectOption } from '../../lib/types';
 import { Popover } from '../ui/Popover';
 
@@ -14,15 +15,15 @@ const COLOR_CHOICES = [
   'red',
 ] as const;
 
-const TYPE_LABELS: { value: PropertyType; label: string; icon: string }[] = [
-  { value: 'rich_text', label: 'Text', icon: 'Aa' },
-  { value: 'number', label: 'Number', icon: '#' },
-  { value: 'select', label: 'Select', icon: '◉' },
-  { value: 'multi_select', label: 'Multi-select', icon: ' ◐' },
-  { value: 'status', label: 'Status', icon: '◐' },
-  { value: 'date', label: 'Date', icon: '🗓' },
-  { value: 'checkbox', label: 'Checkbox', icon: '☑' },
-  { value: 'url', label: 'URL', icon: '🔗' },
+const TYPE_LABELS: { value: PropertyType; labelKey: string; icon: string }[] = [
+  { value: 'rich_text', labelKey: 'database.typeText', icon: 'Aa' },
+  { value: 'number', labelKey: 'database.typeNumber', icon: '#' },
+  { value: 'select', labelKey: 'database.typeSelect', icon: '◉' },
+  { value: 'multi_select', labelKey: 'database.typeMultiSelect', icon: ' ◐' },
+  { value: 'status', labelKey: 'database.typeStatus', icon: '◐' },
+  { value: 'date', labelKey: 'database.typeDate', icon: '🗓' },
+  { value: 'checkbox', labelKey: 'database.typeCheckbox', icon: '☑' },
+  { value: 'url', labelKey: 'database.typeUrl', icon: '🔗' },
 ];
 
 interface PropertyMenuProps {
@@ -66,6 +67,7 @@ export function PropertyMenu({
   onHide,
   onDuplicate,
 }: PropertyMenuProps) {
+  const { t } = useTranslation();
   const [name, setName] = useState(property?.name ?? '');
   const [type, setType] = useState<PropertyType>(property?.type ?? 'rich_text');
   const [options, setOptions] = useState<SelectOption[]>(property?.options ?? []);
@@ -78,7 +80,7 @@ export function PropertyMenu({
 
   const submit = () => {
     onSubmit({
-      name: name.trim() || 'Untitled',
+      name: name.trim() || t('common.untitled'),
       type,
       options: ['select', 'multi_select', 'status'].includes(type) ? options : undefined,
       numberFormat: type === 'number' ? numberFormat : undefined,
@@ -97,29 +99,29 @@ export function PropertyMenu({
       <div className="p-4">
         {/* Header */}
         <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-tertiary">
-          {isEditing ? 'Edit property' : 'New property'}
+          {isEditing ? t('database.editProperty') : t('database.newProperty')}
         </div>
 
         {/* Quick actions — column-level (Sort / Filter / Hide / Duplicate) */}
         {isEditing && (onSort || onFilter || onHide || onDuplicate) && (
           <div className="mb-3 grid grid-cols-2 gap-1">
             {onSort && (
-              <QuickAction icon="↕" label="Sort" onClick={() => run(onSort)} />
+              <QuickAction icon="↕" label={t('database.sort')} onClick={() => run(onSort)} />
             )}
             {onFilter && (
-              <QuickAction icon="▽" label="Filter" onClick={() => run(onFilter)} />
+              <QuickAction icon="▽" label={t('database.filter')} onClick={() => run(onFilter)} />
             )}
             {onHide && (
-              <QuickAction icon="◐" label="Hide" onClick={() => run(onHide)} />
+              <QuickAction icon="◐" label={t('database.hide')} onClick={() => run(onHide)} />
             )}
             {onDuplicate && (
-              <QuickAction icon="⧉" label="Duplicate" onClick={() => run(onDuplicate)} />
+              <QuickAction icon="⧉" label={t('common.duplicate')} onClick={() => run(onDuplicate)} />
             )}
           </div>
         )}
 
         {/* Name */}
-        <label className="block text-xs text-text-secondary mb-1">Name</label>
+        <label className="block text-xs text-text-secondary mb-1">{t('database.name')}</label>
         <input
           type="text"
           value={name}
@@ -131,22 +133,22 @@ export function PropertyMenu({
         {/* Type */}
         {canChangeType && (
           <>
-            <label className="block text-xs text-text-secondary mb-1">Type</label>
+            <label className="block text-xs text-text-secondary mb-1">{t('database.type')}</label>
             <div className="grid grid-cols-2 gap-1 mb-3">
-              {TYPE_LABELS.map((t) => (
+              {TYPE_LABELS.map((opt) => (
                 <button
-                  key={t.value}
+                  key={opt.value}
                   type="button"
-                  onClick={() => setType(t.value)}
+                  onClick={() => setType(opt.value)}
                   className={[
                     'flex items-center gap-2 px-2 py-1.5 text-xs rounded-md transition-colors',
-                    type === t.value
+                    type === opt.value
                       ? 'bg-bg-active text-accent font-medium'
                       : 'hover:bg-bg-hover text-text-secondary',
                   ].join(' ')}
                 >
-                  <span className="w-4 text-center text-[11px]">{t.icon}</span>
-                  <span>{t.label}</span>
+                  <span className="w-4 text-center text-[11px]">{opt.icon}</span>
+                  <span>{t(opt.labelKey)}</span>
                 </button>
               ))}
             </div>
@@ -156,16 +158,16 @@ export function PropertyMenu({
         {/* Number format */}
         {type === 'number' && (
           <div className="mb-3">
-            <label className="block text-xs text-text-secondary mb-1">Number format</label>
+            <label className="block text-xs text-text-secondary mb-1">{t('database.numberFormat')}</label>
             <select
               value={numberFormat}
               onChange={(e) => setNumberFormat(e.target.value)}
               className="w-full px-2 py-1.5 text-sm border border-border-hairline rounded-md bg-bg-page outline-none focus:border-accent"
             >
-              <option value="integer">1,234</option>
-              <option value="decimal">1,234.56</option>
-              <option value="percent">12%</option>
-              <option value="currency">$1,234</option>
+              <option value="integer">{t('database.formatInteger')}</option>
+              <option value="decimal">{t('database.formatDecimal')}</option>
+              <option value="percent">{t('database.formatPercent')}</option>
+              <option value="currency">{t('database.formatCurrency')}</option>
             </select>
           </div>
         )}
@@ -173,7 +175,7 @@ export function PropertyMenu({
         {/* Options editor */}
         {needsOptions && (
           <div className="mb-3">
-            <label className="block text-xs text-text-secondary mb-1.5">Options</label>
+            <label className="block text-xs text-text-secondary mb-1.5">{t('database.options')}</label>
             <div className="space-y-1 mb-2">
               {options.map((opt, i) => (
                 <div key={i} className="flex items-center gap-1.5">
@@ -222,14 +224,14 @@ export function PropertyMenu({
                 setOptions([
                   ...options,
                   {
-                    value: `Option ${options.length + 1}`,
+                    value: t('database.optionN', { n: options.length + 1 }),
                     color: COLOR_CHOICES[options.length % COLOR_CHOICES.length]!,
                   },
                 ])
               }
               className="text-xs text-accent hover:underline"
             >
-              + Add option
+              {t('database.addOption')}
             </button>
           </div>
         )}
@@ -244,7 +246,7 @@ export function PropertyMenu({
               onClick={onDelete}
               className="text-xs text-status-red hover:underline"
             >
-              Delete
+              {t('common.delete')}
             </button>
           )}
         </div>
@@ -254,7 +256,7 @@ export function PropertyMenu({
             onClick={onClose}
             className="px-3 py-1.5 text-xs rounded-md hover:bg-bg-hover text-text-secondary"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -262,7 +264,7 @@ export function PropertyMenu({
             disabled={!name.trim()}
             className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            {isEditing ? 'Save' : 'Create'}
+            {isEditing ? t('common.save') : 'Create'}
           </button>
         </div>
       </div>

@@ -2,6 +2,7 @@ import { createElement, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api } from '../../lib/invoke';
 import type { DatabaseWithSchema, PageSummary } from '../../lib/types';
 
@@ -19,6 +20,7 @@ interface LinkedDatabasePickerProps {
  * pages that aren't databases 404 and are filtered out.
  */
 export function LinkedDatabasePicker({ onClose, onPick }: LinkedDatabasePickerProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
 
   // Root-level pages (databases typically live here, but may be nested).
@@ -88,7 +90,7 @@ export function LinkedDatabasePicker({ onClose, onPick }: LinkedDatabasePickerPr
         className="relative w-[480px] max-h-[60vh] flex flex-col rounded-lg border border-border-hairline bg-bg-page shadow-popover"
       >
         <header className="px-4 py-3 border-b border-border-hairline flex items-center gap-2">
-          <span className="text-sm font-semibold flex-1">Link to database</span>
+          <span className="text-sm font-semibold flex-1">{t('database.linkToDatabase')}</span>
           <button
             type="button"
             onClick={onClose}
@@ -104,7 +106,7 @@ export function LinkedDatabasePicker({ onClose, onPick }: LinkedDatabasePickerPr
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search databases…"
+            placeholder={t('database.searchDatabases')}
             autoFocus
             className="w-full px-2.5 py-1.5 text-sm bg-bg-hover rounded outline-none placeholder:text-text-tertiary"
           />
@@ -112,11 +114,11 @@ export function LinkedDatabasePicker({ onClose, onPick }: LinkedDatabasePickerPr
 
         <div className="flex-1 overflow-y-auto py-1">
           {isLoading && (
-            <div className="px-4 py-6 text-center text-xs text-text-tertiary">Loading…</div>
+            <div className="px-4 py-6 text-center text-xs text-text-tertiary">{t('common.loading')}</div>
           )}
           {!isLoading && filtered.length === 0 && (
             <div className="px-4 py-6 text-center text-xs text-text-tertiary">
-              No databases found. Create one first with /database.
+              {t('database.noDatabases')}
             </div>
           )}
           {filtered.map(({ page, db }, idx) => {
@@ -138,10 +140,10 @@ export function LinkedDatabasePicker({ onClose, onPick }: LinkedDatabasePickerPr
                 </span>
                 <span className="flex-1 min-w-0">
                   <span className="block text-[13px] text-text-primary truncate">
-                    {page.title || 'Untitled database'}
+                    {page.title || t('common.untitledDatabase')}
                   </span>
                   <span className="block text-[11px] text-text-tertiary">
-                    {rowCount} propert{rowCount === 1 ? 'y' : 'ies'}
+                    {t('database.propertyCount', { count: rowCount })}
                   </span>
                 </span>
                 {isSelected && <span className="text-[11px] text-accent">↵</span>}

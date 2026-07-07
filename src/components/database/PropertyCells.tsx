@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { open } from '@tauri-apps/plugin-dialog';
 import { api } from '../../lib/invoke';
 import type { AttachmentInfo, PropertyDef, SelectOption } from '../../lib/types';
@@ -79,11 +80,12 @@ export const PropertyCell = memo(function PropertyCell({
 // ---------------------------------------------------------------------------
 
 const TitleCell = memo(function TitleCell({ value, onChange }: SimpleCellProps) {
+  const { t } = useTranslation();
   return (
     <input
       type="text"
       value={typeof value === 'string' ? value : ''}
-      placeholder="Untitled"
+      placeholder={t('common.untitled')}
       onChange={(e) => onChange(e.target.value)}
       className="w-full bg-transparent outline-none text-sm text-text-primary placeholder:text-text-tertiary"
     />
@@ -91,6 +93,7 @@ const TitleCell = memo(function TitleCell({ value, onChange }: SimpleCellProps) 
 });
 
 const TextCell = memo(function TextCell({ value, onChange }: SimpleCellProps) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState(typeof value === 'string' ? value : '');
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -108,7 +111,7 @@ const TextCell = memo(function TextCell({ value, onChange }: SimpleCellProps) {
         onClick={(e) => setAnchorRect(e.currentTarget.getBoundingClientRect())}
         className="w-full text-left text-sm text-text-primary truncate"
       >
-        {draft || <span className="text-text-tertiary">Empty</span>}
+        {draft || <span className="text-text-tertiary">{t('common.empty')}</span>}
       </button>
       {anchorRect && (
         <Popover anchorRect={anchorRect} placement="bottom-start" width={256} onClose={() => setAnchorRect(null)}>
@@ -161,12 +164,13 @@ const CheckboxCell = memo(function CheckboxCell({ value, onChange }: SimpleCellP
 });
 
 const UrlCell = memo(function UrlCell({ value, onChange }: SimpleCellProps) {
+  const { t } = useTranslation();
   const href = typeof value === 'string' ? value : '';
   return (
     <input
       type="url"
       value={href}
-      placeholder="https://"
+      placeholder={t('database.urlPlaceholder')}
       onChange={(e) => onChange(e.target.value)}
       className="w-full bg-transparent outline-none text-sm text-accent underline placeholder:text-text-tertiary"
     />
@@ -179,12 +183,13 @@ const SelectCell = memo(function SelectCell({
   onChange,
   multi,
 }: CellProps & { multi: boolean }) {
+  const { t } = useTranslation();
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const options: SelectOption[] = property.options ?? [];
-  const EMPTY = <span className="text-text-tertiary">Empty</span>;
+  const EMPTY = <span className="text-text-tertiary">{t('common.empty')}</span>;
 
   if (options.length === 0) {
-    return <PlaceholderCell label="no options" />;
+    return <PlaceholderCell label={t('database.noOptions')} />;
   }
 
   const selectedValues: string[] = multi
@@ -271,6 +276,7 @@ const DateCell = memo(function DateCell({ value, onChange }: SimpleCellProps) {
  * Behaves like a single-select with one option. Click toggles between set/clear.
  */
 const PersonCell = memo(function PersonCell({ value, onChange }: SimpleCellProps) {
+  const { t } = useTranslation();
   const isMe = value === 'Me';
   return (
     <button
@@ -281,10 +287,10 @@ const PersonCell = memo(function PersonCell({ value, onChange }: SimpleCellProps
       {isMe ? (
         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-bg-active text-accent">
           <span className="w-2 h-2 rounded-full bg-accent" />
-          Me
+          {t('common.me')}
         </span>
       ) : (
-        <span className="text-text-tertiary">Empty</span>
+        <span className="text-text-tertiary">{t('common.empty')}</span>
       )}
     </button>
   );
@@ -303,6 +309,7 @@ const FilesCell = memo(function FilesCell({
   databaseId,
   onAfterCommit,
 }: CellProps) {
+  const { t } = useTranslation();
   const info = toAttachment(value);
   const [busy, setBusy] = useState(false);
 
@@ -340,7 +347,7 @@ const FilesCell = memo(function FilesCell({
             onChange(null);
           }}
           className="text-text-tertiary hover:text-status-red"
-          title="Remove"
+          title={t('common.remove')}
         >
           ×
         </button>
@@ -354,9 +361,9 @@ const FilesCell = memo(function FilesCell({
       onClick={handlePick}
       disabled={!pageId || !databaseId || busy}
       className="text-text-tertiary hover:text-text-primary text-xs disabled:opacity-40"
-      title={pageId ? 'Attach file' : 'Save row first'}
+      title={pageId ? t('database.attachFile') : t('database.saveRowFirst')}
     >
-      {busy ? '…' : '+ Add file'}
+      {busy ? '…' : t('database.addFile')}
     </button>
   );
 });
