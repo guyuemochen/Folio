@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Sidebar } from './components/Sidebar';
 import { useWorkspaceStore } from './store/workspaceStore';
 import { perf } from './lib/perf';
@@ -29,6 +30,7 @@ const HistoryModal = lazy(() =>
  * Global keyboard shortcuts live here so they fire regardless of focus.
  */
 export default function App() {
+  const { t } = useTranslation();
   const currentPageId = useWorkspaceStore((s) => s.currentPageId);
   const createRootPage = useWorkspaceStore((s) => s.createRootPage);
   const createRootDatabase = useWorkspaceStore((s) => s.createRootDatabase);
@@ -122,7 +124,7 @@ export default function App() {
           fallback={
             <main className="flex-1 overflow-y-auto">
               <div className="max-w-page mx-auto px-24 py-12 text-text-tertiary">
-                Loading page…
+                {t('common.loadingPage')}
               </div>
             </main>
           }
@@ -169,6 +171,7 @@ export default function App() {
 export type { SnapshotSource };
 
 function EmptyState({ onOpenSearch }: { onOpenSearch: () => void }) {
+  const { t } = useTranslation();
   const createRootPage = useWorkspaceStore((s) => s.createRootPage);
   const setCurrentPage = useWorkspaceStore((s) => s.setCurrentPage);
 
@@ -176,9 +179,9 @@ function EmptyState({ onOpenSearch }: { onOpenSearch: () => void }) {
     <main className="flex-1 overflow-y-auto flex items-center justify-center">
       <div className="text-center max-w-sm px-6">
         <div className="text-4xl mb-5 opacity-70">📝</div>
-        <h1 className="text-h2 mb-2">Welcome to Folio</h1>
+        <h1 className="text-h2 mb-2">{t('page.welcome')}</h1>
         <p className="text-[14px] text-text-secondary mb-7 leading-relaxed">
-          A local-first, Notion-style notebook. Everything you write stays on this machine.
+          {t('page.welcomeSubtitle')}
         </p>
         <div className="flex items-center justify-center gap-2">
           <button
@@ -189,20 +192,20 @@ function EmptyState({ onOpenSearch }: { onOpenSearch: () => void }) {
             }}
             className="px-4 py-1.5 bg-accent hover:bg-accent-hover text-white text-[13px] rounded-md transition-colors"
           >
-            + New page
+            {t('page.newPage')}
           </button>
           <button
             type="button"
             onClick={onOpenSearch}
             className="px-4 py-1.5 bg-bg-hover hover:bg-bg-active text-text-primary text-[13px] rounded-md transition-colors"
           >
-            🔍 Search
+            {t('page.searchAction')}
           </button>
         </div>
         <p className="mt-5 text-[11px] text-text-tertiary">
-          <kbd className="px-1 py-0.5 bg-bg-section rounded text-text-secondary text-[10px]">Ctrl+N</kbd> new page
+          {t('page.shortcutNewPage')}
           <span className="mx-2">·</span>
-          <kbd className="px-1 py-0.5 bg-bg-section rounded text-text-secondary text-[10px]">Ctrl+K</kbd> search
+          {t('page.shortcutSearch')}
         </p>
       </div>
     </main>

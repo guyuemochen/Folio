@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import type { PageSummary } from '../lib/types';
 import { PageTreeNode } from './PageTreeNode';
@@ -21,6 +22,7 @@ import { PageTreeNode } from './PageTreeNode';
  *   Settings / About
  */
 export function Sidebar() {
+  const { t } = useTranslation();
   const workspace = useWorkspaceStore((s) => s.workspace);
   const rootPages = useWorkspaceStore((s) => s.rootPages);
   const currentPageId = useWorkspaceStore((s) => s.currentPageId);
@@ -98,8 +100,8 @@ export function Sidebar() {
       <button
         type="button"
         className="h-11 px-3 flex items-center gap-2 hover:bg-bg-hover transition-colors"
-        onClick={() => fireToast('More workspaces coming in v1')}
-        title="Workspace switcher"
+        onClick={() => fireToast(t('sidebar.moreWorkspacesSoon'))}
+        title={t('sidebar.workspaceSwitcher')}
       >
         <span className="text-[15px]">📝</span>
         <span className="font-medium flex-1 text-left truncate text-text-primary">
@@ -116,7 +118,7 @@ export function Sidebar() {
           className="w-full px-2 py-1 text-left rounded-md flex items-center gap-2 text-text-secondary hover:bg-bg-hover transition-colors"
         >
           <span className="w-4 text-center text-[13px] leading-none">🔍</span>
-          <span className="flex-1">Search</span>
+          <span className="flex-1">{t('sidebar.search')}</span>
           <span className="text-[10px] text-text-tertiary/70">
             <kbd className="px-1 py-0.5 bg-bg-section rounded text-text-secondary text-[10px]">Ctrl K</kbd>
           </span>
@@ -125,9 +127,9 @@ export function Sidebar() {
 
       <div className="flex-1 overflow-y-auto">
         {/* === Favorites === */}
-        <SidebarSection label="Favorites">
+        <SidebarSection label={t('sidebar.favorites')}>
           {favorites.length === 0 ? (
-            <SidebarEmptyHint>Drag a page here to favorite it.</SidebarEmptyHint>
+            <SidebarEmptyHint>{t('sidebar.favoritesEmpty')}</SidebarEmptyHint>
           ) : (
             favorites.map((p) => (
               <div
@@ -144,7 +146,7 @@ export function Sidebar() {
                 ].join(' ')}
               >
                 <span className="text-sm flex-shrink-0">{p.icon ?? '📄'}</span>
-                <span className="flex-1 min-w-0 truncate">{p.title || 'Untitled'}</span>
+                <span className="flex-1 min-w-0 truncate">{p.title || t('common.untitled')}</span>
                 <span className="text-[10px] opacity-0 group-hover:opacity-100 text-text-tertiary">
                   ⋮⋮
                 </span>
@@ -154,9 +156,9 @@ export function Sidebar() {
         </SidebarSection>
 
         {/* === Recents === */}
-        <SidebarSection label="Recents">
+        <SidebarSection label={t('sidebar.recents')}>
           {recentPages.length === 0 ? (
-            <SidebarEmptyHint>No recent pages.</SidebarEmptyHint>
+            <SidebarEmptyHint>{t('sidebar.noRecents')}</SidebarEmptyHint>
           ) : (
             recentPages.map((p) => (
               <div
@@ -168,22 +170,22 @@ export function Sidebar() {
                 ].join(' ')}
               >
                 <span className="text-sm flex-shrink-0">{p.icon ?? '📄'}</span>
-                <span className="flex-1 min-w-0 truncate">{p.title || 'Untitled'}</span>
+                <span className="flex-1 min-w-0 truncate">{p.title || t('common.untitled')}</span>
               </div>
             ))
           )}
         </SidebarSection>
 
         {/* === Teamspaces === */}
-        <SidebarSection label="Teamspaces">
-          <div className="px-2 py-1 text-text-secondary">🏢 Default</div>
+        <SidebarSection label={t('sidebar.teamspaces')}>
+          <div className="px-2 py-1 text-text-secondary">🏢 {t('sidebar.defaultTeam')}</div>
         </SidebarSection>
 
         {/* === Page tree === */}
-        <SidebarSection label="Pages">
+        <SidebarSection label={t('sidebar.pages')}>
           {rootPages.length === 0 ? (
             <SidebarEmptyHint>
-              No pages yet. Press <kbd className="text-[10px]">Ctrl N</kbd> to create one.
+              {t('sidebar.noPagesHint')}
             </SidebarEmptyHint>
           ) : (
             <div className="pr-1">
@@ -199,18 +201,18 @@ export function Sidebar() {
       <div className="px-2 py-1.5 border-t border-border-hairline text-text-secondary">
         <SidebarFooterLink
           icon="🗑"
-          label="Trash"
+          label={t('sidebar.trash')}
           onClick={() => window.dispatchEvent(new CustomEvent('folio:open-trash'))}
         />
         <SidebarFooterLink
           icon="⚙"
-          label="Settings"
-          onClick={() => fireToast('Settings — coming in a later milestone')}
+          label={t('sidebar.settings')}
+          onClick={() => fireToast(t('sidebar.settingsSoon'))}
         />
         <SidebarFooterLink
           icon="ℹ"
-          label="About"
-          onClick={() => fireToast('Folio · local-first MVP · M3')}
+          label={t('sidebar.about')}
+          onClick={() => fireToast(t('sidebar.aboutText'))}
         />
       </div>
     </aside>

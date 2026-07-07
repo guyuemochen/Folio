@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { PageSummary } from '../lib/types';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { api } from '../lib/invoke';
@@ -16,6 +17,7 @@ interface PageTreeNodeProps {
  * (New subpage / Rename / Duplicate / Move to / Favorite / Trash).
  */
 function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
+  const { t } = useTranslation();
   const expanded = useWorkspaceStore((s) => s.expanded.has(page.id));
   const currentPageId = useWorkspaceStore((s) => s.currentPageId);
   const childrenCache = useWorkspaceStore((s) => s.childrenCache[page.id]);
@@ -145,7 +147,7 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
             toggleExpand(page.id);
           }}
           className="w-4 flex-shrink-0 text-[10px] text-text-tertiary hover:text-text-primary"
-          aria-label={expanded ? 'Collapse' : 'Expand'}
+          aria-label={expanded ? t('common.collapse') : t('common.expand')}
         >
           {expanded ? '▾' : '▸'}
         </button>
@@ -173,11 +175,11 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
             className="flex-1 min-w-0 bg-transparent outline-none border-b border-accent text-[13px]"
           />
         ) : (
-          <span className="flex-1 min-w-0 truncate">{page.title || 'Untitled'}</span>
+          <span className="flex-1 min-w-0 truncate">{page.title || t('common.untitled')}</span>
         )}
 
         {page.favorite && !isEditing && (
-          <span className="text-[10px] text-status-amber" title="Favorite">⭐</span>
+          <span className="text-[10px] text-status-amber" title={t('sidebar.favorite')}>⭐</span>
         )}
 
         {!isEditing && (
@@ -188,7 +190,7 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
               openMenu((e.currentTarget as HTMLElement).getBoundingClientRect());
             }}
             className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-text-primary px-1"
-            aria-label="More actions"
+            aria-label={t('sidebar.moreActions')}
           >
             ⋯
           </button>
@@ -208,7 +210,7 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
           className="text-text-tertiary/60 italic text-[12px]"
           style={{ paddingLeft: 6 + (level + 1) * 16 + 22, paddingTop: 2, paddingBottom: 2 }}
         >
-          No pages
+          {t('sidebar.noPages')}
         </div>
       )}
 
@@ -233,7 +235,7 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
           onMoveTo={() => {
             setMenuOpen(false);
             // MVP "Move to" placeholder — surface a toast via window event.
-            window.dispatchEvent(new CustomEvent('folio:toast', { detail: 'Move to — coming soon' }));
+            window.dispatchEvent(new CustomEvent('folio:toast', { detail: t('sidebar.moveToSoon') }));
           }}
           onToggleFavorite={() => {
             setMenuOpen(false);
@@ -241,7 +243,7 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
           }}
           onTrash={() => {
             setMenuOpen(false);
-            if (confirm(`Move "${page.title || 'Untitled'}" to trash?`)) {
+            if (confirm(t('sidebar.moveToTrashConfirm', { title: page.title || t('common.untitled') }))) {
               void handleTrash();
             }
           }}
@@ -271,6 +273,7 @@ interface NodeMenuProps {
 }
 
 function NodeMenu(props: NodeMenuProps) {
+  const { t } = useTranslation();
   // Reuse the lightweight popover styling. Inline rather than using
   // <Popover> because we want the menu flush to the row, not anchored above.
   const { anchorRect, onClose, isFavorite, ...handlers } = props;
@@ -310,16 +313,16 @@ function NodeMenu(props: NodeMenuProps) {
       style={style}
       className="rounded-md border border-border-hairline bg-bg-page shadow-popover py-1 text-[13px]"
     >
-      <MenuItem label="New subpage" onClick={handlers.onNewSubpage} />
-      <MenuItem label="Rename" onClick={handlers.onRename} />
-      <MenuItem label="Duplicate" onClick={handlers.onDuplicate} />
-      <MenuItem label="Move to…" onClick={handlers.onMoveTo} />
+      <MenuItem label={t('sidebar.newSubpage')} onClick={handlers.onNewSubpage} />
+      <MenuItem label={t('common.rename')} onClick={handlers.onRename} />
+      <MenuItem label={t('common.duplicate')} onClick={handlers.onDuplicate} />
+      <MenuItem label={t('common.moveTo')} onClick={handlers.onMoveTo} />
       <MenuItem
-        label={isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
+        label={isFavorite ? t('sidebar.removeFromFavorites') : t('sidebar.addToFavorites')}
         onClick={handlers.onToggleFavorite}
       />
       <div className="my-1 border-t border-border-hairline" />
-      <MenuItem label="Move to Trash" danger onClick={handlers.onTrash} />
+      <MenuItem label={t('sidebar.moveToTrash')} danger onClick={handlers.onTrash} />
     </div>
   );
 }
