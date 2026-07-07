@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { api } from '../lib/invoke';
 import { useWorkspaceStore } from '../store/workspaceStore';
@@ -24,6 +25,7 @@ interface ImportExportModalProps {
 type Tab = 'export' | 'import';
 
 export function ImportExportModal({ pageId, pageTitle, onClose }: ImportExportModalProps) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>('export');
 
   return createPortal(
@@ -40,16 +42,16 @@ export function ImportExportModal({ pageId, pageTitle, onClose }: ImportExportMo
         {/* Header + tabs */}
         <div className="flex items-center border-b border-border-hairline">
           <TabButton active={tab === 'export'} onClick={() => setTab('export')}>
-            ↥ Export
+            {t('importExport.exportTab')}
           </TabButton>
           <TabButton active={tab === 'import'} onClick={() => setTab('import')}>
-            ↧ Import
+            {t('importExport.importTab')}
           </TabButton>
           <button
             type="button"
             onClick={onClose}
             className="ml-auto px-3 py-2 text-text-tertiary hover:text-text-primary text-[14px]"
-            title="Close"
+            title={t('importExport.close')}
           >
             ✕
           </button>
@@ -82,6 +84,7 @@ function ExportTab({
   pageTitle: string;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -103,12 +106,14 @@ function ExportTab({
       const ext = format === 'markdown' ? 'md' : 'html';
       const path = await save({
         defaultPath: `${sanitize(pageTitle) || 'untitled'}.${ext}`,
-        filters: [{ name: format === 'markdown' ? 'Markdown' : 'HTML', extensions: [ext] }],
+        filters: [
+          { name: format === 'markdown' ? t('importExport.markdown') : t('importExport.html'), extensions: [ext] },
+        ],
       });
       if (!path || typeof path !== 'string') return;
       const content = await api.exportPage(pageId, format);
       await api.saveTextFile(path, content);
-      window.dispatchEvent(new CustomEvent('folio:toast', { detail: 'Exported' }));
+      window.dispatchEvent(new CustomEvent('folio:toast', { detail: t('importExport.exported') }));
       onClose();
     });
 
@@ -121,7 +126,9 @@ function ExportTab({
       if (!path || typeof path !== 'string') return;
       const b64 = await api.exportWorkspace(format);
       await api.saveBinaryFile(path, b64);
-      window.dispatchEvent(new CustomEvent('folio:toast', { detail: 'Workspace exported' }));
+      window.dispatchEvent(
+        new CustomEvent('folio:toast', { detail: t('importExport.workspaceExported') }),
+      );
       onClose();
     });
 
@@ -134,7 +141,7 @@ function ExportTab({
       if (!path || typeof path !== 'string') return;
       const b64 = await api.createBackup();
       await api.saveBinaryFile(path, b64);
-      window.dispatchEvent(new CustomEvent('folio:toast', { detail: 'Backup created' }));
+      window.dispatchEvent(new CustomEvent('folio:toast', { detail: t('importExport.backupCreated') }));
       onClose();
     });
 
@@ -149,7 +156,7 @@ function ExportTab({
       if (needsRestart) {
         window.dispatchEvent(
           new CustomEvent('folio:toast', {
-            detail: 'Backup restored. Restart Folio to apply.',
+            detail: t('importExport.backupRestored'),
           }),
         );
       }
@@ -160,20 +167,20 @@ function ExportTab({
     <div className="flex flex-col gap-4">
       {/* Page-level export */}
       <div>
-        <SectionLabel>This page</SectionLabel>
+        <SectionLabel>{t('importExport.thisPage')}</SectionLabel>
         <div className="flex flex-col gap-2">
           <ActionCard
             icon="📝"
-            label="Markdown"
-            hint={`${pageTitle || 'This page'} → .md file`}
+            label={t('importExport.markdown')}
+            hint={t('importExport.markdownHint', { pageTitle: pageTitle || t('importExport.thisPage') })}
             loading={busy === 'page-markdown'}
             disabled={busy !== null}
             onClick={() => exportPage('markdown')}
           />
           <ActionCard
             icon="🌐"
-            label="HTML"
-            hint="Standalone .html, opens in any browser"
+            label={t('importExport.html')}
+            hint={t('importExport.htmlHint')}
             loading={busy === 'page-html'}
             disabled={busy !== null}
             onClick={() => exportPage('html')}
@@ -183,20 +190,20 @@ function ExportTab({
 
       {/* Workspace-level export */}
       <div>
-        <SectionLabel>Entire workspace</SectionLabel>
+        <SectionLabel>{t('importExport.entireWorkspace')}</SectionLabel>
         <div className="flex flex-col gap-2">
           <ActionCard
             icon="📦"
-            label="Workspace (.zip)"
-            hint="All pages as Markdown + sitemap"
+            label={t('importExport.workspaceZip')}
+            hint={t('importExport.workspaceZipHint')}
             loading={busy === 'workspace-markdown'}
             disabled={busy !== null}
             onClick={() => exportWorkspace('markdown')}
           />
           <ActionCard
             icon="🗂️"
-            label="Workspace HTML (.zip)"
-            hint="All pages as HTML + sitemap"
+            label={t('importExport.workspaceHtmlZip')}
+            hint={t('importExport.workspaceHtmlZipHint')}
             loading={busy === 'workspace-html'}
             disabled={busy !== null}
             onClick={() => exportWorkspace('html')}
@@ -206,20 +213,20 @@ function ExportTab({
 
       {/* Backup */}
       <div>
-        <SectionLabel>Backup & Restore</SectionLabel>
+        <SectionLabel>{t('importExport.backupRestore')}</SectionLabel>
         <div className="flex flex-col gap-2">
           <ActionCard
             icon="💾"
-            label="Create backup"
-            hint="Full workspace + database + attachments"
+            label={t('importExport.createBackup')}
+            hint={t('importExport.createBackupHint')}
             loading={busy === 'backup'}
             disabled={busy !== null}
             onClick={createBackup}
           />
           <ActionCard
             icon="♻️"
-            label="Restore backup"
-            hint="Replace all data from a .zip backup"
+            label={t('importExport.restoreBackup')}
+            hint={t('importExport.restoreBackupHint')}
             loading={busy === 'restore'}
             disabled={busy !== null}
             onClick={restoreBackup}
@@ -240,6 +247,7 @@ function ExportTab({
 // =============================================================================
 
 function ImportTab({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const setCurrentPage = useWorkspaceStore((s) => s.setCurrentPage);
   const [busy, setBusy] = useState<string | null>(null);
@@ -261,7 +269,9 @@ function ImportTab({ onClose }: { onClose: () => void }) {
       const page = await importer(path);
       await queryClient.invalidateQueries({ queryKey: ['pages'] });
       window.dispatchEvent(
-        new CustomEvent('folio:toast', { detail: `Imported "${page.title || 'Untitled'}"` }),
+        new CustomEvent('folio:toast', {
+          detail: t('importExport.imported', { title: page.title || t('common.untitled') }),
+        }),
       );
       setCurrentPage(page.id);
       onClose();
@@ -287,9 +297,10 @@ function ImportTab({ onClose }: { onClose: () => void }) {
       }
       const result = await api.importNotionZip(path);
       await queryClient.invalidateQueries({ queryKey: ['pages'] });
-      const msg = `Imported ${result.pagesCreated} page${result.pagesCreated === 1 ? '' : 's'}${
-        result.warnings.length > 0 ? ` (${result.warnings.length} warnings)` : ''
-      }`;
+      const msg = t('importExport.notionImported', {
+        count: result.pagesCreated,
+        warnings: result.warnings.length,
+      });
       window.dispatchEvent(new CustomEvent('folio:toast', { detail: msg }));
       onClose();
     } catch (err) {
@@ -302,25 +313,23 @@ function ImportTab({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-[13px] text-text-secondary">
-        Import content from an external file. New pages are created at the workspace root.
-      </p>
+      <p className="text-[13px] text-text-secondary">{t('importExport.importHint')}</p>
       {error && (
         <p className="text-[12px] text-status-red bg-status-red/10 rounded px-2 py-1.5">{error}</p>
       )}
       <div className="flex flex-col gap-2">
         <ActionCard
           icon="📝"
-          label="Markdown"
-          hint=".md or .markdown file"
+          label={t('importExport.markdown')}
+          hint={t('importExport.markdownFileHint')}
           loading={busy === 'Markdown'}
           disabled={busy !== null}
           onClick={() => importFile('Markdown', ['md', 'markdown'], (p) => api.importMarkdown(p))}
         />
         <ActionCard
           icon="🌐"
-          label="HTML"
-          hint=".html or .htm file"
+          label={t('importExport.html')}
+          hint={t('importExport.htmlFileHint')}
           loading={busy === 'HTML'}
           disabled={busy !== null}
           onClick={() => importFile('HTML', ['html', 'htm'], (p) => api.importHtml(p))}
@@ -328,7 +337,7 @@ function ImportTab({ onClose }: { onClose: () => void }) {
         <ActionCard
           icon="📊"
           label="CSV"
-          hint="Spreadsheet → database with auto-typed columns"
+          hint={t('importExport.csvHint')}
           loading={busy === 'CSV'}
           disabled={busy !== null}
           onClick={() => importFile('CSV', ['csv'], (p) => api.importCsv(p))}
@@ -336,7 +345,7 @@ function ImportTab({ onClose }: { onClose: () => void }) {
         <ActionCard
           icon="🗃️"
           label="Notion export"
-          hint=".zip from Notion → page tree with images"
+          hint={t('importExport.notionHint')}
           loading={busy === 'Notion export'}
           disabled={busy !== null}
           onClick={importNotionZip}
@@ -400,6 +409,7 @@ function ActionCard({
   loading?: boolean;
   danger?: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <button
       type="button"
@@ -417,7 +427,9 @@ function ActionCard({
         <span className="block text-[13px] font-medium text-text-primary">{label}</span>
         <span className="block text-[11px] text-text-tertiary">{hint}</span>
       </span>
-      {loading && <span className="text-[11px] text-text-tertiary animate-pulse">working…</span>}
+      {loading && (
+        <span className="text-[11px] text-text-tertiary animate-pulse">{t('importExport.working')}</span>
+      )}
     </button>
   );
 }
