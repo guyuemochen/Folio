@@ -12,6 +12,8 @@ mod db;
 mod database;
 mod export;
 mod import;
+#[allow(dead_code)] // media helpers — used by notion_zip import + future features
+mod media;
 mod prosemirror;
 mod schema;
 
@@ -23,6 +25,10 @@ pub enum Error {
     Db(#[from] rusqlite::Error),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("json error: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("zip error: {0}")]
+    Zip(#[from] zip::result::ZipError),
     #[error("not found: {0}")]
     NotFound(String),
     #[error("{0}")]
@@ -617,6 +623,132 @@ fn import_html(
 }
 
 // =============================================================================
+// Import (M5 §5.5.1) — CSV + Notion zip
+// =============================================================================
+
+/// Import a CSV file as a new database page.
+#[tauri::command]
+fn import_csv(
+    state: State<'_, AppState>,
+    csv_path: String,
+    parent_id: Option<String>,
+) -> Result<Page> {
+    let csv_text = std::fs::read_to_string(&csv_path)?;
+    let db = state.db.lock();
+    let workspace = db::get_or_create_workspace(&db)?;
+    let db_name = std::path::Path::new(&csv_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_string());
+    let database_id = import::csv::import_csv(
+        &db,
+        &workspace.id,
+        parent_id.as_deref(),
+        &csv_text,
+        db_name.as_deref(),
+    )?;
+    // Fetch the database page to return.
+    let (page, _doc) = db::fetch_page_with_doc(&db, &database_id)?;
+    Ok(page)
+}
+
+/// Import a Notion Markdown export zip as a page tree.
+#[tauri::command]
+fn import_notion_zip(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    zip_path: String,
+    parent_id: Option<String>,
+) -> Result<import::ImportResult> {
+    use tauri::Manager;
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| Error::Other(format!("app_data_dir: {e}")))?;
+    let db = state.db.lock();
+    let workspace = db::get_or_create_workspace(&db)?;
+    import::notion_zip::import_notion_zip(
+        &db,
+        &workspace.id,
+        &app_data_dir,
+        &zip_path,
+        parent_id.as_deref(),
+    )
+}
+
+// =============================================================================
+// Export (M5 §5.5.2) — Workspace zip + Backup
+// =============================================================================
+
+/// Export the entire workspace as a base64-encoded zip.
+#[tauri::command]
+fn export_workspace(
+    state: State<'_, AppState>,
+    format: String,
+) -> Result<String> {
+    let fmt = export::ExportFormat::parse(&format)
+        .ok_or_else(|| Error::Other(format!("unknown export format: {format}")))?;
+    let db = state.db.lock();
+    export::workspace::export_workspace(&db, fmt)
+}
+
+/// Create a Folio Backup (SQLite + assets) as a base64-encoded zip.
+#[tauri::command]
+fn create_backup(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<String> {
+    use tauri::Manager;
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| Error::Other(format!("app_data_dir: {e}")))?;
+    let db = state.db.lock();
+    export::backup::create_backup(&db, &app_data_dir)
+}
+
+/// Restore a Folio Backup from a file path. Writes files to disk; the
+/// frontend should restart the app to reopen the DB on the restored data.
+#[tauri::command]
+fn restore_backup(
+    app: tauri::AppHandle,
+    backup_path: String,
+) -> Result<bool> {
+    use tauri::Manager;
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| Error::Other(format!("app_data_dir: {e}")))?;
+    // Read the backup zip, encode to base64 for the restore function.
+    let bytes = std::fs::read(&backup_path)?;
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+    export::backup::restore_backup(&app_data_dir, &b64)
+}
+
+// =============================================================================
+// File saving (used by export commands to write to a user-chosen path)
+// =============================================================================
+
+/// Write text content to a file path (chosen by the frontend via save dialog).
+#[tauri::command]
+fn save_text_file(path: String, content: String) -> Result<()> {
+    std::fs::write(&path, content)?;
+    Ok(())
+}
+
+/// Write binary content (base64-encoded) to a file path. Used for zip exports.
+#[tauri::command]
+fn save_binary_file(path: String, content_b64: String) -> Result<()> {
+    let bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        content_b64.as_bytes(),
+    )
+    .map_err(|e| Error::Other(format!("base64 decode: {e}")))?;
+    std::fs::write(&path, bytes)?;
+    Ok(())
+}
+
+// =============================================================================
 // Entry point
 // =============================================================================
 
@@ -647,6 +779,31 @@ pub fn run() {
             // WAL mode for crash-safe writes (PRD §10.2 reliability target).
             conn.pragma_update(None, "journal_mode", "WAL").ok();
             conn.pragma_update(None, "foreign_keys", "ON").ok();
+
+            // M6 perf tuning (PRD §10.1).
+            //
+            // - `synchronous=NORMAL`: in WAL mode this is still crash-safe
+            //   for application closes / crashes — only a *power loss* can
+            //   drop the last committed transaction, which is acceptable
+            //   tradeoff vs. FULL's per-commit fsync cost. PRD §10.2 still
+            //   honors "0 data loss on crash".
+            // - `cache_size=-20000`: ~20 MB page cache (negative = KB).
+            // - `mmap_size=268435456`: 256 MB memory-mapped I/O for reads.
+            // - `temp_store=MEMORY`: temp tables/indices in RAM.
+            // - `journal_size_limit=67108864`: cap WAL files at 64 MB so
+            //   checkpointing reclaims disk predictably.
+            for (key, val) in [
+                ("synchronous", "NORMAL"),
+                ("cache_size", "-20000"),
+                ("mmap_size", "268435456"),
+                ("temp_store", "MEMORY"),
+                ("journal_size_limit", "67108864"),
+                ("wal_autocheckpoint", "1000"),
+            ] {
+                if let Err(e) = conn.pragma_update(None, key, val) {
+                    eprintln!("[folio] warning: pragma {key}={val} failed: {e}");
+                }
+            }
 
             schema::apply(&conn).expect("failed to apply database schema");
 
@@ -715,6 +872,15 @@ pub fn run() {
             // Import (M5)
             import_markdown,
             import_html,
+            import_csv,
+            import_notion_zip,
+            // Workspace export + backup (M5)
+            export_workspace,
+            create_backup,
+            restore_backup,
+            // File saving (M5 export)
+            save_text_file,
+            save_binary_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Folio");

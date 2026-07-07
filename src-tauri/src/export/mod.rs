@@ -5,11 +5,13 @@
 //!
 //! - [`markdown`] — ProseMirror JSON → Markdown string
 //! - [`html`]     — ProseMirror JSON → standalone HTML document string
-//!
-//! Future phases add `workspace` (zip) and `backup` (SQLite + attachments).
+//! - [`workspace`] — Full workspace → base64-encoded zip (MD or HTML + sitemap)
+//! - [`backup`]   — Folio Backup (SQLite + assets) → base64-encoded zip
 
 pub mod markdown;
 pub mod html;
+pub mod workspace;
+pub mod backup;
 
 /// The export format requested by the frontend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

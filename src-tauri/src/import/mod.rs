@@ -7,9 +7,13 @@
 //!
 //! - [`markdown`] — Markdown string → ProseMirror JSON (via comrak AST)
 //! - [`html`]     — HTML string → ProseMirror JSON (via scraper DOM)
+//! - [`csv`]      — CSV text → Folio database (creates properties + rows)
+//! - [`notion_zip`] — Notion export zip → page tree (with images)
 
 pub mod markdown;
 pub mod html;
+pub mod csv;
+pub mod notion_zip;
 
 /// Summary returned by import commands. Serialized to the frontend so the UI
 /// can show "imported N pages" / surface warnings.
