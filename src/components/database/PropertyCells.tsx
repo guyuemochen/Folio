@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { api } from '../../lib/invoke';
 import type { AttachmentInfo, PropertyDef, SelectOption } from '../../lib/types';
@@ -28,7 +28,7 @@ interface CellProps {
 type SimpleCellProps = Pick<CellProps, 'value' | 'onChange'>;
 
 /** Dispatch to the right editor by property.type. */
-export function PropertyCell({
+export const PropertyCell = memo(function PropertyCell({
   value,
   property,
   onChange,
@@ -74,11 +74,11 @@ export function PropertyCell({
     default:
       return <PlaceholderCell label={property.type} />;
   }
-}
+});
 
 // ---------------------------------------------------------------------------
 
-function TitleCell({ value, onChange }: SimpleCellProps) {
+const TitleCell = memo(function TitleCell({ value, onChange }: SimpleCellProps) {
   return (
     <input
       type="text"
@@ -88,9 +88,9 @@ function TitleCell({ value, onChange }: SimpleCellProps) {
       className="w-full bg-transparent outline-none text-sm text-text-primary placeholder:text-text-tertiary"
     />
   );
-}
+});
 
-function TextCell({ value, onChange }: SimpleCellProps) {
+const TextCell = memo(function TextCell({ value, onChange }: SimpleCellProps) {
   const [draft, setDraft] = useState(typeof value === 'string' ? value : '');
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -127,9 +127,9 @@ function TextCell({ value, onChange }: SimpleCellProps) {
       )}
     </>
   );
-}
+});
 
-function NumberCell({ value, property, onChange }: CellProps) {
+const NumberCell = memo(function NumberCell({ value, property, onChange }: CellProps) {
   const fmt = property.numberFormat ?? 'integer';
   const step = fmt === 'integer' ? 1 : fmt === 'percent' ? 0.01 : 0.001;
   return (
@@ -146,9 +146,9 @@ function NumberCell({ value, property, onChange }: CellProps) {
       className="w-full bg-transparent outline-none text-sm text-text-primary"
     />
   );
-}
+});
 
-function CheckboxCell({ value, onChange }: SimpleCellProps) {
+const CheckboxCell = memo(function CheckboxCell({ value, onChange }: SimpleCellProps) {
   const checked = value === true;
   return (
     <input
@@ -158,9 +158,9 @@ function CheckboxCell({ value, onChange }: SimpleCellProps) {
       className="w-4 h-4 accent-accent"
     />
   );
-}
+});
 
-function UrlCell({ value, onChange }: SimpleCellProps) {
+const UrlCell = memo(function UrlCell({ value, onChange }: SimpleCellProps) {
   const href = typeof value === 'string' ? value : '';
   return (
     <input
@@ -171,9 +171,9 @@ function UrlCell({ value, onChange }: SimpleCellProps) {
       className="w-full bg-transparent outline-none text-sm text-accent underline placeholder:text-text-tertiary"
     />
   );
-}
+});
 
-function SelectCell({
+const SelectCell = memo(function SelectCell({
   value,
   property,
   onChange,
@@ -252,9 +252,9 @@ function SelectCell({
       )}
     </>
   );
-}
+});
 
-function DateCell({ value, onChange }: SimpleCellProps) {
+const DateCell = memo(function DateCell({ value, onChange }: SimpleCellProps) {
   const iso = typeof value === 'string' ? value : '';
   return (
     <input
@@ -264,13 +264,13 @@ function DateCell({ value, onChange }: SimpleCellProps) {
       className="bg-transparent outline-none text-sm text-text-primary"
     />
   );
-}
+});
 
 /**
  * Person cell — MVP simplification (PRD §5.3.2): single fixed option "Me".
  * Behaves like a single-select with one option. Click toggles between set/clear.
  */
-function PersonCell({ value, onChange }: SimpleCellProps) {
+const PersonCell = memo(function PersonCell({ value, onChange }: SimpleCellProps) {
   const isMe = value === 'Me';
   return (
     <button
@@ -288,14 +288,14 @@ function PersonCell({ value, onChange }: SimpleCellProps) {
       )}
     </button>
   );
-}
+});
 
 /**
  * Files cell — picks a file via the Tauri dialog, copies it into the per-db
  * attachments dir (Rust side), and stores {name, path, size} as the cell value.
  * Renders a filename chip with a download icon.
  */
-function FilesCell({
+const FilesCell = memo(function FilesCell({
   value,
   property,
   onChange,
@@ -359,7 +359,7 @@ function FilesCell({
       {busy ? '…' : '+ Add file'}
     </button>
   );
-}
+});
 
 interface AttachmentShape {
   name: string;
@@ -381,9 +381,9 @@ function toAttachment(value: unknown): AttachmentShape | null {
   return null;
 }
 
-function PlaceholderCell({ label }: { label: string }) {
+const PlaceholderCell = memo(function PlaceholderCell({ label }: { label: string }) {
   return <span className="text-xs text-text-tertiary italic">{label}</span>;
-}
+});
 
 // ============================================================================
 // Helpers — Notion semantic color → bg/dot classes
