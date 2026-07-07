@@ -57,6 +57,8 @@ const ROW_HEIGHT = 40;
 export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) {
   const { t } = useTranslation();
   const setCurrentPage = useWorkspaceStore((s) => s.setCurrentPage);
+  const loadChildren = useWorkspaceStore((s) => s.loadChildren);
+  const removePageLocally = useWorkspaceStore((s) => s.removePageLocally);
 
   const { data: schema, refetch: refetchSchema } = useQuery({
     queryKey: ['database', databaseId],
@@ -159,12 +161,16 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
     await api.addDatabaseRow(databaseId);
     setNewMenuOpen(false);
     refetchRows();
+    // Refresh sidebar's childrenCache for this database so the new row
+    // appears in the page tree without a manual refresh.
+    void loadChildren(databaseId);
   };
 
   const handleAddRowFromTemplate = async (tpl: DatabaseTemplate) => {
     await api.addDatabaseRowFromTemplate(databaseId, tpl.id);
     setNewMenuOpen(false);
     refetchRows();
+    void loadChildren(databaseId);
   };
 
   const handleAddProperty = async (input: {
@@ -292,6 +298,9 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
     const ids = [...selectedRowIds];
     setContextMenu(null);
     await Promise.all(ids.map((id) => api.deleteDatabaseRow(id)));
+    // Sync sidebar: remove each deleted page from the page tree, otherwise
+    // the sidebar keeps showing ghost rows that 404 on click.
+    ids.forEach((id) => removePageLocally(id));
     setSelectedRowIds(new Set());
     refetchRows();
   };
@@ -299,6 +308,8 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
   const handleDuplicateRow = async (rowId: string) => {
     setContextMenu(null);
     await api.duplicateDatabaseRow(rowId);
+    // Sync sidebar so the new page appears in the page tree.
+    void loadChildren(databaseId);
     refetchRows();
   };
 
@@ -473,100 +484,60 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
           body rows (PRD §10.1: 1000 rows render < 500ms). Horizontal scroll
           still works via `overflow-auto`. */}
       <div ref={tableScrollRef} className="overflow-auto max-h-[70vh] border-b border-border-hairline">
-        <table className="w-full border-collapse text-[13px]">
-          <thead>
-            <tr className="bg-bg-section border-b border-border-hairline">
-              {visibleProps.map((prop) => {
-                const w = widths[prop.id] ?? DEFAULT_COL_WIDTH;
-                const sort = sorts.find((s) => s.propertyId === prop.id);
-                return (
-                  <th
-                    key={prop.id}
-                    style={{ width: w, minWidth: MIN_COL_WIDTH }}
-                    className="relative text-left text-xs font-medium text-text-secondary px-3 py-2 cursor-pointer hover:bg-bg-hover border-b border-border-hairline group"
-                    onClick={(e) =>
-                      setMenuOpenFor({
-                        col: prop.id,
-                        anchorRect: e.currentTarget.getBoundingClientRect(),
-                      })
-                    }
-                  >
-                    <div className="flex items-center gap-1.5 pr-2">
-                      <TypeIcon type={prop.type} />
-                      <span className="truncate">{prop.name}</span>
-                      {sort && (
-                        <span className="text-text-tertiary">
-                          {sort.direction === 'asc' ? '↑' : '↓'}
-                          {sorts.length > 1 ? ` ${sorts.indexOf(sort) + 1}` : ''}
-                        </span>
-                      )}
-                    </div>
-                    {/* Resize handle */}
-                    <div
-                      className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-accent/40"
-                      onMouseDown={(e) => startResize(e, prop.id, w, setWidths, (next) =>
-                        persistView({ columnWidths: next }),
-                      )}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                    {menuOpenFor && 'col' in menuOpenFor && menuOpenFor.col === prop.id && (
-                      <PropertyMenu
-                        anchorRect={menuOpenFor.anchorRect}
-                        property={prop}
-                        onClose={() => setMenuOpenFor(null)}
-                        onSubmit={(input) => handleEditProperty(prop.id, input)}
-                        onDelete={() => handleDeleteProperty(prop.id)}
-                        onSort={() => { cycleSort(prop.id); setMenuOpenFor(null); }}
-                        onFilter={() => openFilterForColumn(prop.id)}
-                        onHide={() => toggleHide(prop.id)}
-                        onDuplicate={() => handleDuplicateProperty(prop.id)}
-                      />
-                    )}
-                  </th>
-                );
-              })}
-              <th className="relative px-2 py-2 min-w-[48px] border-b border-border-hairline">
-                <button
-                  type="button"
-                  onClick={(e) =>
-                    setMenuOpenFor({
-                      new: true,
-                      anchorRect: e.currentTarget.getBoundingClientRect(),
-                    })
-                  }
-                  className="text-text-tertiary hover:text-text-primary text-lg leading-none px-2"
-                  title={t('database.addProperty')}
-                >
-                  +
-                </button>
-                {menuOpenFor && 'new' in menuOpenFor && (
-                  <PropertyMenu
-                    anchorRect={menuOpenFor.anchorRect}
-                    onClose={() => setMenuOpenFor(null)}
-                    onSubmit={handleAddProperty}
-                  />
-                )}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {groupProp ? (
-              <GroupedBody
-                groups={groupedRows}
-                groupProp={groupProp}
-                visibleProps={visibleProps}
-                collapsedGroups={collapsedGroups}
-                selectedRowIds={selectedRowIds}
-                onToggleCollapse={toggleGroupCollapse}
-                onRowClick={onRowClick}
-                onRowContextMenu={onRowContextMenu}
-                onCellChange={handleCellChange}
-                onOpenRow={setCurrentPage}
-                databaseId={databaseId}
-                onDropOnGroup={handleDropOnGroup}
-                onAfterCellCommit={refetchRows}
-              />
-            ) : (
+        {groupProp ? (
+          // Feishu-style grouped view: each group is an INDEPENDENT table
+          // (its own column header row) wrapped in a bordered card, stacked
+          // vertically. Column widths stay aligned across groups because
+          // every table shares the same `widths` map and uses table-fixed.
+          <GroupedTables
+            groups={groupedRows}
+            groupProp={groupProp}
+            visibleProps={visibleProps}
+            widths={widths}
+            sorts={sorts}
+            menuOpenFor={menuOpenFor}
+            setMenuOpenFor={setMenuOpenFor}
+            setWidths={setWidths}
+            persistView={persistView}
+            cycleSort={cycleSort}
+            handleEditProperty={handleEditProperty}
+            handleDeleteProperty={handleDeleteProperty}
+            handleDuplicateProperty={handleDuplicateProperty}
+            handleAddProperty={handleAddProperty}
+            openFilterForColumn={openFilterForColumn}
+            toggleHide={toggleHide}
+            startResize={startResize}
+            collapsedGroups={collapsedGroups}
+            selectedRowIds={selectedRowIds}
+            onToggleCollapse={toggleGroupCollapse}
+            onRowClick={onRowClick}
+            onRowContextMenu={onRowContextMenu}
+            onCellChange={handleCellChange}
+            onOpenRow={setCurrentPage}
+            databaseId={databaseId}
+            onDropOnGroup={handleDropOnGroup}
+            onAfterCellCommit={refetchRows}
+          />
+        ) : (
+          <table className="w-full border-collapse text-[13px]">
+            <TableHeaderRow
+              visibleProps={visibleProps}
+              widths={widths}
+              sorts={sorts}
+              menuOpenFor={menuOpenFor}
+              setMenuOpenFor={setMenuOpenFor}
+              setWidths={setWidths}
+              persistView={persistView}
+              cycleSort={cycleSort}
+              handleEditProperty={handleEditProperty}
+              handleDeleteProperty={handleDeleteProperty}
+              handleDuplicateProperty={handleDuplicateProperty}
+              handleAddProperty={handleAddProperty}
+              openFilterForColumn={openFilterForColumn}
+              toggleHide={toggleHide}
+              startResize={startResize}
+            />
+            <tbody>
               <FlatBody
                 rows={sortedRows}
                 visibleProps={visibleProps}
@@ -579,9 +550,9 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
                 onAfterCellCommit={refetchRows}
                 scrollRef={tableScrollRef}
               />
-            )}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* Filter editor modal */}
@@ -607,6 +578,165 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
         />
       )}
     </div>
+  );
+}
+
+// =============================================================================
+// Header row (shared by the flat table and every per-group table)
+// =============================================================================
+
+interface HeaderProps {
+  visibleProps: PropertyDef[];
+  widths: Record<string, number>;
+  sorts: SortEntry[];
+  menuOpenFor:
+    | { col: string; anchorRect: DOMRect }
+    | { new: true; anchorRect: DOMRect }
+    | null;
+  setMenuOpenFor: (
+    v:
+      | { col: string; anchorRect: DOMRect }
+      | { new: true; anchorRect: DOMRect }
+      | null,
+  ) => void;
+  setWidths: (
+    updater: (prev: Record<string, number>) => Record<string, number>,
+  ) => void;
+  persistView: (patch: Partial<ViewConfig>) => void;
+  cycleSort: (propId: string) => void;
+  handleEditProperty: (
+    propId: string,
+    input: {
+      name: string;
+      type: PropertyDef['type'];
+      options?: PropertyDef['options'];
+      numberFormat?: string;
+    },
+  ) => void;
+  handleDeleteProperty: (propId: string) => void;
+  handleDuplicateProperty: (propId: string) => void;
+  handleAddProperty: (input: {
+    name: string;
+    type: PropertyDef['type'];
+    options?: PropertyDef['options'];
+    numberFormat?: string;
+  }) => void;
+  openFilterForColumn: (propId: string) => void;
+  toggleHide: (propId: string) => void;
+  startResize: (
+    e: React.MouseEvent,
+    propId: string,
+    startW: number,
+    setWidths: (
+      updater: (prev: Record<string, number>) => Record<string, number>,
+    ) => void,
+    onDone: (next: Record<string, number>) => void,
+  ) => void;
+}
+
+/**
+ * The column header row. Extracted from the original inline `<thead>` so it
+ * can be reused by both the flat table and each Feishu-style per-group
+ * table. Renders `<thead><tr>...</tr></thead>` so the parent just wraps it
+ * in a `<table>`. Markup is identical to the original inline version.
+ */
+function TableHeaderRow({
+  visibleProps,
+  widths,
+  sorts,
+  menuOpenFor,
+  setMenuOpenFor,
+  setWidths,
+  persistView,
+  cycleSort,
+  handleEditProperty,
+  handleDeleteProperty,
+  handleDuplicateProperty,
+  handleAddProperty,
+  openFilterForColumn,
+  toggleHide,
+  startResize,
+}: HeaderProps) {
+  const { t } = useTranslation();
+  return (
+    <thead>
+      <tr className="bg-bg-section border-b border-border-hairline">
+        {visibleProps.map((prop) => {
+          const w = widths[prop.id] ?? DEFAULT_COL_WIDTH;
+          const sort = sorts.find((s) => s.propertyId === prop.id);
+          return (
+            <th
+              key={prop.id}
+              style={{ width: w, minWidth: MIN_COL_WIDTH }}
+              className="relative text-left text-xs font-medium text-text-secondary px-3 py-2 cursor-pointer hover:bg-bg-hover border-b border-border-hairline group"
+              onClick={(e) =>
+                setMenuOpenFor({
+                  col: prop.id,
+                  anchorRect: e.currentTarget.getBoundingClientRect(),
+                })
+              }
+            >
+              <div className="flex items-center gap-1.5 pr-2">
+                <TypeIcon type={prop.type} />
+                <span className="truncate">{prop.name}</span>
+                {sort && (
+                  <span className="text-text-tertiary">
+                    {sort.direction === 'asc' ? '↑' : '↓'}
+                    {sorts.length > 1 ? ` ${sorts.indexOf(sort) + 1}` : ''}
+                  </span>
+                )}
+              </div>
+              {/* Resize handle */}
+              <div
+                className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-accent/40"
+                onMouseDown={(e) => startResize(e, prop.id, w, setWidths, (next) =>
+                  persistView({ columnWidths: next }),
+                )}
+                onClick={(e) => e.stopPropagation()}
+              />
+              {menuOpenFor && 'col' in menuOpenFor && menuOpenFor.col === prop.id && (
+                <PropertyMenu
+                  anchorRect={menuOpenFor.anchorRect}
+                  property={prop}
+                  onClose={() => setMenuOpenFor(null)}
+                  onSubmit={(input) => handleEditProperty(prop.id, input)}
+                  onDelete={() => handleDeleteProperty(prop.id)}
+                  onSort={() => { cycleSort(prop.id); setMenuOpenFor(null); }}
+                  onFilter={() => openFilterForColumn(prop.id)}
+                  onHide={() => toggleHide(prop.id)}
+                  onDuplicate={() => handleDuplicateProperty(prop.id)}
+                />
+              )}
+            </th>
+          );
+        })}
+        <th
+          style={{ width: 48, minWidth: 48 }}
+          className="relative px-2 py-2 border-b border-border-hairline"
+        >
+          <button
+            type="button"
+            onClick={(e) =>
+              setMenuOpenFor({
+                new: true,
+                anchorRect: e.currentTarget.getBoundingClientRect(),
+              })
+            }
+            className="text-text-tertiary hover:text-text-primary text-lg leading-none px-2"
+            title={t('database.addProperty')}
+          >
+            +
+          </button>
+          {menuOpenFor && 'new' in menuOpenFor && (
+            <PropertyMenu
+              anchorRect={menuOpenFor.anchorRect}
+              onClose={() => setMenuOpenFor(null)}
+              onSubmit={handleAddProperty}
+            />
+          )}
+        </th>
+      </tr>
+    </thead>
   );
 }
 
@@ -705,9 +835,24 @@ function FlatBody({
   );
 }
 
-function GroupedBody({
+function GroupedTables({
   groups,
+  groupProp,
   visibleProps,
+  widths,
+  sorts,
+  menuOpenFor,
+  setMenuOpenFor,
+  setWidths,
+  persistView,
+  cycleSort,
+  handleEditProperty,
+  handleDeleteProperty,
+  handleDuplicateProperty,
+  handleAddProperty,
+  openFilterForColumn,
+  toggleHide,
+  startResize,
   collapsedGroups,
   selectedRowIds,
   onToggleCollapse,
@@ -718,61 +863,95 @@ function GroupedBody({
   databaseId,
   onDropOnGroup,
   onAfterCellCommit,
-}: BodyProps & {
+}: HeaderProps & {
   groups: { key: string; label: string; color: string; rows: DatabaseRow[] }[];
   groupProp: PropertyDef;
   collapsedGroups: Set<string>;
+  selectedRowIds: Set<string>;
   onToggleCollapse: (key: string) => void;
+  onRowClick: (e: React.MouseEvent, rowId: string) => void;
+  onRowContextMenu: (e: React.MouseEvent, rowId: string) => void;
+  onCellChange: (row: DatabaseRow, prop: PropertyDef, value: unknown) => void;
+  onOpenRow: (pageId: string) => void;
+  databaseId: string;
   onDropOnGroup: (groupValue: string) => void;
+  onAfterCellCommit: () => void;
 }) {
   return (
-    <>
+    <div className="p-3 space-y-3">
       {groups.map((g) => {
         const collapsed = collapsedGroups.has(g.key);
         return (
-          <>
-            <tr
-              key={g.key}
-              className="border-t border-border-hairline bg-bg-section/40"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => { e.preventDefault(); onDropOnGroup(g.key); }}
-            >
-              <td colSpan={visibleProps.length + 1} className="px-3 py-1.5">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onToggleCollapse(g.key)}
-                    className="text-xs text-text-tertiary w-4"
-                  >
-                    {collapsed ? '▸' : '▾'}
-                  </button>
-                  <span className={`w-1 h-4 rounded-sm ${dotClass(g.color)}`} />
-                  <span className="text-[13px] font-medium text-text-primary">
-                    {g.label}
-                  </span>
-                  <span className="text-[11px] text-text-tertiary">{g.rows.length}</span>
-                </div>
-              </td>
-            </tr>
-            {!collapsed &&
-              g.rows.map((row) => (
-                <RowLine
-                  key={row.id}
-                  row={row}
+          <section
+            key={g.key}
+            className="rounded-md border border-border-hairline bg-bg-page overflow-hidden"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); onDropOnGroup(g.key); }}
+          >
+            {/* Group title bar — NOT inside any table. Indented (pl-4) so it
+                clearly sits ABOVE-AND-INDENTED relative to the column header
+                row of the per-group table below. */}
+            <div className="flex items-center gap-2 pl-4 pr-3 py-1.5 bg-bg-section/60 border-b border-border-hairline">
+              <button
+                type="button"
+                onClick={() => onToggleCollapse(g.key)}
+                className="text-xs text-text-tertiary w-4 hover:text-text-secondary"
+                aria-label={collapsed ? 'Expand group' : 'Collapse group'}
+              >
+                {collapsed ? '▸' : '▾'}
+              </button>
+              <span className={`w-2.5 h-2.5 rounded-full ${dotClass(g.color)}`} />
+              <span className="text-[13px] font-semibold text-text-primary tracking-tight">
+                {groupProp.name}: {g.label}
+              </span>
+              <span className="text-[11px] text-text-tertiary">{g.rows.length}</span>
+            </div>
+            {/* Per-group table — independent column header row + body.
+                `table-fixed` guarantees every group's columns align since
+                they all read from the same `widths` map (auto-layout would
+                drift per-group based on cell content). */}
+            {!collapsed && (
+              <table className="w-full border-collapse text-[13px] table-fixed">
+                <TableHeaderRow
                   visibleProps={visibleProps}
-                  selected={selectedRowIds.has(row.id)}
-                  onRowClick={onRowClick}
-                  onRowContextMenu={onRowContextMenu}
-                  onCellChange={onCellChange}
-                  onOpenRow={onOpenRow}
-                  databaseId={databaseId}
-                  onAfterCellCommit={onAfterCellCommit}
+                  widths={widths}
+                  sorts={sorts}
+                  menuOpenFor={menuOpenFor}
+                  setMenuOpenFor={setMenuOpenFor}
+                  setWidths={setWidths}
+                  persistView={persistView}
+                  cycleSort={cycleSort}
+                  handleEditProperty={handleEditProperty}
+                  handleDeleteProperty={handleDeleteProperty}
+                  handleDuplicateProperty={handleDuplicateProperty}
+                  handleAddProperty={handleAddProperty}
+                  openFilterForColumn={openFilterForColumn}
+                  toggleHide={toggleHide}
+                  startResize={startResize}
                 />
-              ))}
-          </>
+                <tbody>
+                  {g.rows.map((row) => (
+                    <RowLine
+                      key={row.id}
+                      row={row}
+                      visibleProps={visibleProps}
+                      selected={selectedRowIds.has(row.id)}
+                      onRowClick={onRowClick}
+                      onRowContextMenu={onRowContextMenu}
+                      onCellChange={onCellChange}
+                      onOpenRow={onOpenRow}
+                      databaseId={databaseId}
+                      onAfterCellCommit={onAfterCellCommit}
+                      groupColor={g.color}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
         );
       })}
-    </>
+    </div>
   );
 }
 
@@ -786,28 +965,48 @@ function RowLine({
   onOpenRow,
   databaseId,
   onAfterCellCommit,
-}: Omit<BodyProps, 'selectedRowIds'> & { row: DatabaseRow; selected: boolean }) {
+  groupColor,
+}: Omit<BodyProps, 'selectedRowIds'> & { row: DatabaseRow; selected: boolean; groupColor?: string }) {
   const { t } = useTranslation();
+  const removePageLocally = useWorkspaceStore((s) => s.removePageLocally);
+  const grouped = Boolean(groupColor);
   return (
     <tr
       className={[
-        'border-t border-border-hairline/60 transition-colors group cursor-default',
-        selected ? 'bg-bg-active' : 'hover:bg-bg-hover/60',
+        'transition-colors group cursor-default',
+        // Flat rows keep their original inter-row separator.
+        // Grouped rows drop it so siblings read as one block; the group
+        // header's stronger top border carries the between-group separation.
+        grouped ? '' : 'border-t border-border-hairline/60',
+        selected
+          ? 'bg-bg-active'
+          : grouped
+            ? 'bg-bg-section/25'
+            : 'hover:bg-bg-hover/60',
       ].join(' ')}
       onClick={(e) => onRowClick(e, row.id)}
       onContextMenu={(e) => onRowContextMenu(e, row.id)}
     >
-      {visibleProps.map((prop) => (
+      {visibleProps.map((prop, i) => (
         <td
           key={prop.id}
           className="relative px-3 py-1 align-top"
           onClick={(e) => {
+            // Title cell is editable in place now — opening the page is done
+            // via the dedicated ↗ button at the end of the row. We still
+            // stopPropagation on the title cell so clicking into the input
+            // to edit doesn't toggle row selection (which fires on the <tr>).
             if (prop.type === 'title') {
               e.stopPropagation();
-              onOpenRow(row.id);
             }
           }}
         >
+          {i === 0 && groupColor && (
+            <span
+              aria-hidden
+              className={`pointer-events-none absolute inset-y-0 left-0 w-0.5 ${dotClass(groupColor)}`}
+            />
+          )}
           <PropertyCell
             value={row.properties[prop.id]}
             property={prop}
@@ -818,13 +1017,29 @@ function RowLine({
           />
         </td>
       ))}
-      <td className="px-2 text-center">
+      <td className="px-2 text-center whitespace-nowrap">
+        {/* Open page — dedicated button so the title cell stays editable
+            in place. Hover-revealed alongside the delete button. */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenRow(row.id);
+          }}
+          className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-accent px-1 transition-opacity"
+          title={t('database.openRow')}
+          aria-label={t('database.openRow')}
+        >
+          ↗
+        </button>
         <button
           type="button"
           onClick={async (e) => {
             e.stopPropagation();
             if (confirm(t('database.deleteRowConfirm'))) {
               await api.deleteDatabaseRow(row.id);
+              // Sync sidebar so the deleted page disappears from the tree.
+              removePageLocally(row.id);
               onAfterCellCommit();
             }
           }}

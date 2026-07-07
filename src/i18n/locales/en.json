@@ -199,6 +199,7 @@
     "emptyRows": "No rows match. Adjust filters or click + New.",
     "deleteRow": "Delete row",
     "deleteRowConfirm": "Delete this row?",
+    "openRow": "Open",
     "deleteSelected_one": "Delete {{count}} selected",
     "deleteSelected_other": "Delete {{count}} selected",
     "blank": "Blank",

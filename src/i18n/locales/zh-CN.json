@@ -199,6 +199,7 @@
     "emptyRows": "没有匹配的行。调整筛选条件或点击 + 新建。",
     "deleteRow": "删除行",
     "deleteRowConfirm": "删除此行?",
+    "openRow": "打开",
     "deleteSelected_one": "删除 {{count}} 个选中项",
     "deleteSelected_other": "删除 {{count}} 个选中项",
     "blank": "空白",
