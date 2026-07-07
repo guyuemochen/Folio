@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Popover } from './ui/Popover';
 
 /**
@@ -60,6 +61,7 @@ interface EmojiPickerProps {
 }
 
 export function EmojiPicker({ anchorRect, onSelect, onClose }: EmojiPickerProps) {
+  const { t } = useTranslation();
   const [activeCat, setActiveCat] = useState(0);
   const [query, setQuery] = useState('');
 
@@ -129,7 +131,7 @@ export function EmojiPicker({ anchorRect, onSelect, onClose }: EmojiPickerProps)
           onClick={() => onSelect('')}
           className="text-[11px] text-text-tertiary hover:text-text-primary"
         >
-          Remove
+          {t('common.remove')}
         </button>
       </div>
     </Popover>

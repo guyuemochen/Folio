@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api } from '../lib/invoke';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { Editor } from '../editor/Editor';
@@ -38,6 +39,7 @@ const ImportExportModal = lazy(() =>
  *   - Content: max-width 860px (small/full toggle)
  */
 export function PageView({ pageId }: { pageId: string }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const {
     data: pageData,
@@ -130,7 +132,7 @@ export function PageView({ pageId }: { pageId: string }) {
   if (isLoading) {
     return (
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-page mx-auto px-24 py-12 text-text-tertiary">Loading page…</div>
+        <div className="max-w-page mx-auto px-24 py-12 text-text-tertiary">{t('common.loadingPage')}</div>
       </main>
     );
   }
@@ -139,7 +141,7 @@ export function PageView({ pageId }: { pageId: string }) {
     return (
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-page mx-auto px-24 py-12">
-          <p className="text-status-red mb-2">Failed to load page.</p>
+          <p className="text-status-red mb-2">{t('page.loadFailed')}</p>
           <p className="text-sm text-text-tertiary">{String(error)}</p>
         </div>
       </main>
@@ -219,10 +221,10 @@ export function PageView({ pageId }: { pageId: string }) {
   // Breadcrumb title
   const crumb =
     pageData.parentType === 'workspace'
-      ? 'Workspace'
+      ? t('page.workspace')
       : pageData.parentType === 'database'
-        ? 'Database row'
-        : 'Sub-page';
+        ? t('page.databaseRow')
+        : t('page.subpage');
 
   return (
     <main ref={scrollRef} className="flex-1 overflow-y-auto relative">
@@ -238,10 +240,10 @@ export function PageView({ pageId }: { pageId: string }) {
         <ActionCluster
           favorite={pageData.favorite}
           moreMenuAnchor={moreMenuAnchor}
-          onShare={() => window.dispatchEvent(new CustomEvent('folio:toast', { detail: 'Sharing — coming in v1' }))}
+          onShare={() => window.dispatchEvent(new CustomEvent('folio:toast', { detail: t('page.sharingSoon') }))}
           onMore={(rect) => setMoreMenuAnchor(rect)}
           onFavorite={toggleFavorite}
-          onComments={() => window.dispatchEvent(new CustomEvent('folio:toast', { detail: 'Comments — coming in v1' }))}
+          onComments={() => window.dispatchEvent(new CustomEvent('folio:toast', { detail: t('page.commentsSoon') }))}
         />
       </div>
 
@@ -258,14 +260,14 @@ export function PageView({ pageId }: { pageId: string }) {
               onClick={() => setCoverPickerOpen(true)}
               className="px-2 py-1 text-[11px] rounded bg-bg-page/80 hover:bg-bg-page text-text-secondary"
             >
-              Change cover
+              {t('page.changeCover')}
             </button>
             <button
               type="button"
               onClick={() => setCover(null)}
               className="px-2 py-1 text-[11px] rounded bg-bg-page/80 hover:bg-bg-page text-text-secondary"
             >
-              Remove
+              {t('page.removeCover')}
             </button>
           </div>
         </div>
@@ -283,7 +285,7 @@ export function PageView({ pageId }: { pageId: string }) {
             type="button"
             onClick={(e) => setIconPickerAnchor((e.currentTarget as HTMLElement).getBoundingClientRect())}
             className="w-10 h-10 text-[40px] leading-none flex items-center justify-center hover:bg-bg-hover rounded transition-colors"
-            aria-label="Change icon"
+            aria-label={t('page.changeIcon')}
           >
             {pageData.icon ?? (isDatabase ? '🗃️' : '📄')}
           </button>
@@ -298,7 +300,7 @@ export function PageView({ pageId }: { pageId: string }) {
               onClick={() => setCoverPickerOpen(true)}
               className="text-[12px] text-text-tertiary/60 hover:text-text-secondary transition-colors"
             >
-              + Add cover
+              {t('page.addCover')}
             </button>
           </div>
         )}
@@ -317,7 +319,7 @@ export function PageView({ pageId }: { pageId: string }) {
               (e.target as HTMLTextAreaElement).blur();
             }
           }}
-          placeholder={isDatabase ? 'Untitled database' : 'Untitled'}
+          placeholder={isDatabase ? t('page.untitledDatabase') : t('page.untitled')}
           className="w-full text-h1 bg-transparent outline-none resize-none placeholder:text-text-tertiary/60 mb-1"
           style={{ fontSize: 40, fontWeight: 600, lineHeight: 1.2 }}
         />
@@ -326,21 +328,21 @@ export function PageView({ pageId }: { pageId: string }) {
         <div className="text-[12px] text-text-tertiary/80 mb-4 mt-1 flex items-center gap-3">
           <span>{crumb}</span>
           <span>·</span>
-          <span>Last edited {new Date(pageData.updatedAt).toLocaleString()}</span>
+          <span>{t('page.lastEdited', { date: new Date(pageData.updatedAt).toLocaleString() })}</span>
           <span>·</span>
           <button
             type="button"
             onClick={() => setFullWidth((v) => !v)}
             className="px-1.5 py-0.5 rounded bg-bg-section hover:bg-bg-hover text-text-secondary"
           >
-            {fullWidth ? 'Full width' : 'Small width'}
+            {fullWidth ? t('page.fullWidth') : t('page.smallWidth')}
           </button>
         </div>
 
         {/* === Content === */}
         {isDatabase ? (
           <Suspense
-            fallback={<div className="py-12 text-text-tertiary">Loading database…</div>}
+            fallback={<div className="py-12 text-text-tertiary">{t('common.loadingDatabase')}</div>}
           >
             <DatabaseView databaseId={pageData.id} />
           </Suspense>
@@ -381,7 +383,7 @@ export function PageView({ pageId }: { pageId: string }) {
             className="bg-bg-section border border-border-hairline rounded-lg shadow-popover p-3"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="text-[12px] text-text-secondary mb-2 px-1">Cover</div>
+            <div className="text-[12px] text-text-secondary mb-2 px-1">{t('page.cover')}</div>
             <CoverPicker
               onPick={(css) => {
                 setCover(css);
@@ -403,7 +405,7 @@ export function PageView({ pageId }: { pageId: string }) {
           onSaveSnapshot={async () => {
             try {
               await api.createSnapshot(pageData.id, pageData.doc, titleDraft, 'manual');
-              window.dispatchEvent(new CustomEvent('folio:toast', { detail: 'Snapshot saved' }));
+              window.dispatchEvent(new CustomEvent('folio:toast', { detail: t('page.snapshotSaved') }));
             } catch (err) {
               console.error('[Folio] manual snapshot failed', err);
             }
@@ -414,7 +416,7 @@ export function PageView({ pageId }: { pageId: string }) {
             );
           }}
           onTrash={async () => {
-            if (!confirm(`Move "${pageData.title || 'Untitled'}" to trash?`)) return;
+            if (!confirm(t('page.moveToTrashConfirm', { title: pageData.title || t('page.untitled') }))) return;
             try {
               await api.trashPage(pageData.id);
               window.dispatchEvent(new CustomEvent('folio:page-trashed', { detail: pageData.id }));
@@ -477,6 +479,7 @@ function Breadcrumb({
   icon: string | null;
   pageId: string;
 }) {
+  const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   return (
     <div
@@ -488,22 +491,22 @@ function Breadcrumb({
       {hovered && (
         <>
           <BreadcrumbButton
-            title="Refresh"
+            title={t('page.refresh')}
             onClick={() => window.location.reload()}
           >
             ↻
           </BreadcrumbButton>
-          <BreadcrumbButton title="Page icon">{icon ?? '📄'}</BreadcrumbButton>
+          <BreadcrumbButton title={t('page.pageIcon')}>{icon ?? '📄'}</BreadcrumbButton>
           <BreadcrumbButton
-            title="Copy link"
+            title={t('page.copyLink')}
             onClick={() => {
               void navigator.clipboard.writeText(`folio://page/${pageId}`);
-              window.dispatchEvent(new CustomEvent('folio:toast', { detail: 'Link copied' }));
+              window.dispatchEvent(new CustomEvent('folio:toast', { detail: t('page.linkCopied') }));
             }}
           >
             🔗
           </BreadcrumbButton>
-          <BreadcrumbButton title="More">⋯</BreadcrumbButton>
+          <BreadcrumbButton title={t('page.more')}>⋯</BreadcrumbButton>
         </>
       )}
     </div>
@@ -542,23 +545,24 @@ interface ActionClusterProps {
 }
 
 function ActionCluster(props: ActionClusterProps) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center gap-1">
-      <ActionButton title="Share" onClick={props.onShare}>📤</ActionButton>
+      <ActionButton title={t('page.share')} onClick={props.onShare}>📤</ActionButton>
       <ActionButton
-        title="More"
+        title={t('page.more')}
         onClick={(e) => props.onMore((e.currentTarget as HTMLElement).getBoundingClientRect())}
       >
         ⋯
       </ActionButton>
       <ActionButton
-        title={props.favorite ? 'Remove from Favorites' : 'Add to Favorites'}
+        title={props.favorite ? t('page.removeFromFavorites') : t('page.addToFavorites')}
         onClick={props.onFavorite}
         active={props.favorite}
       >
         {props.favorite ? '⭐' : '☆'}
       </ActionButton>
-      <ActionButton title="Comments" onClick={props.onComments}>💬</ActionButton>
+      <ActionButton title={t('page.comments')} onClick={props.onComments}>💬</ActionButton>
     </div>
   );
 }
@@ -600,6 +604,7 @@ interface MoreMenuProps {
 }
 
 function MoreMenu(props: MoreMenuProps) {
+  const { t } = useTranslation();
   const { anchorRect, onClose, ...actions } = props;
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -636,21 +641,21 @@ function MoreMenu(props: MoreMenuProps) {
       className="rounded-md border border-border-hairline bg-bg-page shadow-popover py-1 text-[13px]"
     >
       <MoreItem
-        label="Export…"
+        label={t('page.export')}
         onClick={() => {
           onClose();
           actions.onExport();
         }}
       />
       <MoreItem
-        label="Save snapshot"
+        label={t('page.saveSnapshot')}
         onClick={() => {
           onClose();
           actions.onSaveSnapshot();
         }}
       />
       <MoreItem
-        label="Page history"
+        label={t('page.pageHistory')}
         onClick={() => {
           onClose();
           actions.onHistory();
@@ -658,7 +663,7 @@ function MoreMenu(props: MoreMenuProps) {
       />
       <div className="my-1 border-t border-border-hairline" />
       <MoreItem
-        label="Move to Trash"
+        label={t('sidebar.moveToTrash')}
         danger
         onClick={() => {
           onClose();
@@ -699,27 +704,28 @@ function MoreItem({
  * / curated set of gradient placeholders" picked as the MVP-simple approach).
  * Stored as a CSS background string in `page.cover`.
  */
-const COVER_PRESETS: { label: string; css: string }[] = [
-  { label: 'Sunrise', css: 'linear-gradient(135deg, #ff9a8b 0%, #ff6a88 50%, #ff99ac 100%)' },
-  { label: 'Ocean', css: 'linear-gradient(135deg, #2bc0e4 0%, #36d1dc 100%)' },
-  { label: 'Forest', css: 'linear-gradient(135deg, #134e5e 0%, #71b280 100%)' },
-  { label: 'Plum', css: 'linear-gradient(135deg, #6a11cb 0%, #2575fc 100%)' },
-  { label: 'Peach', css: 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)' },
-  { label: 'Slate', css: 'linear-gradient(135deg, #232526 0%, #414345 100%)' },
+const COVER_PRESETS: { labelKey: string; css: string }[] = [
+  { labelKey: 'page.coverSunrise', css: 'linear-gradient(135deg, #ff9a8b 0%, #ff6a88 50%, #ff99ac 100%)' },
+  { labelKey: 'page.coverOcean', css: 'linear-gradient(135deg, #2bc0e4 0%, #36d1dc 100%)' },
+  { labelKey: 'page.coverForest', css: 'linear-gradient(135deg, #134e5e 0%, #71b280 100%)' },
+  { labelKey: 'page.coverPlum', css: 'linear-gradient(135deg, #6a11cb 0%, #2575fc 100%)' },
+  { labelKey: 'page.coverPeach', css: 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)' },
+  { labelKey: 'page.coverSlate', css: 'linear-gradient(135deg, #232526 0%, #414345 100%)' },
 ];
 
 function CoverPicker({ onPick }: { onPick: (css: string) => void }) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center gap-1.5">
       {COVER_PRESETS.map((p) => (
         <button
-          key={p.label}
+          key={p.labelKey}
           type="button"
-          title={p.label}
+          title={t(p.labelKey)}
           onClick={() => onPick(p.css)}
           className="w-9 h-9 rounded-md border border-border-hairline hover:scale-110 transition-transform"
           style={{ background: p.css }}
-          aria-label={`Cover: ${p.label}`}
+          aria-label={`${t('page.cover')}: ${t(p.labelKey)}`}
         />
       ))}
     </div>

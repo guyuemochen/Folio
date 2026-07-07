@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { api } from '../lib/invoke';
 import type { PageSnapshot } from '../lib/types';
 
@@ -20,6 +21,7 @@ interface HistoryModalProps {
  * page document.
  */
 export function HistoryModal({ pageId, currentTitle, onClose, onRestored }: HistoryModalProps) {
+  const { t } = useTranslation();
   const [snapshots, setSnapshots] = useState<PageSnapshot[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -89,15 +91,15 @@ export function HistoryModal({ pageId, currentTitle, onClose, onRestored }: Hist
     >
       <div className="w-[760px] max-h-[80vh] bg-bg-page rounded-lg shadow-popover border border-border-hairline flex flex-col">
         <header className="px-5 py-3 border-b border-border-hairline flex items-center gap-2">
-          <h2 className="text-h3 flex-1">Page history</h2>
+          <h2 className="text-h3 flex-1">{t('history.title')}</h2>
           <span className="text-[11px] text-text-tertiary">
-            “{currentTitle || 'Untitled'}”
+            “{currentTitle || t('page.untitled')}”
           </span>
           <button
             type="button"
             onClick={onClose}
             className="text-text-tertiary hover:text-text-primary px-2"
-            aria-label="Close history"
+            aria-label={t('history.close')}
           >
             ✕
           </button>
@@ -107,10 +109,10 @@ export function HistoryModal({ pageId, currentTitle, onClose, onRestored }: Hist
           {/* Snapshot list */}
           <div className="w-64 shrink-0 border-r border-border-hairline overflow-y-auto py-1">
             {loading ? (
-              <div className="px-4 py-6 text-center text-sm text-text-tertiary">Loading…</div>
+              <div className="px-4 py-6 text-center text-sm text-text-tertiary">{t('history.loading')}</div>
             ) : snapshots.length === 0 ? (
               <div className="px-4 py-6 text-center text-sm text-text-tertiary">
-                No snapshots yet. Snapshots are taken automatically every few seconds while editing.
+                {t('history.emptyHint')}
               </div>
             ) : (
               snapshots.map((s) => {
@@ -131,9 +133,9 @@ export function HistoryModal({ pageId, currentTitle, onClose, onRestored }: Hist
                       {new Date(s.createdAt).toLocaleString()}
                     </div>
                     <div className="text-[11px] text-text-tertiary flex items-center gap-1.5">
-                      <span className="truncate">{s.title || 'Untitled'}</span>
+                      <span className="truncate">{s.title || t('page.untitled')}</span>
                       <span className="text-text-tertiary/70">
-                        · {s.source === 'manual' ? 'manual' : 'auto'}
+                        · {s.source === 'manual' ? t('history.manual') : t('history.auto')}
                       </span>
                     </div>
                   </button>
@@ -147,14 +149,14 @@ export function HistoryModal({ pageId, currentTitle, onClose, onRestored }: Hist
             {selected ? (
               <>
                 <div className="text-[12px] text-text-tertiary mb-2">
-                  Snapshot preview · {new Date(selected.createdAt).toLocaleString()}
+                  {t('history.snapshotPreview', { date: new Date(selected.createdAt).toLocaleString() })}
                 </div>
                 <pre className="text-[11px] leading-snug font-mono bg-bg-section rounded p-3 overflow-auto max-h-[50vh] whitespace-pre-wrap break-words">
                   {previewText}
                 </pre>
               </>
             ) : (
-              <div className="text-sm text-text-tertiary">Select a snapshot to preview.</div>
+              <div className="text-sm text-text-tertiary">{t('history.selectPreview')}</div>
             )}
           </div>
         </div>
@@ -165,7 +167,7 @@ export function HistoryModal({ pageId, currentTitle, onClose, onRestored }: Hist
             onClick={onClose}
             className="px-3 py-1 text-sm rounded bg-bg-section hover:bg-bg-hover text-text-primary"
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button
             type="button"
@@ -173,7 +175,7 @@ export function HistoryModal({ pageId, currentTitle, onClose, onRestored }: Hist
             disabled={!selected || restoring}
             className="px-3 py-1 text-sm rounded bg-accent hover:bg-accent-hover text-white disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {restoring ? 'Restoring…' : 'Restore snapshot'}
+            {restoring ? t('history.restoring') : t('history.restore')}
           </button>
         </footer>
       </div>
