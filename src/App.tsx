@@ -1,11 +1,24 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
-import { SearchModal } from './components/SearchModal';
-import { TrashModal } from './components/TrashModal';
-import { HistoryModal } from './components/HistoryModal';
-import { PageView } from './pages/PageView';
 import { useWorkspaceStore } from './store/workspaceStore';
+import { perf } from './lib/perf';
 import type { SnapshotSource } from './lib/types';
+
+// M6 perf: every component below is rendered conditionally, so we lazy-load
+// them to keep the cold-start JS bundle small (PRD §10.1: cold start < 1.5s).
+// Sidebar stays eager — it is the always-visible shell.
+const PageView = lazy(() =>
+  import('./pages/PageView').then((m) => ({ default: m.PageView })),
+);
+const SearchModal = lazy(() =>
+  import('./components/SearchModal').then((m) => ({ default: m.SearchModal })),
+);
+const TrashModal = lazy(() =>
+  import('./components/TrashModal').then((m) => ({ default: m.TrashModal })),
+);
+const HistoryModal = lazy(() =>
+  import('./components/HistoryModal').then((m) => ({ default: m.HistoryModal })),
+);
 
 /**
  * App shell:
@@ -28,6 +41,11 @@ export default function App() {
   const [trashOpen, setTrashOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ pageId: string; title: string } | null>(null);
+
+  // M6 perf: end the cold-start timer once the shell has mounted.
+  useEffect(() => {
+    perf.end('cold-start-shell');
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -100,22 +118,42 @@ export default function App() {
     <div className="flex h-screen bg-bg-page text-text-primary font-sans overflow-hidden">
       <Sidebar />
       {currentPageId ? (
-        <PageView key={currentPageId} pageId={currentPageId} />
+        <Suspense
+          fallback={
+            <main className="flex-1 overflow-y-auto">
+              <div className="max-w-page mx-auto px-24 py-12 text-text-tertiary">
+                Loading page…
+              </div>
+            </main>
+          }
+        >
+          <PageView key={currentPageId} pageId={currentPageId} />
+        </Suspense>
       ) : (
         <EmptyState onOpenSearch={() => setSearchOpen(true)} />
       )}
-      {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}
-      {trashOpen && <TrashModal onClose={() => setTrashOpen(false)} />}
+      {searchOpen && (
+        <Suspense fallback={null}>
+          <SearchModal onClose={() => setSearchOpen(false)} />
+        </Suspense>
+      )}
+      {trashOpen && (
+        <Suspense fallback={null}>
+          <TrashModal onClose={() => setTrashOpen(false)} />
+        </Suspense>
+      )}
       {historyTarget && (
-        <HistoryModal
-          pageId={historyTarget.pageId}
-          currentTitle={historyTarget.title}
-          onClose={() => setHistoryTarget(null)}
-          onRestored={() => {
-            // Force the open PageView to reload the doc + title from disk.
-            window.dispatchEvent(new CustomEvent('folio:snapshot-restored'));
-          }}
-        />
+        <Suspense fallback={null}>
+          <HistoryModal
+            pageId={historyTarget.pageId}
+            currentTitle={historyTarget.title}
+            onClose={() => setHistoryTarget(null)}
+            onRestored={() => {
+              // Force the open PageView to reload the doc + title from disk.
+              window.dispatchEvent(new CustomEvent('folio:snapshot-restored'));
+            }}
+          />
+        </Suspense>
       )}
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[1200] px-4 py-2 rounded-md bg-bg-section border border-border-hairline shadow-popover text-[13px] text-text-primary">
