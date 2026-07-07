@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { useWorkspaceStore } from '../store/workspaceStore';
 
 interface TrashModalProps {
@@ -14,6 +15,7 @@ interface TrashModalProps {
  * safe-restore logic (parent fallback to workspace root).
  */
 export function TrashModal({ onClose }: TrashModalProps) {
+  const { t } = useTranslation();
   const trashedPages = useWorkspaceStore((s) => s.trashedPages);
   const loadTrashedPages = useWorkspaceStore((s) => s.loadTrashedPages);
   const restorePage = useWorkspaceStore((s) => s.restorePage);
@@ -42,12 +44,12 @@ export function TrashModal({ onClose }: TrashModalProps) {
     >
       <div className="w-[560px] max-h-[70vh] bg-bg-page rounded-lg shadow-popover border border-border-hairline flex flex-col">
         <header className="px-5 py-3 border-b border-border-hairline flex items-center">
-          <h2 className="text-h3 flex-1">Trash</h2>
+          <h2 className="text-h3 flex-1">{t('trash.title')}</h2>
           <button
             type="button"
             onClick={onClose}
             className="text-text-tertiary hover:text-text-primary px-2"
-            aria-label="Close trash"
+            aria-label={t('trash.close')}
           >
             ✕
           </button>
@@ -55,7 +57,7 @@ export function TrashModal({ onClose }: TrashModalProps) {
         <div className="flex-1 overflow-y-auto px-2 py-2">
           {rows.length === 0 ? (
             <div className="px-3 py-10 text-center text-text-tertiary text-sm">
-              Trash is empty.
+              {t('trash.empty')}
             </div>
           ) : (
             rows.map((p) => (
@@ -70,14 +72,14 @@ export function TrashModal({ onClose }: TrashModalProps) {
                   </div>
                   <div className="text-[11px] text-text-tertiary truncate">
                     {p.parentType === 'workspace' || !p.parentId
-                      ? 'Workspace'
+                      ? t('trash.workspace')
                       : p.parentTitle
-                        ? `in ${p.parentTitle}`
-                        : 'Original parent removed'}
+                        ? t('trash.inParent', { parentTitle: p.parentTitle })
+                        : t('trash.originalParentRemoved')}
                     {p.trashedAt && (
                       <>
                         <span className="mx-1.5">·</span>
-                        Trashed {new Date(p.trashedAt).toLocaleDateString()}
+                        {t('trash.trashedDate', { date: new Date(p.trashedAt).toLocaleDateString() })}
                       </>
                     )}
                   </div>
@@ -91,12 +93,12 @@ export function TrashModal({ onClose }: TrashModalProps) {
                   }}
                   className="opacity-0 group-hover:opacity-100 px-2 py-1 text-[12px] rounded bg-bg-section hover:bg-bg-active text-text-primary"
                 >
-                  Restore
+                  {t('trash.restore')}
                 </button>
                 <button
                   type="button"
                   onClick={() => {
-                    if (confirm(`Permanently delete "${p.title || 'Untitled'}"? This cannot be undone.`)) {
+                    if (confirm(t('trash.deleteForeverConfirm', { title: p.title || 'Untitled' }))) {
                       deletePermanently(p.id).catch((err) =>
                         console.error('[Folio] delete forever failed', err),
                       );
@@ -104,14 +106,14 @@ export function TrashModal({ onClose }: TrashModalProps) {
                   }}
                   className="opacity-0 group-hover:opacity-100 px-2 py-1 text-[12px] rounded bg-bg-section hover:bg-bg-active text-status-red"
                 >
-                  Delete forever
+                  {t('trash.deleteForever')}
                 </button>
               </div>
             ))
           )}
         </div>
         <footer className="px-5 py-2 border-t border-border-hairline text-[11px] text-text-tertiary">
-          Trashed pages are auto-purged after 30 days.
+          {t('trash.autoPurgeHint')}
         </footer>
       </div>
     </div>,

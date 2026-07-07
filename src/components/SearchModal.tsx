@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api } from '../lib/invoke';
 import { useWorkspaceStore } from '../store/workspaceStore';
 
@@ -21,6 +22,7 @@ interface SearchModalProps {
  *   - Click item: open + close
  */
 export function SearchModal({ onClose }: SearchModalProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -82,7 +84,7 @@ export function SearchModal({ onClose }: SearchModalProps) {
         id: h.pageId,
         title: h.title || 'Untitled',
         icon: h.icon,
-        sub: h.parentType === 'workspace' ? 'Workspace' : h.parentType,
+        sub: h.parentType === 'workspace' ? t('search.workspace') : h.parentType,
         snippet: h.snippet,
       }));
     }
@@ -91,9 +93,9 @@ export function SearchModal({ onClose }: SearchModalProps) {
       id: p.id,
       title: p.title || 'Untitled',
       icon: p.icon,
-      sub: 'Recent',
+      sub: t('search.recent'),
     }));
-  }, [trimmedQuery, hits, recentPages]);
+  }, [trimmedQuery, hits, recentPages, t]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -144,13 +146,13 @@ export function SearchModal({ onClose }: SearchModalProps) {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search pages and content..."
+            placeholder={t('search.placeholder')}
             className="flex-1 py-3.5 text-[15px] bg-transparent outline-none placeholder:text-text-tertiary"
           />
           {isFetching && (
-            <span className="text-[11px] text-text-tertiary animate-pulse">searching…</span>
+            <span className="text-[11px] text-text-tertiary animate-pulse">{t('search.searching')}</span>
           )}
-          <kbd className="px-1.5 py-0.5 text-[10px] text-text-tertiary bg-bg-section rounded">ESC</kbd>
+          <kbd className="px-1.5 py-0.5 text-[10px] text-text-tertiary bg-bg-section rounded">{t('search.esc')}</kbd>
         </div>
 
         {/* Results */}
@@ -158,16 +160,16 @@ export function SearchModal({ onClose }: SearchModalProps) {
           {flatItems.length === 0 ? (
             <div className="px-4 py-12 text-center text-[13px] text-text-tertiary">
               {trimmedQuery
-                ? `No results for "${trimmedQuery}"`
-                : 'Type to search across all your pages'}
+                ? t('search.noResults', { query: trimmedQuery })
+                : t('search.emptyHint')}
             </div>
           ) : (
             <>
               {!trimmedQuery && (
-                <SectionLabel>Recent</SectionLabel>
+                <SectionLabel>{t('search.recent')}</SectionLabel>
               )}
               {trimmedQuery && hits && hits.length > 0 && (
-                <SectionLabel>Results ({hits.length})</SectionLabel>
+                <SectionLabel>{t('search.results', { count: hits.length })}</SectionLabel>
               )}
               {flatItems.map((item, idx) => (
                 <button
@@ -209,15 +211,9 @@ export function SearchModal({ onClose }: SearchModalProps) {
 
         {/* Footer */}
         <div className="px-4 py-2 border-t border-border-hairline text-[11px] text-text-tertiary flex items-center gap-3 bg-bg-section/40">
-          <span>
-            <kbd className="px-1 py-0.5 bg-bg-section rounded">↑↓</kbd> navigate
-          </span>
-          <span>
-            <kbd className="px-1 py-0.5 bg-bg-section rounded">↵</kbd> open
-          </span>
-          <span>
-            <kbd className="px-1 py-0.5 bg-bg-section rounded">ESC</kbd> close
-          </span>
+          <span>{t('search.navigateHint')}</span>
+          <span>{t('search.openHint')}</span>
+          <span>{t('search.closeHint')}</span>
         </div>
       </div>
     </div>,
