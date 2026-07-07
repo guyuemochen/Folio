@@ -300,13 +300,16 @@ pub fn delete_page_permanently(conn: &rusqlite::Connection, page_id: &str) -> Re
 
 /// List non-trashed child pages of a given parent. `parent_id = None` returns
 /// workspace root pages.
+///
+/// M6 perf: uses `prepare_cached` so the planner pays the prepare cost once
+/// per connection lifetime — sidebar tree expansion hits this on every click.
 pub fn list_pages(
     conn: &rusqlite::Connection,
     parent_id: Option<&str>,
 ) -> Result<Vec<PageSummary>> {
     let rows: Vec<PageSummary> = match parent_id {
         Some(pid) => {
-            let mut stmt = conn.prepare(
+            let mut stmt = conn.prepare_cached(
                 "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at, favorite \
                  FROM page \
                  WHERE parent_id = ?1 AND is_trashed = 0 \
@@ -316,7 +319,7 @@ pub fn list_pages(
             iter.collect::<std::result::Result<Vec<_>, _>>()?
         }
         None => {
-            let mut stmt = conn.prepare(
+            let mut stmt = conn.prepare_cached(
                 "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at, favorite \
                  FROM page \
                  WHERE parent_id IS NULL AND parent_type = 'workspace' AND is_trashed = 0 \
@@ -375,7 +378,7 @@ pub fn search(
     }
     let match_expr = terms.join(" ");
 
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT \
             fts.page_id, \
             p.title, \
@@ -484,7 +487,7 @@ pub struct TrashedPage {
 
 /// List all trashed pages (any depth), newest-trashed first.
 pub fn list_trashed_pages(conn: &rusqlite::Connection) -> Result<Vec<TrashedPage>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT p.id, p.title, p.icon, p.parent_id, p.parent_type, \
                 parent.title, p.trashed_at \
          FROM page p \
@@ -559,7 +562,7 @@ pub fn set_favorite(
 
 /// Return favorited pages ordered by their sort_order.
 pub fn list_favorites(conn: &rusqlite::Connection) -> Result<Vec<PageSummary>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT p.id, p.title, p.icon, p.parent_id, p.parent_type, p.is_trashed, \
                 p.updated_at, p.favorite \
          FROM favorites f \
@@ -652,7 +655,7 @@ pub fn list_snapshots(
     conn: &rusqlite::Connection,
     page_id: &str,
 ) -> Result<Vec<PageSnapshot>> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT id, page_id, content, title, source, created_at \
          FROM page_snapshot WHERE page_id = ?1 \
          ORDER BY created_at DESC",
