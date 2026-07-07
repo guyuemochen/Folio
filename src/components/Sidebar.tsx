@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import type { PageSummary } from '../lib/types';
 import { PageTreeNode } from './PageTreeNode';
@@ -60,31 +60,37 @@ export function Sidebar() {
 
   // Drag-rearrange for favorites.
   const dragFavId = useRef<string | null>(null);
-  const handleFavDragStart = (id: string) => {
+  const handleFavDragStart = useCallback((id: string) => {
     dragFavId.current = id;
-  };
-  const handleFavDragOver = (e: React.DragEvent, overId: string) => {
+  }, []);
+  const handleFavDragOver = useCallback((e: React.DragEvent, overId: string) => {
     if (!dragFavId.current || dragFavId.current === overId) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-  };
-  const handleFavDrop = (overId: string) => {
-    const src = dragFavId.current;
-    dragFavId.current = null;
-    if (!src || src === overId) return;
-    const ordered = favorites.map((f) => f.id);
-    const from = ordered.indexOf(src);
-    const to = ordered.indexOf(overId);
-    if (from < 0 || to < 0) return;
-    ordered.splice(from, 1);
-    ordered.splice(to, 0, src);
-    reorderFavorites(ordered).catch((err) =>
-      console.error('[Folio] reorder favorites failed', err),
-    );
-  };
+  }, []);
+  const handleFavDrop = useCallback(
+    (overId: string) => {
+      const src = dragFavId.current;
+      dragFavId.current = null;
+      if (!src || src === overId) return;
+      const ordered = favorites.map((f) => f.id);
+      const from = ordered.indexOf(src);
+      const to = ordered.indexOf(overId);
+      if (from < 0 || to < 0) return;
+      ordered.splice(from, 1);
+      ordered.splice(to, 0, src);
+      reorderFavorites(ordered).catch((err) =>
+        console.error('[Folio] reorder favorites failed', err),
+      );
+    },
+    [favorites, reorderFavorites],
+  );
 
-  const fireToast = (msg: string) =>
-    window.dispatchEvent(new CustomEvent('folio:toast', { detail: msg }));
+  const fireToast = useCallback(
+    (msg: string) =>
+      window.dispatchEvent(new CustomEvent('folio:toast', { detail: msg })),
+    [],
+  );
 
   return (
     <aside className="w-sidebar bg-bg-sidebar border-r border-border-hairline flex flex-col select-none text-[13px]">

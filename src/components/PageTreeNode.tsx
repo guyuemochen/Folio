@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import type { PageSummary } from '../lib/types';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { api } from '../lib/invoke';
@@ -15,7 +15,7 @@ interface PageTreeNodeProps {
  * inline rename, and the full PRD §5.2.3 context menu
  * (New subpage / Rename / Duplicate / Move to / Favorite / Trash).
  */
-export function PageTreeNode({ page, level }: PageTreeNodeProps) {
+function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
   const expanded = useWorkspaceStore((s) => s.expanded.has(page.id));
   const currentPageId = useWorkspaceStore((s) => s.currentPageId);
   const childrenCache = useWorkspaceStore((s) => s.childrenCache[page.id]);
@@ -250,6 +250,13 @@ export function PageTreeNode({ page, level }: PageTreeNodeProps) {
     </div>
   );
 }
+
+// Memoized so a parent's re-render does not cascade through the whole tree.
+// `page` is compared by reference (Zustand returns stable refs unless the row
+// itself changed) and `level` by value; all other inputs (currentPageId,
+// expanded, children cache, store actions) come from useWorkspaceStore
+// subscriptions inside the node and re-render this row independently of memo.
+export const PageTreeNode = memo(PageTreeNodeBase);
 
 interface NodeMenuProps {
   anchorRect: DOMRect;
