@@ -17,8 +17,6 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
-import { createLowlight, common } from 'lowlight';
-import { marked } from 'marked';
 import type { EditorView } from '@tiptap/pm/view';
 import { DOMParser as PmDOMParser } from '@tiptap/pm/model';
 
@@ -59,8 +57,76 @@ interface EditorProps {
   onReady?: () => void;
 }
 
-/** One lowlight instance with the common grammars — shared across editor instances. */
-const lowlightInstance = createLowlight(common);
+// === Lazy-loaded syntax highlighting (lowlight) =========================
+// The lowlight engine + common grammars are ~500KB. They are only needed
+// once the user creates a code block, so we defer loading until then
+// (PRD §10.1: cold-start to input < 1.5s).
+//
+// TipTap's CodeBlockLowlight needs a synchronous reference at config time,
+// so we hand it an empty placeholder; `ensureLowlight()` overlays the real
+// instance in place via `Object.assign` once the dynamic import resolves.
+
+/** Minimal structural contract for a lowlight instance. */
+interface LowlightApi {
+  highlight(language: string, value: string, options?: unknown): unknown;
+  highlightAuto(value: string, options?: unknown): unknown;
+  listLanguages(): string[];
+  register(...args: unknown[]): void;
+  registerAlias(...args: unknown[]): void;
+  registered(aliasOrName: string): boolean;
+}
+
+const EMPTY_HAST_ROOT = { type: 'root', children: [], data: { language: '', relevance: 0 } };
+
+const lowlightInstance: LowlightApi = {
+  highlight: () => EMPTY_HAST_ROOT,
+  highlightAuto: () => EMPTY_HAST_ROOT,
+  listLanguages: () => [],
+  register: () => {},
+  registerAlias: () => {},
+  registered: () => false,
+};
+
+let lowlightPromise: Promise<void> | null = null;
+
+/**
+ * Load the lowlight engine + common grammars and overlay them onto the shared
+ * placeholder instance. Cached: the dynamic import only fires once.
+ */
+function ensureLowlight(): Promise<void> {
+  if (!lowlightPromise) {
+    lowlightPromise = import('lowlight').then(({ createLowlight, common }) => {
+      Object.assign(lowlightInstance, createLowlight(common));
+    });
+  }
+  return lowlightPromise;
+}
+
+/** True when `doc` contains a `codeBlock` node. */
+function docHasCodeBlock(editor: TiptapEditor): boolean {
+  let found = false;
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === 'codeBlock') {
+      found = true;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
+/**
+ * Kick off lazy lowlight load (if not already started) and force a no-op
+ * transaction once it lands so existing code blocks pick up highlighting.
+ */
+function triggerLowlightLoad(editor: TiptapEditor): void {
+  if (lowlightPromise) return;
+  void ensureLowlight().then(() => {
+    if (!editor.isDestroyed) {
+      editor.view.dispatch(editor.state.tr);
+    }
+  });
+}
 
 /**
  * Page editor with Notion-like behavior (PRD §5.1):
@@ -173,6 +239,19 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
       // Expose the current page id for slash commands that need it (sub-page creation).
       ctx.editor.storage.folioPageId = pageId;
       onReady?.();
+      // If the initial doc already contains code blocks, start loading the
+      // highlighting grammars right away.
+      if (docHasCodeBlock(ctx.editor)) {
+        triggerLowlightLoad(ctx.editor);
+      }
+    },
+    onTransaction: ({ editor: e, transaction }) => {
+      // Lazy-load lowlight on first code-block creation.
+      if (lowlightPromise) return;
+      if (!transaction.docChanged) return;
+      if (docHasCodeBlock(e)) {
+        triggerLowlightLoad(e);
+      }
     },
     onUpdate: ({ editor: e }) => {
       if (saveTimerRef.current) {
@@ -360,7 +439,7 @@ function handlePaste(view: EditorView, event: ClipboardEvent): boolean {
   // 4. Markdown text → blocks.
   if (trimmed && looksLikeMarkdown(trimmed)) {
     event.preventDefault();
-    insertMarkdownAsHtml(view, trimmed);
+    void insertMarkdownAsHtml(view, trimmed);
     return true;
   }
 
@@ -430,8 +509,10 @@ function looksLikeMarkdown(text: string): boolean {
   return hits >= 1 && hits >= Math.ceil(lines.length / 3);
 }
 
-function insertMarkdownAsHtml(view: EditorView, md: string) {
+async function insertMarkdownAsHtml(view: EditorView, md: string): Promise<void> {
   // marked → HTML, then parse with ProseMirror DOMParser to keep schema happy.
+  // `marked` is loaded lazily — only the markdown-paste path needs it.
+  const { marked } = await import('marked');
   const html = marked.parse(md, { async: false }) as string;
   insertStrippedHtml(view, html);
 }
