@@ -166,6 +166,12 @@ export function PageView({ pageId }: { pageId: string }) {
       }
       await api.renamePage(pageData.id, next);
       renamePageLocally(pageData.id, next);
+      // Bust any cached database-rows queries so DatabaseView reflects the
+      // new title when the user navigates back to the owning database.
+      // Without this, React Query serves the stale `DatabaseRow.title`
+      // snapshot indefinitely (renamePageLocally only updates the zustand
+      // page-list store, which DatabaseView doesn't read).
+      void queryClient.invalidateQueries({ queryKey: ['database-rows'] });
     } catch (err) {
       console.error('[Folio] title rename failed', err);
     }
@@ -179,6 +185,9 @@ export function PageView({ pageId }: { pageId: string }) {
       updateIconLocally(pageData.id, next);
       // Refresh the cached page so the chrome re-renders with the new icon.
       void queryClient.invalidateQueries({ queryKey: ['page', pageData.id] });
+      // DatabaseView caches DatabaseRow.icon as a snapshot, same as title —
+      // bust it so the row icon column updates on next visit.
+      void queryClient.invalidateQueries({ queryKey: ['database-rows'] });
     } catch (err) {
       console.error('[Folio] set icon failed', err);
     }

@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import type { PageSummary } from '../lib/types';
 import { useWorkspaceStore } from '../store/workspaceStore';
@@ -18,6 +19,7 @@ interface PageTreeNodeProps {
  */
 function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const expanded = useWorkspaceStore((s) => s.expanded.has(page.id));
   const currentPageId = useWorkspaceStore((s) => s.currentPageId);
   const childrenCache = useWorkspaceStore((s) => s.childrenCache[page.id]);
@@ -62,8 +64,13 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
     const next = draft.trim();
     if (next && next !== page.title) {
       try {
-        await api.renamePage(page.id, next);
-        renamePageLocally(page.id, next);
+      await api.renamePage(page.id, next);
+      renamePageLocally(page.id, next);
+      // The renamed page may be a row in some database; bust the rows cache
+      // so DatabaseView shows the new title on next visit. renamePageLocally
+      // only updates the zustand page-list store, which DatabaseView doesn't
+      // read (it uses React Query's ['database-rows', dbId] snapshot).
+      void queryClient.invalidateQueries({ queryKey: ['database-rows'] });
       } catch (err) {
         console.error('[Folio] rename failed', err);
       }
