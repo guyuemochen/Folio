@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import { perf } from './lib/perf';
+import './i18n/config';
 import './styles/globals.css';
 
 // M6 perf: start the cold-start timer at JS entry. The matching `end` is
