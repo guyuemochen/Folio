@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 /**
@@ -47,21 +47,27 @@ export function Popover({
   onClose,
   children,
 }: PopoverProps) {
-  const [pos, setPos] = useState<ComputedPos>({ top: 0, left: 0 });
+  const [pos, setPos] = useState<ComputedPos | null>(null);
+  const popRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     const padding = 8;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const estimatedHeight = 360; // conservative; real height measured by browser
+    // Measure the popover's real rendered height so flip / clamping decisions
+    // match the actual content. The previous hard-coded `360` estimate caused
+    // popovers with short content (e.g. select option lists) to be flipped
+    // above the anchor and pushed far off because `top = anchorRect.top -
+    // offset - 360` subtracted far more than the real height.
+    const measured = popRef.current?.offsetHeight ?? 360;
 
     let top: number;
     let left: number;
 
     // Vertical placement
     const below = anchorRect.bottom + offset;
-    const above = anchorRect.top - offset - estimatedHeight;
-    const hasRoomBelow = below + estimatedHeight < vh - padding;
+    const above = anchorRect.top - offset - measured;
+    const hasRoomBelow = below + measured < vh - padding;
     const hasRoomAbove = above > padding;
 
     const wantsTop = placement.startsWith('top');
@@ -72,6 +78,13 @@ export function Popover({
     } else {
       top = above;
     }
+
+    // Vertical clamp — never let the popover spill outside the viewport.
+    // This matters for tall popovers (e.g. PropertyMenu with options editor)
+    // where placing `top = anchorRect.bottom + offset` would otherwise push
+    // the popover's bottom edge past the page.
+    if (top + measured > vh - padding) top = vh - padding - measured;
+    if (top < padding) top = padding;
 
     // Horizontal placement
     const center = anchorRect.left + anchorRect.width / 2;
@@ -129,9 +142,24 @@ export function Popover({
 
   return createPortal(
     <div
+      ref={popRef}
       data-popover-root
       className="fixed z-[1000] rounded-lg border border-border-hairline bg-bg-page shadow-popover"
-      style={{ top: pos.top, left: pos.left, width }}
+      style={{
+        // Hold the popover off-screen (but laid out, so offsetHeight is real)
+        // until the first measurement completes. useLayoutEffect runs before
+        // paint, so users never see this fallback position.
+        top: pos?.top ?? -9999,
+        left: pos?.left ?? -9999,
+        width,
+        // Cap height to the viewport and scroll inside if content is taller
+        // (e.g. a select list with many options, or PropertyMenu with the
+        // options editor open). Paired with the vertical clamp above, this
+        // guarantees the popover can never exceed the page.
+        maxHeight: 'calc(100vh - 16px)',
+        overflowY: 'auto',
+        visibility: pos ? 'visible' : 'hidden',
+      }}
     >
       {children}
     </div>,
