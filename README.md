@@ -222,10 +222,47 @@ database render). All changes verified via `pnpm typecheck` (0 errors) and
 - **`vite.config.ts`** had `minify: 'esbuild'` which Vite 8 deprecated;
   switched to default Oxc minifier to unblock production builds
 
-## What's next (M7: a11y + i18n)
+## What works in M7 (partial) — i18n
 
-Per PRD §13.1, M7 will deliver accessibility (WCAG AA) and i18n (zh-CN + en).
-Then M8 (beta), M9 (v0.1.0 release).
+Internationalization per PRD §10.5. Accessibility (a11y / WCAG AA) is still
+pending and will land in a follow-up commit.
+
+### Setup
+
+- [x] **`i18next` 26 + `react-i18next` 17** wired in `src/i18n/config.ts` and
+      imported from `src/main.tsx` before React mounts
+- [x] **System-locale detection** via `navigator.language` / `navigator.languages`
+      — the webview reports the OS locale, so Chinese users get zh-CN and
+      everyone else gets English with no manual toggle (matches PRD §10.5
+      "日期/数字格式依系统 locale"; no Settings UI for language in MVP)
+- [x] **Static JSON resources** — locale tables bundled via Vite's native
+      JSON import, no async backend, language available synchronously
+
+### Coverage
+
+- [x] **263 translation keys** across 9 namespaces: `common`, `sidebar`,
+      `page`, `search`, `trash`, `history`, `importExport`, `database`,
+      `editor`
+- [x] **~270 `t()` call sites** in 23 components
+- [x] **Plural-aware messages** via i18next `_one` / `_other` suffixes
+      (e.g. `database.rowCount`, `search.results`, `importExport.notionImported`)
+- [x] **Interpolation** for dynamic values (`{{title}}`, `{{count}}`,
+      `{{date}}`, `{{parentTitle}}`, `{{hidden}}`, `{{names}}`, `{{n}}`,
+      `{{query}}`, `{{pageTitle}}`, `{{warnings}}`)
+- [x] **Non-component modules** (e.g. `slashCommands.ts`) use `i18n.t()`
+      directly since `useTranslation` is a hook
+
+### Out of scope (M7 a11y still pending)
+
+- WCAG AA color-contrast audit
+- Full keyboard navigation + visible focus rings
+- ARIA labelling audit on editor / modals / popover
+- `prefers-reduced-motion` and `prefers-color-scheme` honor
+
+## What's next (M7 a11y + M8 beta)
+
+Per PRD §13.1: complete M7 accessibility work, then M8 (beta), M9 (v0.1.0
+release).
 
 ## License
 
