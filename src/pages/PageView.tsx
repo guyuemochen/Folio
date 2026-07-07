@@ -1,12 +1,26 @@
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/invoke';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { Editor } from '../editor/Editor';
-import { DatabaseView } from '../components/database/DatabaseView';
-import { RowPropertyPanel } from '../components/database/RowPropertyPanel';
-import { EmojiPicker } from '../components/EmojiPicker';
-import { ImportExportModal } from '../components/ImportExportModal';
+import { perf } from '../lib/perf';
+
+// M6 perf: page chrome renders for both page and database pages, but the
+// database UI / emoji picker / export modal are only mounted on user action.
+// Lazy-loading them keeps the page-open bundle lean (PRD §10.1: page open
+// < 300ms). The Editor stays eager because every plain page needs it.
+const DatabaseView = lazy(() =>
+  import('../components/database/DatabaseView').then((m) => ({ default: m.DatabaseView })),
+);
+const RowPropertyPanel = lazy(() =>
+  import('../components/database/RowPropertyPanel').then((m) => ({ default: m.RowPropertyPanel })),
+);
+const EmojiPicker = lazy(() =>
+  import('../components/EmojiPicker').then((m) => ({ default: m.EmojiPicker })),
+);
+const ImportExportModal = lazy(() =>
+  import('../components/ImportExportModal').then((m) => ({ default: m.ImportExportModal })),
+);
 
 /**
  * Single-page view. Routes by `page.type`:
@@ -62,6 +76,19 @@ export function PageView({ pageId }: { pageId: string }) {
       setTitleDraft(pageData.title);
       setFullWidth(pageData.fullWidth);
       lastSnapshottedDocRef.current = pageData.doc;
+    }
+  }, [pageData?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // M6 perf: measure "page open to interactive" (PRD §10.1: < 300ms).
+  // Starts when the page query resolves, ends when the Editor reports ready
+  // (or, for database pages, after the data effect runs).
+  useEffect(() => {
+    if (pageData) {
+      perf.start(`page-open:${pageData.id}`);
+      if (pageData.type === 'database') {
+        // No Editor to call onReady — count this paint as interactive.
+        perf.end(`page-open:${pageData.id}`);
+      }
     }
   }, [pageData?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -312,25 +339,36 @@ export function PageView({ pageId }: { pageId: string }) {
 
         {/* === Content === */}
         {isDatabase ? (
-          <DatabaseView databaseId={pageData.id} />
+          <Suspense
+            fallback={<div className="py-12 text-text-tertiary">Loading database…</div>}
+          >
+            <DatabaseView databaseId={pageData.id} />
+          </Suspense>
         ) : (
           <>
-            {isDatabaseRow && <RowPropertyPanel rowPageId={pageData.id} databaseId={pageData.parentId!} />}
+            {isDatabaseRow && (
+              <Suspense fallback={null}>
+                <RowPropertyPanel rowPageId={pageData.id} databaseId={pageData.parentId!} />
+              </Suspense>
+            )}
             <Editor
               key={`${pageData.id}:${restoreEpoch}`}
               pageId={pageData.id}
               initialDoc={pageData.doc}
+              onReady={() => perf.end(`page-open:${pageData.id}`)}
             />
           </>
         )}
       </div>
 
       {iconPickerAnchor && (
-        <EmojiPicker
-          anchorRect={iconPickerAnchor}
-          onSelect={setIcon}
-          onClose={() => setIconPickerAnchor(null)}
-        />
+        <Suspense fallback={null}>
+          <EmojiPicker
+            anchorRect={iconPickerAnchor}
+            onSelect={setIcon}
+            onClose={() => setIconPickerAnchor(null)}
+          />
+        </Suspense>
       )}
 
       {/* Cover picker popover — opened from "+ Add cover" or "Change cover" */}
@@ -397,11 +435,13 @@ export function PageView({ pageId }: { pageId: string }) {
       <DocUpdatedBridge pageId={pageData.id} onDocUpdated={scheduleSnapshot} />
 
       {exportOpen && (
-        <ImportExportModal
-          pageId={pageData.id}
-          pageTitle={pageData.title}
-          onClose={() => setExportOpen(false)}
-        />
+        <Suspense fallback={null}>
+          <ImportExportModal
+            pageId={pageData.id}
+            pageTitle={pageData.title}
+            onClose={() => setExportOpen(false)}
+          />
+        </Suspense>
       )}
     </main>
   );
