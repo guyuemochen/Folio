@@ -347,3 +347,10 @@ export interface PageSnapshot {
 
 /** Export format sent to the `export_page` Tauri command. */
 export type ExportFormat = 'markdown' | 'html';
+
+/** Summary returned by Notion zip import. */
+export interface ImportResult {
+  pagesCreated: number;
+  warnings: string[];
+  errors: string[];
+}

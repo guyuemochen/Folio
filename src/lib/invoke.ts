@@ -1,3 +1,4 @@
+import { open, save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import type {
   AddPropertyInput,
@@ -10,6 +11,7 @@ import type {
   DatabaseTemplate,
   DatabaseWithSchema,
   ExportFormat,
+  ImportResult,
   Page,
   PageSnapshot,
   PageSummary,
@@ -180,4 +182,30 @@ export const api = {
 
   importHtml: (htmlPath: string, parentId?: string): Promise<Page> =>
     invoke('import_html', { htmlPath, parentId }),
+
+  importCsv: (csvPath: string, parentId?: string): Promise<Page> =>
+    invoke('import_csv', { csvPath, parentId }),
+
+  importNotionZip: (zipPath: string, parentId?: string): Promise<ImportResult> =>
+    invoke('import_notion_zip', { zipPath, parentId }),
+
+  // --- Workspace export + backup (M5 §5.5.2) ----------------------------
+  exportWorkspace: (format: ExportFormat): Promise<string> =>
+    invoke('export_workspace', { format }),
+
+  createBackup: (): Promise<string> =>
+    invoke('create_backup'),
+
+  restoreBackup: (backupPath: string): Promise<boolean> =>
+    invoke('restore_backup', { backupPath }),
+
+  // --- File saving (M5 export → user-chosen path) -----------------------
+  saveTextFile: (path: string, content: string): Promise<void> =>
+    invoke('save_text_file', { path, content }),
+
+  saveBinaryFile: (path: string, contentB64: string): Promise<void> =>
+    invoke('save_binary_file', { path, contentB64 }),
 } as const;
+
+// Re-export dialog helpers for convenience.
+export { open, save };
