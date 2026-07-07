@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { api } from '../../lib/invoke';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import type {
@@ -45,6 +46,12 @@ interface DatabaseViewProps {
 const DEFAULT_COL_WIDTH = 200;
 const MIN_COL_WIDTH = 80;
 const COL_GROUPABLE: PropertyDef['type'][] = ['select', 'multi_select', 'status'];
+/**
+ * M6 perf: estimated row height for TanStack Virtual. Matches PRD §5.3.3
+ * (min body row height = 40px). Virtualization keeps 1000+ row tables
+ * smooth (PRD §10.1: render < 500ms).
+ */
+const ROW_HEIGHT = 40;
 
 export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) {
   const setCurrentPage = useWorkspaceStore((s) => s.setCurrentPage);
@@ -92,6 +99,8 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
 
   // Debounced view persistence.
   const persistRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // M6 perf: scroll container ref shared with the body virtualizer.
+  const tableScrollRef = useRef<HTMLDivElement>(null);
   const persistView = (patch: Partial<ViewConfig>) => {
     if (!activeView) return;
     if (persistRef.current) clearTimeout(persistRef.current);
@@ -456,7 +465,10 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
       />
 
       {/* Table */}
-      <div className="overflow-x-auto">
+      {/* M6 perf: bounded vertical scroll so TanStack Virtual can window the
+          body rows (PRD §10.1: 1000 rows render < 500ms). Horizontal scroll
+          still works via `overflow-auto`. */}
+      <div ref={tableScrollRef} className="overflow-auto max-h-[70vh] border-b border-border-hairline">
         <table className="w-full border-collapse text-[13px]">
           <thead>
             <tr className="bg-bg-section border-b border-border-hairline">
@@ -561,6 +573,7 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
                 onOpenRow={setCurrentPage}
                 databaseId={databaseId}
                 onAfterCellCommit={refetchRows}
+                scrollRef={tableScrollRef}
               />
             )}
           </tbody>
@@ -608,6 +621,14 @@ interface BodyProps {
   onAfterCellCommit: () => void;
 }
 
+/**
+ * M6 perf: FlatBody uses TanStack Virtual with the "padding rows" pattern.
+ * Off-screen row ranges collapse into a single `<tr>` spacer with the
+ * appropriate height, so the scrollbar reflects the full row count while
+ * only visible + overscan rows are actually mounted. Standard table layout
+ * is preserved (no display: block/flex rewrite), so column auto-alignment
+ * with the header still works (PRD §10.1: 1000 rows < 500ms).
+ */
 function FlatBody({
   rows,
   visibleProps,
@@ -618,7 +639,15 @@ function FlatBody({
   onOpenRow,
   databaseId,
   onAfterCellCommit,
-}: BodyProps & { rows: DatabaseRow[] }) {
+  scrollRef,
+}: BodyProps & { rows: DatabaseRow[]; scrollRef: RefObject<HTMLDivElement | null> }) {
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 8,
+  });
+
   if (rows.length === 0) {
     return (
       <tr>
@@ -628,22 +657,45 @@ function FlatBody({
       </tr>
     );
   }
+
+  const items = virtualizer.getVirtualItems();
+  const totalSize = virtualizer.getTotalSize();
+  const firstStart = items.length > 0 ? items[0]!.start : 0;
+  const lastEnd = items.length > 0 ? items[items.length - 1]!.end : 0;
+  const padTop = firstStart;
+  const padBottom = Math.max(0, totalSize - lastEnd);
+  const colSpan = visibleProps.length + 1;
+
   return (
     <>
-      {rows.map((row) => (
-        <RowLine
-          key={row.id}
-          row={row}
-          visibleProps={visibleProps}
-          selected={selectedRowIds.has(row.id)}
-          onRowClick={onRowClick}
-          onRowContextMenu={onRowContextMenu}
-          onCellChange={onCellChange}
-          onOpenRow={onOpenRow}
-          databaseId={databaseId}
-          onAfterCellCommit={onAfterCellCommit}
-        />
-      ))}
+      {padTop > 0 && (
+        <tr style={{ height: padTop }} aria-hidden>
+          <td colSpan={colSpan} style={{ padding: 0, border: 'none', height: padTop }} />
+        </tr>
+      )}
+      {items.map((vi) => {
+        const row = rows[vi.index];
+        if (!row) return null;
+        return (
+          <RowLine
+            key={row.id}
+            row={row}
+            visibleProps={visibleProps}
+            selected={selectedRowIds.has(row.id)}
+            onRowClick={onRowClick}
+            onRowContextMenu={onRowContextMenu}
+            onCellChange={onCellChange}
+            onOpenRow={onOpenRow}
+            databaseId={databaseId}
+            onAfterCellCommit={onAfterCellCommit}
+          />
+        );
+      })}
+      {padBottom > 0 && (
+        <tr style={{ height: padBottom }} aria-hidden>
+          <td colSpan={colSpan} style={{ padding: 0, border: 'none', height: padBottom }} />
+        </tr>
+      )}
     </>
   );
 }
