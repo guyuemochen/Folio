@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Editor } from '@tiptap/react';
 
 interface BubbleToolbarProps {
@@ -13,6 +14,7 @@ interface BubbleToolbarProps {
  * rectangle from the ProseMirror selection coords.
  */
 export function BubbleToolbar({ editor }: BubbleToolbarProps) {
+  const { t } = useTranslation();
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
@@ -82,28 +84,28 @@ export function BubbleToolbar({ editor }: BubbleToolbarProps) {
     >
       <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-md border border-border-hairline bg-bg-page shadow-popover">
         <ToolButton
-          title="Bold (Ctrl+B)"
+          title={t('editor.bold')}
           active={editor.isActive('bold')}
           onClick={() => editor.chain().focus().toggleBold().run()}
         >
           <strong className="text-[13px]">B</strong>
         </ToolButton>
         <ToolButton
-          title="Italic (Ctrl+I)"
+          title={t('editor.italic')}
           active={editor.isActive('italic')}
           onClick={() => editor.chain().focus().toggleItalic().run()}
         >
           <em className="text-[13px]">I</em>
         </ToolButton>
         <ToolButton
-          title="Underline (Ctrl+U)"
+          title={t('editor.underline')}
           active={editor.isActive('underline')}
           onClick={() => editor.chain().focus().toggleUnderline().run()}
         >
           <span className="text-[13px] underline">U</span>
         </ToolButton>
         <ToolButton
-          title="Strikethrough (Ctrl+Shift+S)"
+          title={t('editor.strikethrough')}
           active={editor.isActive('strike')}
           onClick={() => editor.chain().focus().toggleStrike().run()}
         >
@@ -111,14 +113,14 @@ export function BubbleToolbar({ editor }: BubbleToolbarProps) {
         </ToolButton>
         <div className="w-px h-4 bg-border-hairline mx-0.5" />
         <ToolButton
-          title="Code (Ctrl+E)"
+          title={t('editor.code')}
           active={editor.isActive('code')}
           onClick={() => editor.chain().focus().toggleCode().run()}
         >
           <code className="text-[11px]">{'</>'}</code>
         </ToolButton>
         <ToolButton
-          title="Link (Ctrl+K)"
+          title={t('editor.link')}
           active={editor.isActive('link')}
           onClick={() => setShowLinkInput((v) => !v)}
         >
@@ -139,7 +141,7 @@ export function BubbleToolbar({ editor }: BubbleToolbarProps) {
               }
             }}
             onBlur={applyLink}
-            placeholder="https://"
+            placeholder={t('editor.linkPlaceholder')}
             className="ml-1 w-48 px-2 py-0.5 text-[12px] border border-border-hairline rounded outline-none focus:border-accent bg-bg-page"
             autoFocus
           />

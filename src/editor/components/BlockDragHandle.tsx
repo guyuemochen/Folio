@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Editor } from '@tiptap/react';
 import type { Node as PmNode } from '@tiptap/pm/model';
 import { BlockMenu } from './BlockMenu';
@@ -57,6 +58,7 @@ const IDLE: HandleState = { visible: false, blockPos: -1, top: 0 };
  *     parent scroll container scrolls toward it, faster by distance.
  */
 export function BlockDragHandle({ editor, containerRef }: BlockDragHandleProps) {
+  const { t } = useTranslation();
   const [handle, setHandle] = useState<HandleState>(IDLE);
   const [menuRect, setMenuRect] = useState<DOMRect | null>(null);
   const [indicator, setIndicator] = useState<DropIndicator | null>(null);
@@ -297,7 +299,7 @@ export function BlockDragHandle({ editor, containerRef }: BlockDragHandleProps) 
       <div
         className="absolute z-30 left-[-36px] flex items-center justify-center w-6 h-6 cursor-grab active:cursor-grabbing text-text-tertiary hover:text-text-primary transition-colors"
         style={{ top: handle.top }}
-        title="Drag to move · Click for actions"
+        title={t('editor.dragHandleTooltip')}
         contentEditable={false}
         onMouseDown={handleClick}
         onDragStart={handleDragStart}

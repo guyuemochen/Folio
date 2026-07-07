@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Editor } from '@tiptap/react';
 
 interface FindBarProps {
@@ -29,6 +30,7 @@ interface Match {
  * "build minimal find-with-highlight".
  */
 export function FindBar({ editor, onClose }: FindBarProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -113,7 +115,7 @@ export function FindBar({ editor, onClose }: FindBarProps) {
     <div
       className="ln-find-bar"
       role="search"
-      aria-label="Find in page"
+      aria-label={t('editor.findPlaceholder')}
       onMouseDown={(e) => e.preventDefault()}
     >
       <input
@@ -122,7 +124,7 @@ export function FindBar({ editor, onClose }: FindBarProps) {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder="Find in page…"
+        placeholder={t('editor.findPlaceholder')}
         className="ln-find-input"
         spellCheck={false}
         autoComplete="off"
@@ -130,19 +132,19 @@ export function FindBar({ editor, onClose }: FindBarProps) {
       <button
         type="button"
         className="ln-find-toggle"
-        title="Match case"
+        title={t('editor.matchCase')}
         aria-pressed={caseSensitive}
         onClick={() => setCaseSensitive((v) => !v)}
       >
         Aa
       </button>
       <span className="ln-find-count">
-        {matches.length === 0 ? '0/0' : `${Math.min(activeIndex + 1, matches.length)}/${matches.length}`}
+        {matches.length === 0 ? t('editor.noMatches') : `${Math.min(activeIndex + 1, matches.length)}/${matches.length}`}
       </span>
       <button
         type="button"
         className="ln-find-nav"
-        title="Previous (Shift+Enter)"
+        title={t('editor.previous')}
         disabled={matches.length === 0}
         onClick={() => setActiveIndex((i) => (i - 1 + matches.length) % matches.length)}
       >
@@ -151,7 +153,7 @@ export function FindBar({ editor, onClose }: FindBarProps) {
       <button
         type="button"
         className="ln-find-nav"
-        title="Next (Enter)"
+        title={t('editor.next')}
         disabled={matches.length === 0}
         onClick={() => setActiveIndex((i) => (i + 1) % matches.length)}
       >
@@ -160,7 +162,7 @@ export function FindBar({ editor, onClose }: FindBarProps) {
       <button
         type="button"
         className="ln-find-close"
-        title="Close (Esc)"
+        title={t('editor.closeFind')}
         onClick={onClose}
       >
         ✕

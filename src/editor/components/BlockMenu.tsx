@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Editor } from '@tiptap/react';
 import type { Node as PmNode } from '@tiptap/pm/model';
 import { Popover } from '../../components/ui/Popover';
@@ -29,6 +30,7 @@ type SubmenuName = null | 'turn-into' | 'color' | 'move-to';
  * Drag-to-reorder is handled by the handle itself (HTML5 draggable), not here.
  */
 export function BlockMenu({ editor, blockPos, anchorRect, onClose }: BlockMenuProps) {
+  const { t } = useTranslation();
   const [submenu, setSubmenu] = useState<SubmenuName>(null);
 
   // Resolve the current block to know its type for the Turn into submenu.
@@ -79,7 +81,7 @@ export function BlockMenu({ editor, blockPos, anchorRect, onClose }: BlockMenuPr
     const url = `${window.location.origin}/#${blockPos}`;
     try {
       await navigator.clipboard.writeText(url);
-      window.dispatchEvent(new CustomEvent('folio:toast', { detail: 'Block link copied' }));
+      window.dispatchEvent(new CustomEvent('folio:toast', { detail: t('editor.blockLinkCopied') }));
     } catch {
       // ignore — clipboard may be blocked in webview
     }
@@ -87,7 +89,7 @@ export function BlockMenu({ editor, blockPos, anchorRect, onClose }: BlockMenuPr
   };
 
   const commentPlaceholder = () => {
-    window.dispatchEvent(new CustomEvent('folio:toast', { detail: 'Comments — coming in v1' }));
+    window.dispatchEvent(new CustomEvent('folio:toast', { detail: t('editor.commentsSoon') }));
     onClose();
   };
 
@@ -99,7 +101,7 @@ export function BlockMenu({ editor, blockPos, anchorRect, onClose }: BlockMenuPr
         detail: { blockPos, targetParentId },
       }),
     );
-    window.dispatchEvent(new CustomEvent('folio:toast', { detail: 'Move-to — coming in v1' }));
+    window.dispatchEvent(new CustomEvent('folio:toast', { detail: t('editor.moveToSoon') }));
     onClose();
   };
 
@@ -107,94 +109,94 @@ export function BlockMenu({ editor, blockPos, anchorRect, onClose }: BlockMenuPr
     <Popover anchorRect={anchorRect} placement="bottom-start" width={220} onClose={onClose}>
       {!submenu && (
         <div className="py-1">
-          <MenuItem icon="⎘" label="Duplicate" shortcut="Ctrl+D" onClick={duplicate} />
+          <MenuItem icon="⎘" label={t('editor.duplicate')} shortcut="Ctrl+D" onClick={duplicate} />
           <MenuItem
             icon="⇄"
-            label="Turn into"
+            label={t('editor.turnInto')}
             trailing="▸"
             onClick={() => setSubmenu('turn-into')}
           />
           <MenuItem
             icon="🎨"
-            label="Color"
+            label={t('editor.color')}
             trailing="▸"
             onClick={() => setSubmenu('color')}
           />
-          <MenuItem icon="🔗" label="Copy link to block" onClick={copyLink} />
-          <MenuItem icon="💬" label="Comment" onClick={commentPlaceholder} />
+          <MenuItem icon="🔗" label={t('editor.copyBlockLink')} onClick={copyLink} />
+          <MenuItem icon="💬" label={t('editor.comment')} onClick={commentPlaceholder} />
           <MenuItem
             icon="↪"
-            label="Move to"
+            label={t('editor.moveTo')}
             trailing="▸"
             onClick={() => setSubmenu('move-to')}
           />
           <div className="my-1 border-t border-border-hairline" />
-          <MenuItem icon="🗑" label="Delete" shortcut="Ctrl+⌫" danger onClick={remove} />
+          <MenuItem icon="🗑" label={t('editor.delete')} shortcut="Ctrl+⌫" danger onClick={remove} />
         </div>
       )}
 
       {submenu === 'turn-into' && (
         <div className="py-1">
           <div className="px-2.5 pb-1 text-[10px] uppercase tracking-wider text-text-tertiary">
-            Turn into
+            {t('editor.turnInto')}
           </div>
           <MenuItem
             icon="Aa"
-            label="Text"
+            label={t('editor.text')}
             trailing={currentType === 'paragraph' ? '✓' : undefined}
             onClick={() => turnInto('paragraph')}
           />
           <MenuItem
             icon="H₁"
-            label="Heading 1"
+            label={t('editor.heading1')}
             trailing={currentType === 'heading' && currentLevel === 1 ? '✓' : undefined}
             onClick={() => turnInto('heading', 1)}
           />
           <MenuItem
             icon="H₂"
-            label="Heading 2"
+            label={t('editor.heading2')}
             trailing={currentType === 'heading' && currentLevel === 2 ? '✓' : undefined}
             onClick={() => turnInto('heading', 2)}
           />
           <MenuItem
             icon="H₃"
-            label="Heading 3"
+            label={t('editor.heading3')}
             trailing={currentType === 'heading' && currentLevel === 3 ? '✓' : undefined}
             onClick={() => turnInto('heading', 3)}
           />
           <MenuItem
             icon="❝"
-            label="Quote"
+            label={t('editor.quote')}
             trailing={currentType === 'blockquote' ? '✓' : undefined}
             onClick={() => turnInto('blockquote')}
           />
           <MenuItem
             icon="</>"
-            label="Code"
+            label={t('editor.code')}
             trailing={currentType === 'codeBlock' ? '✓' : undefined}
             onClick={() => turnInto('codeBlock')}
           />
           <MenuItem
             icon="•"
-            label="Bulleted list"
+            label={t('editor.bulletedList')}
             trailing={currentType === 'bulletList' ? '✓' : undefined}
             onClick={() => turnInto('bulletList')}
           />
           <MenuItem
             icon="1."
-            label="Numbered list"
+            label={t('editor.numberedList')}
             trailing={currentType === 'orderedList' ? '✓' : undefined}
             onClick={() => turnInto('orderedList')}
           />
           <MenuItem
             icon="☐"
-            label="To-do list"
+            label={t('editor.todoList')}
             trailing={currentType === 'taskList' ? '✓' : undefined}
             onClick={() => turnInto('taskList')}
           />
           <MenuItem
             icon="▸"
-            label="Toggle"
+            label={t('editor.toggle')}
             trailing={currentType === 'toggle' ? '✓' : undefined}
             onClick={() => turnInto('toggle')}
           />
@@ -228,6 +230,7 @@ function ColorSubmenu({
   onDone: () => void;
   onBack: () => void;
 }) {
+  const { t } = useTranslation();
   const apply = (color: string | null, kind: 'text' | 'highlight') => {
     const { from, to } = findBlockRange(editor, blockPos);
     editor.chain().setTextSelection({ from, to }).focus();
@@ -244,7 +247,7 @@ function ColorSubmenu({
   return (
     <div>
       <div className="flex items-center justify-between px-1 pb-1.5">
-        <span className="text-[10px] uppercase tracking-wider text-text-tertiary">Color</span>
+        <span className="text-[10px] uppercase tracking-wider text-text-tertiary">{t('editor.color')}</span>
         <button
           type="button"
           onMouseDown={(e) => {
@@ -253,23 +256,23 @@ function ColorSubmenu({
           }}
           className="text-[11px] text-text-tertiary hover:text-text-primary"
         >
-          ◂ Back
+          ◂ {t('common.back')}
         </button>
       </div>
 
-      <div className="text-[10px] px-1 pt-1 text-text-tertiary">Text</div>
+      <div className="text-[10px] px-1 pt-1 text-text-tertiary">{t('editor.text')}</div>
       <div className="grid grid-cols-5 gap-1 px-1 py-1">
-        <ColorSwatch color={null} kind="text" onPick={apply} title="Default" />
+        <ColorSwatch color={null} kind="text" onPick={apply} title={t('editor.default')} />
         {TEXT_COLORS.map((c) => (
-          <ColorSwatch key={c.value} color={c.value} kind="text" onPick={apply} title={c.label} />
+          <ColorSwatch key={c.value} color={c.value} kind="text" onPick={apply} title={t('editor.color' + c.label)} />
         ))}
       </div>
 
-      <div className="text-[10px] px-1 pt-2 text-text-tertiary">Background</div>
+      <div className="text-[10px] px-1 pt-2 text-text-tertiary">{t('editor.background')}</div>
       <div className="grid grid-cols-5 gap-1 px-1 py-1">
-        <ColorSwatch color={null} kind="highlight" onPick={apply} title="Default" />
+        <ColorSwatch color={null} kind="highlight" onPick={apply} title={t('editor.default')} />
         {HIGHLIGHT_COLORS.map((c) => (
-          <ColorSwatch key={c.value} color={c.value} kind="highlight" onPick={apply} title={c.label} />
+          <ColorSwatch key={c.value} color={c.value} kind="highlight" onPick={apply} title={t('editor.color' + c.label)} />
         ))}
       </div>
     </div>
@@ -320,6 +323,7 @@ function MoveToSubpage({
   onBack: () => void;
   onPick: (parentId: string | null) => void;
 }) {
+  const { t } = useTranslation();
   const rootPages = useWorkspaceStore((s) => s.rootPages);
   const childrenCache = useWorkspaceStore((s) => s.childrenCache);
   const loadChildren = useWorkspaceStore((s) => s.loadChildren);
@@ -357,10 +361,10 @@ function MoveToSubpage({
               e.preventDefault();
               onPick(page.id);
             }}
-            title={page.title || 'Untitled'}
+            title={page.title || t('common.untitled')}
           >
             <span className="mr-1">{page.icon || '📄'}</span>
-            <span className="text-text-primary">{page.title || 'Untitled'}</span>
+            <span className="text-text-primary">{page.title || t('common.untitled')}</span>
           </button>
         </div>
         {isExpanded && children.map((c) => renderNode(c, depth + 1))}
@@ -371,7 +375,7 @@ function MoveToSubpage({
   return (
     <div className="max-h-[280px] overflow-y-auto" style={{ width: 200 }}>
       <div className="flex items-center justify-between px-1 pb-1.5">
-        <span className="text-[10px] uppercase tracking-wider text-text-tertiary">Move to</span>
+        <span className="text-[10px] uppercase tracking-wider text-text-tertiary">{t('editor.moveTo')}</span>
         <button
           type="button"
           onMouseDown={(e) => {
@@ -380,7 +384,7 @@ function MoveToSubpage({
           }}
           className="text-[11px] text-text-tertiary hover:text-text-primary"
         >
-          ◂ Back
+          ◂ {t('common.back')}
         </button>
       </div>
       <div
@@ -391,10 +395,10 @@ function MoveToSubpage({
         }}
       >
         <span className="w-4" />
-        <span className="text-text-primary">Workspace root</span>
+        <span className="text-text-primary">{t('editor.workspaceRoot')}</span>
       </div>
       {rootPages.length === 0 ? (
-        <div className="px-2 py-2 text-[11px] text-text-tertiary">No pages yet</div>
+        <div className="px-2 py-2 text-[11px] text-text-tertiary">{t('common.noPagesYet')}</div>
       ) : (
         rootPages.map((p) => renderNode(p, 0))
       )}
