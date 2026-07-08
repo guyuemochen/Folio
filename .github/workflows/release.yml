@@ -41,6 +41,14 @@ on:
         options: ['stable', 'beta', 'nightly']
         default: 'stable'
 
+# tauri-action creates the rolling GitHub Release + uploads artifacts via the
+# REST API using GITHUB_TOKEN. The token needs `contents: write` (and
+# `packages: write` if you ever publish anything to GHCR). Without this block
+# the token falls back to the repo default, which is read-only on most repos
+# → "Resource not accessible by integration" on create-a-release.
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
