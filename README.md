@@ -222,10 +222,9 @@ database render). All changes verified via `pnpm typecheck` (0 errors) and
 - **`vite.config.ts`** had `minify: 'esbuild'` which Vite 8 deprecated;
   switched to default Oxc minifier to unblock production builds
 
-## What works in M7 (partial) — i18n
+## What works in M7 — i18n + a11y
 
-Internationalization per PRD §10.5. Accessibility (a11y / WCAG AA) is still
-pending and will land in a follow-up commit.
+Internationalization (PRD §10.5) and accessibility (PRD §10.4).
 
 ### Setup
 
@@ -252,17 +251,38 @@ pending and will land in a follow-up commit.
 - [x] **Non-component modules** (e.g. `slashCommands.ts`) use `i18n.t()`
       directly since `useTranslation` is a hook
 
-### Out of scope (M7 a11y still pending)
+### Accessibility (a11y, PRD §10.4)
 
-- WCAG AA color-contrast audit
-- Full keyboard navigation + visible focus rings
-- ARIA labelling audit on editor / modals / popover
-- `prefers-reduced-motion` and `prefers-color-scheme` honor
+- [x] **`prefers-color-scheme`** — system dark mode auto-applied via
+      `data-theme` attribute on `<html>`; `matchMedia` listener keeps it
+      in sync at runtime (`src/lib/theme.ts`, wired in `main.tsx` + `App.tsx`)
+- [x] **`prefers-reduced-motion`** — global CSS rule disables animations /
+      transitions when the OS preference is set (`globals.css`)
+- [x] **WCAG AA color contrast** — `--color-text-tertiary` and
+      `--color-text-placeholder` deepened in both themes to clear the 4.5:1
+      threshold (light `#6e6a64` / `#7a7670`, dark `#908e89` / `#8a8985`)
+- [x] **Visible focus rings** — global `:focus-visible` outline on every
+      focusable element; mouse clicks don't leave a residual ring
+- [x] **Dialog a11y** — shared `useDialog()` hook (`src/lib/dialog.ts`) gives
+      all 4 modals `role="dialog"` + `aria-modal` + `aria-label`,
+      Escape-to-close, Tab/Shift+Tab focus trap, initial focus, focus restore
+      to the trigger, and background scroll lock
+- [x] **Editor ARIA** — ProseMirror region gets `role="textbox"` +
+      `aria-label` + `aria-multiline`; SlashMenu is `role="listbox"` with
+      `role="option"` items; BubbleToolbar is `role="toolbar"` with
+      `aria-pressed` toggles; BlockMenu is `role="menu"` with `role="menuitem"`
+      items
+- [x] **Database ARIA** — `<table aria-label>`, `<th scope="col" aria-sort>`
+      on every column header, `aria-label` on every cell editor (11 types)
+      and row action buttons
+- [x] **Popover ARIA** — `Popover` accepts an optional `ariaLabel` prop
 
-## What's next (M7 a11y + M8 beta)
+## What's next (M9 release)
 
-Per PRD §13.1: complete M7 accessibility work, then M8 (beta), M9 (v0.1.0
-release).
+Per PRD §13.1: M7 (i18n + a11y) and M8 (internal beta + P0 bug fix) are
+complete. Next is M9 (v0.1.0 release): three-platform signed installers,
+auto-update channel (Q9), README + demo video, and license finalization
+(Q11).
 
 ## License
 
