@@ -3,9 +3,9 @@ name: release
 # M9 — build, sign, and publish Folio installers + the updater manifest.
 #
 # Three release channels share this workflow:
-#   stable  : push tag v0.x.x            → rolling tag `stable-latest`
-#   beta    : push tag v0.x.x-beta.N     → rolling tag `beta-latest`
-#   nightly : schedule (daily 03:00 UTC) → rolling tag `nightly-latest`
+#   stable  : PR merged into `master`     → rolling tag `stable-latest`
+#   beta    : PR merged into `dev`        → rolling tag `beta-latest`
+#   nightly : schedule (daily 03:00 UTC)  → rolling tag `nightly-latest`
 #
 # The Tauri updater reads `latest.json` from each channel's rolling tag.
 #
@@ -22,10 +22,9 @@ name: release
 #   AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET (Windows Authenticode)
 
 on:
-  push:
-    tags:
-      - 'v*'           # stable + beta (v0.1.0, v0.1.1-beta.2)
-      - 'nightly-*'    # explicit nightly tag
+  pull_request:
+    types: [closed]
+    branches: [master, dev]
   schedule:
     - cron: '0 3 * * *'  # nightly build at 03:00 UTC
   workflow_dispatch:
@@ -38,6 +37,8 @@ on:
 
 jobs:
   build:
+    # Skip when a PR is closed without merging.
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     strategy:
       fail-fast: false
       matrix:
@@ -78,21 +79,28 @@ jobs:
         id: chan
         shell: bash
         run: |
-          CH="${{ github.event.inputs.channel || '' }}"
-          TAG="${GITHUB_REF#refs/tags/}"
-          if [ -z "$CH" ]; then
-            if [[ "$TAG" == nightly-* ]] || [ "${{ github.event_name }}" = "schedule" ]; then CH=nightly
-            elif [[ "$TAG" == *-beta* ]]; then CH=beta
-            else CH=stable; fi
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.ref }}"
+            if   [ "$BASE" = "master" ]; then CH=stable
+            elif [ "$BASE" = "dev" ];     then CH=beta
+            else echo "::error::unexpected PR base: $BASE"; exit 1; fi
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            CH=nightly
+          else
+            CH="${{ github.event.inputs.channel || 'stable' }}"
           fi
-          ROLLING="$CH-latest"
-          DATED="$TAG"
-          if [ "$CH" = "nightly" ] && [ -z "$DATED" ]; then
-            DATED="nightly-$(date -u +%Y-%m-%d)"
-          fi
-          echo "channel=$CH"      >> "$GITHUB_OUTPUT"
-          echo "rolling=$ROLLING" >> "$GITHUB_OUTPUT"
-          echo "dated=$DATED"     >> "$GITHUB_OUTPUT"
+          SHA7=$(git rev-parse --short HEAD)
+          DATE=$(date -u +%Y-%m-%d)
+          VERSION=$(node -p "require('./package.json').version")
+          case "$CH" in
+            stable)  DATED="v$VERSION" ;;
+            beta)    DATED="v$VERSION-beta.$SHA7" ;;
+            nightly) DATED="nightly-$DATE" ;;
+            *)       DATED="$CH-$SHA7" ;;
+          esac
+          echo "channel=$CH"        >> "$GITHUB_OUTPUT"
+          echo "rolling=$CH-latest" >> "$GITHUB_OUTPUT"
+          echo "dated=$DATED"       >> "$GITHUB_OUTPUT"
 
       - uses: tauri-apps/tauri-action@v0
         env:
