@@ -25,8 +25,8 @@ interface CellProps {
   onAfterCommit?: () => void;
 }
 
-/** Cell types that don't need the property schema. */
-type SimpleCellProps = Pick<CellProps, 'value' | 'onChange'>;
+/** Cell types that don't need the property schema (property is optional, used only for aria-label). */
+type SimpleCellProps = Pick<CellProps, 'value' | 'onChange'> & { property?: PropertyDef };
 
 /** Dispatch to the right editor by property.type. */
 export const PropertyCell = memo(function PropertyCell({
@@ -39,15 +39,15 @@ export const PropertyCell = memo(function PropertyCell({
 }: CellProps) {
   switch (property.type) {
     case 'title':
-      return <TitleCell value={value} onChange={onChange} />;
+      return <TitleCell value={value} property={property} onChange={onChange} />;
     case 'rich_text':
-      return <TextCell value={value} onChange={onChange} />;
+      return <TextCell value={value} property={property} onChange={onChange} />;
     case 'number':
       return <NumberCell value={value} property={property} onChange={onChange} />;
     case 'checkbox':
-      return <CheckboxCell value={value} onChange={onChange} />;
+      return <CheckboxCell value={value} property={property} onChange={onChange} />;
     case 'url':
-      return <UrlCell value={value} onChange={onChange} />;
+      return <UrlCell value={value} property={property} onChange={onChange} />;
     case 'select':
     case 'status':
       return (
@@ -58,9 +58,9 @@ export const PropertyCell = memo(function PropertyCell({
         <SelectCell value={value} property={property} onChange={onChange} multi={true} />
       );
     case 'date':
-      return <DateCell value={value} onChange={onChange} />;
+      return <DateCell value={value} property={property} onChange={onChange} />;
     case 'person':
-      return <PersonCell value={value} onChange={onChange} />;
+      return <PersonCell value={value} property={property} onChange={onChange} />;
     case 'files':
       return (
         <FilesCell
@@ -79,11 +79,12 @@ export const PropertyCell = memo(function PropertyCell({
 
 // ---------------------------------------------------------------------------
 
-const TitleCell = memo(function TitleCell({ value, onChange }: SimpleCellProps) {
+const TitleCell = memo(function TitleCell({ value, property, onChange }: SimpleCellProps) {
   const { t } = useTranslation();
   return (
     <input
       type="text"
+      aria-label={property?.name ?? t('editor.text')}
       value={typeof value === 'string' ? value : ''}
       placeholder={t('common.untitled')}
       onChange={(e) => onChange(e.target.value)}
@@ -92,7 +93,7 @@ const TitleCell = memo(function TitleCell({ value, onChange }: SimpleCellProps) 
   );
 });
 
-const TextCell = memo(function TextCell({ value, onChange }: SimpleCellProps) {
+const TextCell = memo(function TextCell({ value, property, onChange }: SimpleCellProps) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(typeof value === 'string' ? value : '');
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
@@ -108,6 +109,7 @@ const TextCell = memo(function TextCell({ value, onChange }: SimpleCellProps) {
     <>
       <button
         type="button"
+        aria-label={property?.name ?? t('editor.text')}
         onClick={(e) => setAnchorRect(e.currentTarget.getBoundingClientRect())}
         className="w-full text-left text-sm text-text-primary truncate"
       >
@@ -117,6 +119,7 @@ const TextCell = memo(function TextCell({ value, onChange }: SimpleCellProps) {
         <Popover anchorRect={anchorRect} placement="bottom-start" width={256} onClose={() => setAnchorRect(null)}>
           <textarea
             ref={taRef}
+            aria-label={property?.name ?? t('editor.text')}
             rows={4}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -138,6 +141,7 @@ const NumberCell = memo(function NumberCell({ value, property, onChange }: CellP
   return (
     <input
       type="number"
+      aria-label={property.name}
       step={step}
       value={typeof value === 'number' ? value : ((value as string | undefined) ?? '')}
       onChange={(e) => {
@@ -151,11 +155,13 @@ const NumberCell = memo(function NumberCell({ value, property, onChange }: CellP
   );
 });
 
-const CheckboxCell = memo(function CheckboxCell({ value, onChange }: SimpleCellProps) {
+const CheckboxCell = memo(function CheckboxCell({ value, property, onChange }: SimpleCellProps) {
+  const { t } = useTranslation();
   const checked = value === true;
   return (
     <input
       type="checkbox"
+      aria-label={property?.name ?? t('database.typeCheckbox')}
       checked={checked}
       onChange={(e) => onChange(e.target.checked)}
       className="w-4 h-4 accent-accent"
@@ -163,12 +169,13 @@ const CheckboxCell = memo(function CheckboxCell({ value, onChange }: SimpleCellP
   );
 });
 
-const UrlCell = memo(function UrlCell({ value, onChange }: SimpleCellProps) {
+const UrlCell = memo(function UrlCell({ value, property, onChange }: SimpleCellProps) {
   const { t } = useTranslation();
   const href = typeof value === 'string' ? value : '';
   return (
     <input
       type="url"
+      aria-label={property?.name ?? t('database.typeUrl')}
       value={href}
       placeholder={t('database.urlPlaceholder')}
       onChange={(e) => onChange(e.target.value)}
@@ -229,6 +236,7 @@ const SelectCell = memo(function SelectCell({
     <>
       <button
         type="button"
+        aria-label={property.name}
         onClick={(e) => setAnchorRect(e.currentTarget.getBoundingClientRect())}
         className="w-full text-left text-sm flex flex-wrap gap-1 min-h-[20px]"
       >
@@ -259,11 +267,13 @@ const SelectCell = memo(function SelectCell({
   );
 });
 
-const DateCell = memo(function DateCell({ value, onChange }: SimpleCellProps) {
+const DateCell = memo(function DateCell({ value, property, onChange }: SimpleCellProps) {
+  const { t } = useTranslation();
   const iso = typeof value === 'string' ? value : '';
   return (
     <input
       type="datetime-local"
+      aria-label={property?.name ?? t('database.typeDate')}
       value={iso}
       onChange={(e) => onChange(e.target.value || null)}
       className="bg-transparent outline-none text-sm text-text-primary"
@@ -275,12 +285,13 @@ const DateCell = memo(function DateCell({ value, onChange }: SimpleCellProps) {
  * Person cell — MVP simplification (PRD §5.3.2): single fixed option "Me".
  * Behaves like a single-select with one option. Click toggles between set/clear.
  */
-const PersonCell = memo(function PersonCell({ value, onChange }: SimpleCellProps) {
+const PersonCell = memo(function PersonCell({ value, property, onChange }: SimpleCellProps) {
   const { t } = useTranslation();
   const isMe = value === 'Me';
   return (
     <button
       type="button"
+      aria-label={property?.name ?? t('common.me')}
       onClick={() => onChange(isMe ? null : 'Me')}
       className="w-full text-left flex items-center gap-1.5 min-h-[20px]"
     >
@@ -342,6 +353,7 @@ const FilesCell = memo(function FilesCell({
         </span>
         <button
           type="button"
+          aria-label={t('common.remove')}
           onClick={(e) => {
             e.stopPropagation();
             onChange(null);
@@ -358,6 +370,7 @@ const FilesCell = memo(function FilesCell({
   return (
     <button
       type="button"
+      aria-label={pageId ? t('database.attachFile') : t('database.saveRowFirst')}
       onClick={handlePick}
       disabled={!pageId || !databaseId || busy}
       className="text-text-tertiary hover:text-text-primary text-xs disabled:opacity-40"

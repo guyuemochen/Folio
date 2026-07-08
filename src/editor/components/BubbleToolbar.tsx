@@ -82,7 +82,7 @@ export function BubbleToolbar({ editor }: BubbleToolbarProps) {
       style={{ left: centerX, top }}
       onMouseDown={(e) => e.preventDefault()}
     >
-      <div className="flex items-center gap-0.5 px-1 py-0.5 rounded-md border border-border-hairline bg-bg-page shadow-popover">
+      <div role="toolbar" aria-label={t('editor.bubbleToolbarLabel')} className="flex items-center gap-0.5 px-1 py-0.5 rounded-md border border-border-hairline bg-bg-page shadow-popover">
         <ToolButton
           title={t('editor.bold')}
           active={editor.isActive('bold')}
@@ -166,6 +166,7 @@ function ToolButton({
     <button
       type="button"
       title={title}
+      aria-pressed={active}
       onClick={onClick}
       className={[
         'w-6 h-6 flex items-center justify-center rounded text-[13px] transition-colors',

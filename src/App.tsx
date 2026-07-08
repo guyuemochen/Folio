@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sidebar } from './components/Sidebar';
 import { useWorkspaceStore } from './store/workspaceStore';
+import { useTheme } from './lib/theme';
 import { perf } from './lib/perf';
 import type { SnapshotSource } from './lib/types';
 
@@ -31,6 +32,9 @@ const HistoryModal = lazy(() =>
  */
 export default function App() {
   const { t } = useTranslation();
+  // M7 a11y: subscribe to OS color-scheme changes (PRD §10.4). The initial
+  // value is applied pre-paint in main.tsx; this keeps it in sync at runtime.
+  useTheme();
   const currentPageId = useWorkspaceStore((s) => s.currentPageId);
   const createRootPage = useWorkspaceStore((s) => s.createRootPage);
   const createRootDatabase = useWorkspaceStore((s) => s.createRootDatabase);

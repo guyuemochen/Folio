@@ -108,7 +108,7 @@ export function BlockMenu({ editor, blockPos, anchorRect, onClose }: BlockMenuPr
   return (
     <Popover anchorRect={anchorRect} placement="bottom-start" width={220} onClose={onClose}>
       {!submenu && (
-        <div className="py-1">
+        <div role="menu" aria-label={t('editor.blockMenuLabel')} className="py-1">
           <MenuItem icon="⎘" label={t('editor.duplicate')} shortcut="Ctrl+D" onClick={duplicate} />
           <MenuItem
             icon="⇄"
@@ -136,7 +136,7 @@ export function BlockMenu({ editor, blockPos, anchorRect, onClose }: BlockMenuPr
       )}
 
       {submenu === 'turn-into' && (
-        <div className="py-1">
+        <div role="menu" aria-label={t('editor.turnInto')} className="py-1">
           <div className="px-2.5 pb-1 text-[10px] uppercase tracking-wider text-text-tertiary">
             {t('editor.turnInto')}
           </div>
@@ -424,6 +424,7 @@ function MenuItem({
   return (
     <button
       type="button"
+      role="menuitem"
       onMouseDown={(e) => {
         e.preventDefault();
         onClick();

@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useWorkspaceStore } from '../store/workspaceStore';
+import { useDialog } from '../lib/dialog';
 
 interface TrashModalProps {
   onClose: () => void;
@@ -25,13 +26,7 @@ export function TrashModal({ onClose }: TrashModalProps) {
     loadTrashedPages().catch((err) => console.error('[Folio] load trash failed', err));
   }, [loadTrashedPages]);
 
-  const onCloseKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') onClose();
-  };
-  useEffect(() => {
-    window.addEventListener('keydown', onCloseKey);
-    return () => window.removeEventListener('keydown', onCloseKey);
-  });
+  const dialog = useDialog({ onClose, label: t('trash.title') });
 
   const rows = useMemo(() => trashedPages, [trashedPages]);
 
@@ -42,7 +37,7 @@ export function TrashModal({ onClose }: TrashModalProps) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-[560px] max-h-[70vh] bg-bg-page rounded-lg shadow-popover border border-border-hairline flex flex-col">
+      <div {...dialog.containerProps} className="w-[560px] max-h-[70vh] bg-bg-page rounded-lg shadow-popover border border-border-hairline flex flex-col">
         <header className="px-5 py-3 border-b border-border-hairline flex items-center">
           <h2 className="text-h3 flex-1">{t('trash.title')}</h2>
           <button

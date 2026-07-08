@@ -233,6 +233,9 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
       attributes: {
         class: 'prose-mirror',
         spellcheck: 'true',
+        role: 'textbox',
+        'aria-label': t('editor.regionLabel'),
+        'aria-multiline': 'true',
       },
       handlePaste: (view, event) => handlePaste(view, event),
     },

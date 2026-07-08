@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../lib/invoke';
+import { useDialog } from '../lib/dialog';
 import type { PageSnapshot } from '../lib/types';
 
 interface HistoryModalProps {
@@ -46,13 +47,7 @@ export function HistoryModal({ pageId, currentTitle, onClose, onRestored }: Hist
     };
   }, [pageId]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const dialog = useDialog({ onClose, label: t('history.title') });
 
   const selected = useMemo(
     () => snapshots.find((s) => s.id === selectedId) ?? null,
@@ -89,7 +84,7 @@ export function HistoryModal({ pageId, currentTitle, onClose, onRestored }: Hist
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-[760px] max-h-[80vh] bg-bg-page rounded-lg shadow-popover border border-border-hairline flex flex-col">
+      <div {...dialog.containerProps} className="w-[760px] max-h-[80vh] bg-bg-page rounded-lg shadow-popover border border-border-hairline flex flex-col">
         <header className="px-5 py-3 border-b border-border-hairline flex items-center gap-2">
           <h2 className="text-h3 flex-1">{t('history.title')}</h2>
           <span className="text-[11px] text-text-tertiary">

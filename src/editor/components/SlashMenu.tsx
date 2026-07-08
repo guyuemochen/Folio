@@ -143,6 +143,8 @@ export function SlashMenu({ editor, query, anchor, onClose }: SlashMenuProps) {
   return (
     <div
       ref={listRef}
+      role="listbox"
+      aria-label={t('editor.slashMenuLabel')}
       className="fixed z-[1000] w-[280px] max-h-[320px] overflow-hidden rounded-md border border-border-hairline bg-bg-page shadow-popover text-[13px]"
       style={{ top: anchor.top, left: anchor.left }}
     >
@@ -230,6 +232,8 @@ function renderCommand(
       key={cmd.key}
       type="button"
       data-slash-index={idx}
+      role="option"
+      aria-selected={isSelected}
       onMouseEnter={() => setSelectedIndex(idx)}
       onMouseDown={(e) => {
         e.preventDefault();

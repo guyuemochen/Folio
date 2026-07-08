@@ -105,6 +105,7 @@
   },
 
   "search": {
+    "dialogLabel": "Search pages and content",
     "placeholder": "Search pages and content...",
     "searching": "searching…",
     "esc": "ESC",
@@ -148,6 +149,7 @@
   },
 
   "importExport": {
+    "dialogLabel": "Import and export",
     "exportTab": "↥ Export",
     "importTab": "↧ Import",
     "close": "Close",
@@ -249,7 +251,9 @@
     "formatInteger": "1,234",
     "formatDecimal": "1,234.56",
     "formatPercent": "12%",
-    "formatCurrency": "$1,234"
+    "formatCurrency": "$1,234",
+    "sortAscending": "Sort ascending",
+    "sortDescending": "Sort descending"
   },
 
   "editor": {
@@ -354,6 +358,10 @@
     "slashColumn": "Column",
     "slashColumnDesc": "Two-column layout side-by-side",
     "slashSubpage": "Sub-page",
-    "slashSubpageDesc": "Create a new child page and link to it inline"
+    "slashSubpageDesc": "Create a new child page and link to it inline",
+    "regionLabel": "Page content",
+    "slashMenuLabel": "Insert block",
+    "blockMenuLabel": "Block actions",
+    "bubbleToolbarLabel": "Text formatting"
   }
 }

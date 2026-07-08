@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '../lib/invoke';
+import { useDialog } from '../lib/dialog';
 import { useWorkspaceStore } from '../store/workspaceStore';
 
 interface SearchModalProps {
@@ -54,19 +55,9 @@ export function SearchModal({ onClose }: SearchModalProps) {
     setSelectedIndex(0);
   }, [debouncedQuery, hits]);
 
-  // Focus input on mount
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  // Body scroll lock while modal open
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
+  // M7 a11y: useDialog handles Escape, focus trap, initial focus, and scroll
+  // lock (initialFocusSelector targets the search input).
+  const dialog = useDialog({ onClose, label: t('search.dialogLabel'), initialFocusSelector: 'input' });
 
   const openPage = (pageId: string) => {
     setCurrentPage(pageId);
@@ -110,9 +101,6 @@ export function SearchModal({ onClose }: SearchModalProps) {
         e.preventDefault();
         const item = flatItems[selectedIndex];
         if (item) openPage(item.id);
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -135,6 +123,7 @@ export function SearchModal({ onClose }: SearchModalProps) {
 
       {/* Modal */}
       <div
+        {...dialog.containerProps}
         onClick={(e) => e.stopPropagation()}
         className="relative w-full max-w-[560px] max-h-[70vh] flex flex-col rounded-lg border border-border-hairline bg-bg-page shadow-popover overflow-hidden"
       >

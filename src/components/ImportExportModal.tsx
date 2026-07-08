@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { api } from '../lib/invoke';
+import { useDialog } from '../lib/dialog';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import type { ExportFormat } from '../lib/types';
 
@@ -27,6 +28,7 @@ type Tab = 'export' | 'import';
 export function ImportExportModal({ pageId, pageTitle, onClose }: ImportExportModalProps) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>('export');
+  const dialog = useDialog({ onClose, label: t('importExport.dialogLabel') });
 
   return createPortal(
     <div
@@ -36,6 +38,7 @@ export function ImportExportModal({ pageId, pageTitle, onClose }: ImportExportMo
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" />
 
       <div
+        {...dialog.containerProps}
         onClick={(e) => e.stopPropagation()}
         className="relative w-full max-w-[520px] max-h-[80vh] flex flex-col rounded-lg border border-border-hairline bg-bg-page shadow-popover overflow-hidden"
       >

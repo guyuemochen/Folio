@@ -25,8 +25,8 @@
   /* === Colors - text ======================================================== */
   --color-text-primary: rgba(0, 0, 0, 0.95);
   --color-text-secondary: #615d59;
-  --color-text-tertiary: #a39e98;
-  --color-text-placeholder: #c3c2bf;
+  --color-text-tertiary: #6e6a64;
+  --color-text-placeholder: #7a7670;
 
   /* === Colors - accent ====================================================== */
   --color-accent: #0075de;
@@ -90,12 +90,30 @@
 
   --color-text-primary: #ffffff;
   --color-text-secondary: #a4a097;
-  --color-text-tertiary: #787774;
-  --color-text-placeholder: #5a5751;
+  --color-text-tertiary: #908e89;
+  --color-text-placeholder: #8a8985;
 
   --color-border-hairline: rgba(255, 255, 255, 0.08);
   --color-border-strong: rgba(255, 255, 255, 0.16);
   --color-divider: rgba(255, 255, 255, 0.09);
+
+  /* accent / status / focus / shadow — dark-ground overrides (M7 a11y §10.4) */
+  --color-accent: #62aef0;
+  --color-accent-hover: #7dbcf3;
+  --color-accent-light: #9cc9f6;
+
+  --color-status-red: #ff6b5e;
+  --color-status-green: #4dd07a;
+  --color-status-orange: #ff8a3d;
+  --color-status-amber: #ffc94d;
+  --color-status-teal: #4ec4c0;
+
+  --color-focus: rgba(98, 174, 240, 0.55);
+
+  --shadow-popover:
+    0 4px 18px rgba(0, 0, 0, 0.35),
+    0 2px 8px rgba(0, 0, 0, 0.25),
+    0 0.8px 3px rgba(0, 0, 0, 0.2);
 }
 
 /* ============================================================================

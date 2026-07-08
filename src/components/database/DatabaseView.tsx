@@ -519,7 +519,7 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
             onAfterCellCommit={refetchRows}
           />
         ) : (
-          <table className="w-full border-collapse text-[13px]">
+          <table aria-label={schema.title || t('database.table')} className="w-full border-collapse text-[13px]">
             <TableHeaderRow
               visibleProps={visibleProps}
               widths={widths}
@@ -667,6 +667,8 @@ function TableHeaderRow({
           return (
             <th
               key={prop.id}
+              scope="col"
+              aria-sort={sort ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
               style={{ width: w, minWidth: MIN_COL_WIDTH }}
               className="relative text-left text-xs font-medium text-text-secondary px-3 py-2 cursor-pointer hover:bg-bg-hover border-b border-border-hairline group"
               onClick={(e) =>
@@ -1034,6 +1036,7 @@ function RowLine({
         </button>
         <button
           type="button"
+          aria-label={t('database.deleteRow')}
           onClick={async (e) => {
             e.stopPropagation();
             if (confirm(t('database.deleteRowConfirm'))) {

@@ -31,6 +31,8 @@ interface PopoverProps {
   /** Popover width in pixels (used for clamping). */
   width?: number;
   onClose: () => void;
+  /** Accessible name for the popover (recommended for a11y). */
+  ariaLabel?: string;
   children: ReactNode;
 }
 
@@ -45,6 +47,7 @@ export function Popover({
   offset = 6,
   width = 288,
   onClose,
+  ariaLabel,
   children,
 }: PopoverProps) {
   const [pos, setPos] = useState<ComputedPos | null>(null);
@@ -144,6 +147,7 @@ export function Popover({
     <div
       ref={popRef}
       data-popover-root
+      aria-label={ariaLabel}
       className="fixed z-[1000] rounded-lg border border-border-hairline bg-bg-page shadow-popover"
       style={{
         // Hold the popover off-screen (but laid out, so offsetHeight is real)

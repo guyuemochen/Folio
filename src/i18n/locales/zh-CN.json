@@ -105,6 +105,7 @@
   },
 
   "search": {
+    "dialogLabel": "搜索页面和内容",
     "placeholder": "搜索页面和内容…",
     "searching": "正在搜索…",
     "esc": "ESC",
@@ -148,6 +149,7 @@
   },
 
   "importExport": {
+    "dialogLabel": "导入与导出",
     "exportTab": "↥ 导出",
     "importTab": "↧ 导入",
     "close": "关闭",
@@ -249,7 +251,9 @@
     "formatInteger": "1,234",
     "formatDecimal": "1,234.56",
     "formatPercent": "12%",
-    "formatCurrency": "¥1,234"
+    "formatCurrency": "¥1,234",
+    "sortAscending": "升序排列",
+    "sortDescending": "降序排列"
   },
 
   "editor": {
@@ -354,6 +358,10 @@
     "slashColumn": "分栏",
     "slashColumnDesc": "并排的双栏布局",
     "slashSubpage": "子页面",
-    "slashSubpageDesc": "创建新的子页面并在行内链接到它"
+    "slashSubpageDesc": "创建新的子页面并在行内链接到它",
+    "regionLabel": "页面内容",
+    "slashMenuLabel": "插入块",
+    "blockMenuLabel": "块操作",
+    "bubbleToolbarLabel": "文字格式"
   }
 }
