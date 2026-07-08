@@ -277,13 +277,63 @@ Internationalization (PRD §10.5) and accessibility (PRD §10.4).
       and row action buttons
 - [x] **Popover ARIA** — `Popover` accepts an optional `ariaLabel` prop
 
-## What's next (M9 release)
+## What works in M9 — release + auto-update
 
-Per PRD §13.1: M7 (i18n + a11y) and M8 (internal beta + P0 bug fix) are
-complete. Next is M9 (v0.1.0 release): three-platform signed installers,
-auto-update channel (Q9), README + demo video, and license finalization
-(Q11).
+### License (AGPL-3.0-or-later)
+
+- **GNU AGPL-3.0-or-later** — see [`LICENSE`](./LICENSE). Open-source-friendly:
+  personal / OSS use is unrestricted. Commercial use that distributes a
+  modified Folio or offers it as a network service must open-source
+  derivatives — or obtain a commercial license. (AGPL §13 only bites on
+  network services; pure local use is unrestricted.)
+
+### Auto-update (Q9 — stable / beta / nightly)
+
+- **Three channels**, each backed by a GitHub Releases rolling tag
+  (`stable-latest` / `beta-latest` / `nightly-latest` → `latest.json`).
+- **Tauri updater** (`@tauri-apps/plugin-updater`) + **minisign** update
+  signing — pubkey embedded in `tauri.conf.json`, private key held outside
+  the repo. Updates are user-initiated only (PRD §10.3 whitelist).
+- **Per-channel Rust API** (`check_for_update_with_channel` /
+  `install_update_with_channel`) resolves the endpoint server-side; JS helper
+  `src/lib/updater.ts` exposes `checkForUpdate()` / `installUpdate()` +
+  channel get/set.
+
+### Release pipeline
+
+- **GitHub Actions** (`.github/workflows/release.yml`) builds Windows /
+  macOS (universal) / Linux, signs the updater bundle, publishes to GitHub
+  Releases. Code is hosted on **GitLab**, mirrored to GitHub for publishing.
+  Triggers: `v*` tags (stable), `v*-beta*` (beta), `nightly-*` tags + daily
+  cron (nightly).
+
+### Still pending / deferred
+
+- **OS-level code signing (Q11)** — installers ship unsigned; first launch
+  needs manual trust (Gatekeeper / SmartScreen). Needs Apple Developer
+  account + Windows code-signing cert.
+- **Updater UI** — the API (`src/lib/updater.ts`) is in place; a check-update
+  button + channel picker belongs in a future Settings panel.
+- **Demo video.**
+
+## What's next
+
+M9 core (License + auto-update + release pipeline) is complete. Remaining
+before v1.0: updater UI, OS code-signing (Q11), and P1 bugs from real-world
+use.
 
 ## License
 
-To be decided (will be MIT or AGPL-3.0 — see PRD §C.2 Q11).
+Folio is licensed under the **GNU AGPL-3.0-or-later** — see [`LICENSE`](./LICENSE).
+
+- **Personal / open-source use** — free to use, modify, and distribute.
+- **Commercial use** — if you distribute a modified version of Folio (or
+  offer it as a network service), AGPL-3.0 requires you to open-source your
+  derivative work under the same license. For use cases that cannot meet this
+  obligation, contact the maintainer for a commercial license.
+
+This is a deliberate "open-source-friendly, commercial-strict" stance: the
+AGPL keeps the project open while giving the maintainer a lever to offer
+commercial licenses to enterprise users. Note that AGPL-3.0 §13 (network-use
+copyleft) only bites on network services — purely local use of Folio by an
+organization (without redistribution) is unrestricted.

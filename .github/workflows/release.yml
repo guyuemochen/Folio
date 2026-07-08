@@ -1,0 +1,120 @@
+name: release
+
+# M9 — build, sign, and publish Folio installers + the updater manifest.
+#
+# Three release channels share this workflow:
+#   stable  : push tag v0.x.x            → rolling tag `stable-latest`
+#   beta    : push tag v0.x.x-beta.N     → rolling tag `beta-latest`
+#   nightly : schedule (daily 03:00 UTC) → rolling tag `nightly-latest`
+#
+# The Tauri updater reads `latest.json` from each channel's rolling tag.
+#
+# Code is hosted on GitLab and mirrored to GitHub; this workflow runs on the
+# GitHub mirror so it can publish to GitHub Releases. Set up push mirror in
+# GitLab: Settings → Repository → Mirror → push to GitHub mirror repo.
+#
+# Required GitHub repo secrets:
+#   TAURI_SIGNING_PRIVATE_KEY          contents of ~/.tauri/folio-updater.key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD empty (dev key has no password; set if
+#                                      you regenerate with a password)
+# Optional, for OS-level signing once Q11 is resolved:
+#   APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD / APPLE_ID / APPLE_PASSWORD
+#   AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET (Windows Authenticode)
+
+on:
+  push:
+    tags:
+      - 'v*'           # stable + beta (v0.1.0, v0.1.1-beta.2)
+      - 'nightly-*'    # explicit nightly tag
+  schedule:
+    - cron: '0 3 * * *'  # nightly build at 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Release channel'
+        type: choice
+        options: ['stable', 'beta', 'nightly']
+        default: 'stable'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: '--target aarch64-apple-darwin --target x86_64-apple-darwin'
+          - platform: ubuntu-22.04
+            args: ''
+          - platform: windows-latest
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Install Linux system deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Resolve channel + tag names
+        id: chan
+        shell: bash
+        run: |
+          CH="${{ github.event.inputs.channel || '' }}"
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [ -z "$CH" ]; then
+            if [[ "$TAG" == nightly-* ]] || [ "${{ github.event_name }}" = "schedule" ]; then CH=nightly
+            elif [[ "$TAG" == *-beta* ]]; then CH=beta
+            else CH=stable; fi
+          fi
+          ROLLING="$CH-latest"
+          DATED="$TAG"
+          if [ "$CH" = "nightly" ] && [ -z "$DATED" ]; then
+            DATED="nightly-$(date -u +%Y-%m-%d)"
+          fi
+          echo "channel=$CH"      >> "$GITHUB_OUTPUT"
+          echo "rolling=$ROLLING" >> "$GITHUB_OUTPUT"
+          echo "dated=$DATED"     >> "$GITHUB_OUTPUT"
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS / Windows OS-level signing (uncomment once Q11 is resolved):
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          # AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          # AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        with:
+          # Dated release (artifacts land here).
+          tagName: ${{ steps.chan.outputs.dated }}
+          releaseName: '${{ steps.chan.outputs.dated }} (${{ steps.chan.outputs.channel }})'
+          releaseBody: 'Folio ${{ steps.chan.outputs.channel }} build ${{ steps.chan.outputs.dated }}'
+          releaseDraft: false
+          prerelease: ${{ steps.chan.outputs.channel != 'stable' }}
+          # The updater manifest (latest.json) is published/updated under the
+          # channel's rolling tag, so all platforms merge into one manifest.
+          updaterJsonPreferTagName: ${{ steps.chan.outputs.rolling }}
+          args: ${{ matrix.args }}

@@ -7,6 +7,7 @@ use parking_lot::Mutex;
 use rusqlite::Connection;
 use std::sync::Arc;
 use tauri::{Manager, State};
+use tauri_plugin_updater::UpdaterExt;
 
 mod db;
 mod database;
@@ -753,10 +754,97 @@ fn save_binary_file(path: String, content_b64: String) -> Result<()> {
 // =============================================================================
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+// =============================================================================
+// Updater (M9 — release channels: stable / beta / nightly)
+// =============================================================================
+
+/// Per-channel update manifest URLs (GitHub Releases rolling tags).
+/// TODO(M9): confirm owner/repo once the GitHub mirror is set up.
+const UPDATE_ENDPOINTS: &[(&str, &str)] = &[
+    (
+        "stable",
+        "https://github.com/guyuemochen/folio/releases/download/stable-latest/latest.json",
+    ),
+    (
+        "beta",
+        "https://github.com/guyuemochen/folio/releases/download/beta-latest/latest.json",
+    ),
+    (
+        "nightly",
+        "https://github.com/guyuemochen/folio/releases/download/nightly-latest/latest.json",
+    ),
+];
+
+/// Resolve a channel name to its manifest URL, falling back to stable.
+fn resolve_update_endpoint(channel: &str) -> std::result::Result<&'static str, String> {
+    UPDATE_ENDPOINTS
+        .iter()
+        .find(|(c, _)| *c == channel)
+        .or_else(|| UPDATE_ENDPOINTS.iter().find(|(c, _)| *c == "stable"))
+        .map(|(_, url)| *url)
+        .ok_or_else(|| format!("unknown update channel: {channel}"))
+}
+
+/// Build an updater bound to the channel's endpoint.
+fn build_channel_updater(
+    app: &tauri::AppHandle,
+    channel: &str,
+) -> std::result::Result<tauri_plugin_updater::Updater, String> {
+    let endpoint = resolve_update_endpoint(channel)?;
+    let url = url::Url::parse(endpoint).map_err(|e| e.to_string())?;
+    app.updater_builder()
+        .endpoints(vec![url])
+        .map_err(|e| e.to_string())?
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+/// Check for an available update on the given release channel.
+///
+/// `channel` ∈ {"stable","beta","nightly"}; an unknown value falls back to "stable".
+/// Returns `Some(version)` when a newer build is available, `None` when current.
+#[tauri::command]
+async fn check_for_update_with_channel(
+    app: tauri::AppHandle,
+    channel: String,
+) -> std::result::Result<Option<String>, String> {
+    let update = build_channel_updater(&app, &channel)?
+        .check()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(update.map(|u| u.version))
+}
+
+/// Download and install the update on the given channel.
+///
+/// Re-checks (so the Update handle is fresh) then downloads + installs.
+/// The frontend should call `relaunch()` from `@tauri-apps/plugin-process`
+/// after this resolves, so the restart UX stays in JS.
+#[tauri::command]
+async fn install_update_with_channel(
+    app: tauri::AppHandle,
+    channel: String,
+) -> std::result::Result<(), String> {
+    let update = build_channel_updater(&app, &channel)?
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "no update available".to_string())?;
+    update
+        .download_and_install(
+            |_chunk_len, _total_opt| {},
+            || {},
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // Resolve data directory: APPDATA\Folio on Windows,
             // ~/Library/Application Support/Folio on macOS,
@@ -818,6 +906,12 @@ pub fn run() {
                 db: Arc::new(Mutex::new(conn)),
             };
             app.manage(state);
+
+            // M9: register the updater plugin (desktop only). The endpoint is
+            // selected per-channel at check time in check_for_update_with_channel.
+            #[cfg(desktop)]
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -881,6 +975,9 @@ pub fn run() {
             // File saving (M5 export)
             save_text_file,
             save_binary_file,
+            // Updater (M9)
+            check_for_update_with_channel,
+            install_update_with_channel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Folio");
