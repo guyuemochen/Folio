@@ -1,71 +1,107 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { api } from '../lib/invoke';
 import type { PageSummary } from '../lib/types';
+import { PageTreeNode } from './PageTreeNode';
 
 /**
- * Sidebar — page tree navigation.
+ * Sidebar (PRD §5.2.3) — page-tree navigation.
  *
- * MVP shape (PRD §6.1):
- *   [Workspace Switcher]
- *   Search (Cmd+K — wired in later milestone)
- *   ───
- *   Favorites (reserved)
- *   ───
- *   Pages (top-level)
- *     • page item with hover actions (new subpage / rename / trash)
- *   ───
- *   Trash (reserved)
- *   ───
- *   Settings / About (reserved)
- *
- * Inline rename: double-click the title.
- * Context menu: right-click the row.
+ *   [Workspace Switcher]   (single workspace MVP)
+ *   Search (Cmd+K)
+ *   ─────────
+ *   Favorites              (drag to rearrange)
+ *   ─────────
+ *   Recents                (last 10 viewed)
+ *   ─────────
+ *   Teamspaces             (label-only MVP)
+ *   └─ Page Tree           (recursive, lazy load)
+ *   ─────────
+ *   Trash
+ *   ─────────
+ *   Settings / About
  */
 export function Sidebar() {
+  const { t } = useTranslation();
   const workspace = useWorkspaceStore((s) => s.workspace);
   const rootPages = useWorkspaceStore((s) => s.rootPages);
   const currentPageId = useWorkspaceStore((s) => s.currentPageId);
+  const recents = useWorkspaceStore((s) => s.recents);
+  const favorites = useWorkspaceStore((s) => s.favorites);
   const loadWorkspace = useWorkspaceStore((s) => s.loadWorkspace);
   const loadRootPages = useWorkspaceStore((s) => s.loadRootPages);
+  const loadFavorites = useWorkspaceStore((s) => s.loadFavorites);
   const setCurrentPage = useWorkspaceStore((s) => s.setCurrentPage);
-  const createRootPage = useWorkspaceStore((s) => s.createRootPage);
-  const removePageLocally = useWorkspaceStore((s) => s.removePageLocally);
-  const renamePageLocally = useWorkspaceStore((s) => s.renamePageLocally);
+  const reorderFavorites = useWorkspaceStore((s) => s.reorderFavorites);
 
   useEffect(() => {
-    Promise.all([loadWorkspace(), loadRootPages()]).catch((err) =>
+    Promise.all([loadWorkspace(), loadRootPages(), loadFavorites()]).catch((err) =>
       console.error('[Folio] sidebar init failed', err),
     );
-  }, [loadWorkspace, loadRootPages]);
+  }, [loadWorkspace, loadRootPages, loadFavorites]);
 
-  const handleNewRootPage = async () => {
-    const page = await createRootPage('Untitled');
-    setCurrentPage(page.id);
-  };
-
-  const createRootDatabase = useWorkspaceStore((s) => s.createRootDatabase);
-
-  const handleNewRootDatabase = async () => {
-    const db = await createRootDatabase('Untitled database');
-    setCurrentPage(db.id);
-  };
-
-  const handleTrash = async (pageId: string) => {
-    try {
-      await api.trashPage(pageId);
-      removePageLocally(pageId);
-    } catch (err) {
-      console.error('[Folio] trash failed', err);
+  // Look up recent page metadata. Recents may include ids that were trashed
+  // since they were last opened — filter those out by best-known summary.
+  const rootAndChildren = useWorkspaceStore((s) => s.childrenCache);
+  const allKnownPages: Record<string, PageSummary> = useMemo(() => {
+    const map: Record<string, PageSummary> = {};
+    for (const list of Object.values(rootAndChildren)) {
+      for (const p of list) map[p.id] = p;
     }
-  };
+    for (const p of rootPages) map[p.id] = p;
+    return map;
+  }, [rootAndChildren, rootPages]);
+
+  const recentPages = useMemo(
+    () =>
+      recents
+        .map((id) => allKnownPages[id])
+        .filter((p): p is PageSummary => !!p && !p.isTrashed),
+    [recents, allKnownPages],
+  );
+
+  // Drag-rearrange for favorites.
+  const dragFavId = useRef<string | null>(null);
+  const handleFavDragStart = useCallback((id: string) => {
+    dragFavId.current = id;
+  }, []);
+  const handleFavDragOver = useCallback((e: React.DragEvent, overId: string) => {
+    if (!dragFavId.current || dragFavId.current === overId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, []);
+  const handleFavDrop = useCallback(
+    (overId: string) => {
+      const src = dragFavId.current;
+      dragFavId.current = null;
+      if (!src || src === overId) return;
+      const ordered = favorites.map((f) => f.id);
+      const from = ordered.indexOf(src);
+      const to = ordered.indexOf(overId);
+      if (from < 0 || to < 0) return;
+      ordered.splice(from, 1);
+      ordered.splice(to, 0, src);
+      reorderFavorites(ordered).catch((err) =>
+        console.error('[Folio] reorder favorites failed', err),
+      );
+    },
+    [favorites, reorderFavorites],
+  );
+
+  const fireToast = useCallback(
+    (msg: string) =>
+      window.dispatchEvent(new CustomEvent('folio:toast', { detail: msg })),
+    [],
+  );
 
   return (
     <aside className="w-sidebar bg-bg-sidebar border-r border-border-hairline flex flex-col select-none text-[13px]">
-      {/* Workspace header */}
+      {/* === Workspace switcher === */}
       <button
         type="button"
         className="h-11 px-3 flex items-center gap-2 hover:bg-bg-hover transition-colors"
+        onClick={() => fireToast(t('sidebar.moreWorkspacesSoon'))}
+        title={t('sidebar.workspaceSwitcher')}
       >
         <span className="text-[15px]">📝</span>
         <span className="font-medium flex-1 text-left truncate text-text-primary">
@@ -74,193 +110,153 @@ export function Sidebar() {
         <span className="text-[10px] text-text-tertiary">▾</span>
       </button>
 
-      {/* Quick actions */}
+      {/* === Search pill === */}
       <div className="px-2 pt-1 pb-2">
-        <SidebarAction icon="+" label="New page" shortcut="Ctrl+N" onClick={handleNewRootPage} />
-        <SidebarAction icon="📊" label="New database" onClick={handleNewRootDatabase} />
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent('folio:open-search'))}
+          className="w-full px-2 py-1 text-left rounded-md flex items-center gap-2 text-text-secondary hover:bg-bg-hover transition-colors"
+        >
+          <span className="w-4 text-center text-[13px] leading-none">🔍</span>
+          <span className="flex-1">{t('sidebar.search')}</span>
+          <span className="text-[10px] text-text-tertiary/70">
+            <kbd className="px-1 py-0.5 bg-bg-section rounded text-text-secondary text-[10px]">Ctrl K</kbd>
+          </span>
+        </button>
       </div>
 
-      {/* Page list */}
-      <div className="flex-1 px-1.5 pt-2 overflow-y-auto">
-        <div className="px-2 pb-1 text-[11px] font-medium text-text-tertiary">Pages</div>
-        {rootPages.length === 0 ? (
-          <div className="px-2 py-1.5 text-text-tertiary/80 italic">
-            No pages yet.
-          </div>
-        ) : (
-          rootPages.map((p) => (
-            <PageRow
-              key={p.id}
-              page={p}
-              active={p.id === currentPageId}
-              onClick={() => setCurrentPage(p.id)}
-              onTrash={() => handleTrash(p.id)}
-              onRename={async (title) => {
-                try {
-                  await api.renamePage(p.id, title);
-                  renamePageLocally(p.id, title);
-                } catch (err) {
-                  console.error('[Folio] rename failed', err);
-                }
-              }}
-            />
-          ))
-        )}
+      <div className="flex-1 overflow-y-auto">
+        {/* === Favorites === */}
+        <SidebarSection label={t('sidebar.favorites')}>
+          {favorites.length === 0 ? (
+            <SidebarEmptyHint>{t('sidebar.favoritesEmpty')}</SidebarEmptyHint>
+          ) : (
+            favorites.map((p) => (
+              <div
+                key={p.id}
+                draggable
+                onDragStart={() => handleFavDragStart(p.id)}
+                onDragOver={(e) => handleFavDragOver(e, p.id)}
+                onDrop={() => handleFavDrop(p.id)}
+                onClick={() => setCurrentPage(p.id)}
+                className={[
+                  'group flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer',
+                  'transition-colors',
+                  p.id === currentPageId ? 'bg-bg-active font-semibold' : 'hover:bg-bg-hover',
+                ].join(' ')}
+              >
+                <span className="text-sm flex-shrink-0">{p.icon ?? '📄'}</span>
+                <span className="flex-1 min-w-0 truncate">{p.title || t('common.untitled')}</span>
+                <span className="text-[10px] opacity-0 group-hover:opacity-100 text-text-tertiary">
+                  ⋮⋮
+                </span>
+              </div>
+            ))
+          )}
+        </SidebarSection>
+
+        {/* === Recents === */}
+        <SidebarSection label={t('sidebar.recents')}>
+          {recentPages.length === 0 ? (
+            <SidebarEmptyHint>{t('sidebar.noRecents')}</SidebarEmptyHint>
+          ) : (
+            recentPages.map((p) => (
+              <div
+                key={p.id}
+                onClick={() => setCurrentPage(p.id)}
+                className={[
+                  'flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer transition-colors',
+                  p.id === currentPageId ? 'bg-bg-active font-semibold' : 'hover:bg-bg-hover',
+                ].join(' ')}
+              >
+                <span className="text-sm flex-shrink-0">{p.icon ?? '📄'}</span>
+                <span className="flex-1 min-w-0 truncate">{p.title || t('common.untitled')}</span>
+              </div>
+            ))
+          )}
+        </SidebarSection>
+
+        {/* === Teamspaces === */}
+        <SidebarSection label={t('sidebar.teamspaces')}>
+          <div className="px-2 py-1 text-text-secondary">🏢 {t('sidebar.defaultTeam')}</div>
+        </SidebarSection>
+
+        {/* === Page tree === */}
+        <SidebarSection label={t('sidebar.pages')}>
+          {rootPages.length === 0 ? (
+            <SidebarEmptyHint>
+              {t('sidebar.noPagesHint')}
+            </SidebarEmptyHint>
+          ) : (
+            <div className="pr-1">
+              {rootPages.map((p) => (
+                <PageTreeNode key={p.id} page={p} level={0} />
+              ))}
+            </div>
+          )}
+        </SidebarSection>
       </div>
 
-      {/* Footer */}
-      <div className="px-3 py-2 text-[11px] text-text-tertiary/70 border-t border-border-hairline">
-        M3 · local-first
+      {/* === Footer === */}
+      <div className="px-2 py-1.5 border-t border-border-hairline text-text-secondary">
+        <SidebarFooterLink
+          icon="🗑"
+          label={t('sidebar.trash')}
+          onClick={() => window.dispatchEvent(new CustomEvent('folio:open-trash'))}
+        />
+        <SidebarFooterLink
+          icon="⚙"
+          label={t('sidebar.settings')}
+          onClick={() => fireToast(t('sidebar.settingsSoon'))}
+        />
+        <SidebarFooterLink
+          icon="ℹ"
+          label={t('sidebar.about')}
+          onClick={() => window.dispatchEvent(new CustomEvent('folio:open-about'))}
+        />
       </div>
     </aside>
   );
 }
 
-function SidebarAction({
+function SidebarSection({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="px-1.5 pt-2 pb-1">
+      <div className="px-2 pb-1 text-[11px] font-medium text-text-tertiary select-none">
+        {label}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function SidebarEmptyHint({ children }: { children: React.ReactNode }) {
+  return <div className="px-2 py-1.5 text-text-tertiary/80 italic text-[12px]">{children}</div>;
+}
+
+function SidebarFooterLink({
   icon,
   label,
-  shortcut,
   onClick,
 }: {
   icon: string;
   label: string;
-  shortcut?: string;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="w-full px-2 py-1 text-left rounded flex items-center gap-2 text-text-secondary hover:bg-bg-hover transition-colors"
+      className="w-full px-2 py-1 text-left rounded flex items-center gap-2 hover:bg-bg-hover transition-colors"
     >
-      <span className="w-4 text-center text-[14px] leading-none">{icon}</span>
+      <span className="w-4 text-center text-[13px] leading-none">{icon}</span>
       <span className="flex-1">{label}</span>
-      {shortcut && <span className="text-[10px] text-text-tertiary/70">{shortcut}</span>}
     </button>
-  );
-}
-
-interface PageRowProps {
-  page: PageSummary;
-  active: boolean;
-  onClick: () => void;
-  onTrash: () => void;
-  onRename: (title: string) => void;
-}
-
-function PageRow({ page, active, onClick, onTrash, onRename }: PageRowProps) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [draft, setDraft] = useState(page.title);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (isEditing) {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }
-  }, [isEditing]);
-
-  const commitRename = () => {
-    setIsEditing(false);
-    const next = draft.trim();
-    if (next && next !== page.title) {
-      onRename(next);
-    } else {
-      setDraft(page.title);
-    }
-  };
-
-  return (
-    <div
-      className={[
-        'group relative flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer',
-        'transition-colors duration-100',
-        active ? 'bg-bg-active text-text-primary font-semibold' : 'hover:bg-bg-hover text-text-primary',
-      ].join(' ')}
-      onClick={() => !isEditing && onClick()}
-      onDoubleClick={() => {
-        setDraft(page.title);
-        setIsEditing(true);
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        setMenuOpen(true);
-      }}
-    >
-      <span className="flex-shrink-0 text-sm">{page.icon ?? '📄'}</span>
-
-      {isEditing ? (
-        <input
-          ref={inputRef}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commitRename}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              commitRename();
-            } else if (e.key === 'Escape') {
-              setDraft(page.title);
-              setIsEditing(false);
-            }
-          }}
-          onClick={(e) => e.stopPropagation()}
-          className="flex-1 min-w-0 text-sm bg-transparent outline-none border-b border-accent"
-        />
-      ) : (
-        <span className="flex-1 min-w-0 truncate">{page.title || 'Untitled'}</span>
-      )}
-
-      {/* Hover actions */}
-      {!isEditing && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setMenuOpen(true);
-          }}
-          className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-text-primary px-1"
-          aria-label="More actions"
-        >
-          ⋯
-        </button>
-      )}
-
-      {/* Context menu */}
-      {menuOpen && (
-        <>
-          {/* Click-away */}
-          <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 z-20 w-44 rounded-md border border-border-hairline bg-bg-page shadow-popover py-1 text-sm">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuOpen(false);
-                setDraft(page.title);
-                setIsEditing(true);
-              }}
-              className="w-full text-left px-3 py-1.5 hover:bg-bg-hover"
-            >
-              Rename
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuOpen(false);
-                if (confirm(`Move "${page.title || 'Untitled'}" to trash?`)) {
-                  onTrash();
-                }
-              }}
-              className="w-full text-left px-3 py-1.5 hover:bg-bg-hover text-status-red"
-            >
-              Move to Trash
-            </button>
-          </div>
-        </>
-      )}
-    </div>
   );
 }

@@ -31,8 +31,36 @@ export default defineConfig({
   envPrefix: ['VITE_', 'TAURI_ENV_*'],
   build: {
     target: 'es2022',
-    // Produce sourcemaps in debug builds for better stack traces
-    minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
+    // Produce sourcemaps in debug builds for better stack traces.
+    // Vite 8 deprecated `transformWithEsbuild`; the default minifier (Oxc)
+    // takes over when `minify` is left unspecified.
+    minify: !process.env.TAURI_ENV_DEBUG ? true : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+    // M6 perf: split vendor code so the cold-start bundle only carries what
+    // the editor shell actually needs at T0. Lazy-loaded routes (Database/
+    // Import/Export/etc.) pull their deps on demand.
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react-router')) return 'vendor-router';
+            if (id.includes('@tanstack')) return 'vendor-tanstack';
+            if (id.includes('zustand')) return 'vendor-zustand';
+            if (id.includes('@tiptap') || id.includes('prosemirror')) return 'vendor-tiptap';
+            if (id.includes('lowlight') || id.includes('highlight.js')) return 'vendor-lowlight';
+            if (id.includes('marked')) return 'vendor-marked';
+            if (id.includes('katex')) return 'vendor-katex';
+            if (
+              id.includes('/react/') ||
+              id.includes('/react-dom/') ||
+              id.includes('/scheduler/')
+            ) {
+              return 'vendor-react';
+            }
+          }
+          return undefined;
+        },
+      },
+    },
   },
 });

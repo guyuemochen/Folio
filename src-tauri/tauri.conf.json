@@ -35,6 +35,18 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "category": "Productivity"
+    "category": "Productivity",
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJFOTU4OTFGQzk1NkNCREEKUldUYXkxYkpING1WTGxoeGhqRktHRTJpZ3NhUVg2TEdCaXRubHVENExWV1pZcGVydDZLVXF6WFkK",
+      "endpoints": [
+        "https://github.com/guyuemochen/folio/releases/download/stable-latest/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

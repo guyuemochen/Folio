@@ -5,6 +5,7 @@ node_modules/
 dist/
 dist-ssr/
 *.local
+*.tsbuildinfo
 
 # Editor / IDE (keep .idea for JetBrains, ignore user-specific files)
 .vscode/*

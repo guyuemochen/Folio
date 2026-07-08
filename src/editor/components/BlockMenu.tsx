@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Editor } from '@tiptap/react';
 import type { Node as PmNode } from '@tiptap/pm/model';
 import { Popover } from '../../components/ui/Popover';
-import { api } from '../../lib/invoke';
+import { useWorkspaceStore } from '../../store/workspaceStore';
 
 interface BlockMenuProps {
   editor: Editor;
@@ -12,38 +13,37 @@ interface BlockMenuProps {
   onClose: () => void;
 }
 
+type SubmenuName = null | 'turn-into' | 'color' | 'move-to';
+
 /**
  * Block context menu — opened by clicking the ⋮⋮ drag handle.
  *
- * Actions (Notion-aligned):
- *   - Duplicate (Cmd+D)
- *   - Turn into (Paragraph / H1 / H2 / H3 / Quote / Code)
+ * Actions (PRD §5.1.3):
+ *   - Duplicate (Cmd/Ctrl+D)
+ *   - Turn into → 10 text-type submenu (Text/H1/H2/H3/Quote/Code/Bulleted/Numbered/ToDo/Toggle)
+ *   - Color → 9 highlight + 9 text colors + Default (remove)
+ *   - Copy link to block
+ *   - Comment (placeholder — dispatches a "coming in v1" toast)
+ *   - Move to → page picker (renders workspace root + child tree)
  *   - Delete (Cmd+Delete)
- *   - Copy link to block (copies a `#block-{id}` URL; uses position since we
- *     don't have stable block ids in M2.5 — accurate when the doc doesn't
- *     shift)
  *
  * Drag-to-reorder is handled by the handle itself (HTML5 draggable), not here.
  */
 export function BlockMenu({ editor, blockPos, anchorRect, onClose }: BlockMenuProps) {
-  const [submenu, setSubmenu] = useState<null | 'turn-into'>(null);
+  const { t } = useTranslation();
+  const [submenu, setSubmenu] = useState<SubmenuName>(null);
 
-  // Resolve the current block to know its type for the Turn into submenu
+  // Resolve the current block to know its type for the Turn into submenu.
   const $pos = editor.state.doc.resolve(blockPos);
-  const currentNode: PmNode | null =
-    $pos.parent.maybeChild($pos.index(0)) ?? null;
+  const currentNode: PmNode | null = $pos.parent.maybeChild($pos.index(0)) ?? null;
   const currentType = currentNode?.type.name ?? 'paragraph';
   const currentLevel = (currentNode?.attrs?.level ?? null) as number | null;
 
   const duplicate = () => {
     const { node, from } = findBlockRange(editor, blockPos);
     if (!node) return;
-    // Build a new node from the source JSON and insert after the source.
     const nodeJson = node.toJSON();
-    editor.chain()
-      .insertContentAt(from + node.nodeSize, nodeJson)
-      .focus()
-      .run();
+    editor.chain().insertContentAt(from + node.nodeSize, nodeJson).focus().run();
     onClose();
   };
 
@@ -60,15 +60,19 @@ export function BlockMenu({ editor, blockPos, anchorRect, onClose }: BlockMenuPr
     if (type === 'paragraph') {
       editor.chain().setTextSelection({ from, to }).setParagraph().focus().run();
     } else if (type === 'heading') {
-      editor.chain()
-        .setTextSelection({ from, to })
-        .setHeading({ level: safeLevel })
-        .focus()
-        .run();
+      editor.chain().setTextSelection({ from, to }).setHeading({ level: safeLevel }).focus().run();
     } else if (type === 'blockquote') {
       editor.chain().setTextSelection({ from, to }).toggleBlockquote().focus().run();
     } else if (type === 'codeBlock') {
       editor.chain().setTextSelection({ from, to }).toggleCodeBlock().focus().run();
+    } else if (type === 'bulletList') {
+      editor.chain().setTextSelection({ from, to }).toggleBulletList().focus().run();
+    } else if (type === 'orderedList') {
+      editor.chain().setTextSelection({ from, to }).toggleOrderedList().focus().run();
+    } else if (type === 'taskList') {
+      editor.chain().setTextSelection({ from, to }).toggleTaskList().focus().run();
+    } else if (type === 'toggle') {
+      editor.chain().setTextSelection({ from, to }).setToggle().focus().run();
     }
     onClose();
   };
@@ -77,81 +81,328 @@ export function BlockMenu({ editor, blockPos, anchorRect, onClose }: BlockMenuPr
     const url = `${window.location.origin}/#${blockPos}`;
     try {
       await navigator.clipboard.writeText(url);
+      window.dispatchEvent(new CustomEvent('folio:toast', { detail: t('editor.blockLinkCopied') }));
     } catch {
       // ignore — clipboard may be blocked in webview
     }
     onClose();
   };
 
-  const saveBlock = async () => {
-    // No-op placeholder — M5+ might add explicit "save as snippet" feature
-    try {
-      await api.getWorkspace(); // ensure backend reachable
-    } catch {
-      // ignore
-    }
+  const commentPlaceholder = () => {
+    window.dispatchEvent(new CustomEvent('folio:toast', { detail: t('editor.commentsSoon') }));
+    onClose();
+  };
+
+  const moveTo = (targetParentId: string | null) => {
+    // Best-effort: dispatch a folio:move-block event. App.tsx or PageView may
+    // listen; if none does, we still inform the user via toast.
+    window.dispatchEvent(
+      new CustomEvent('folio:move-block', {
+        detail: { blockPos, targetParentId },
+      }),
+    );
+    window.dispatchEvent(new CustomEvent('folio:toast', { detail: t('editor.moveToSoon') }));
     onClose();
   };
 
   return (
     <Popover anchorRect={anchorRect} placement="bottom-start" width={220} onClose={onClose}>
       {!submenu && (
-        <div className="py-1">
-          <MenuItem icon="⎘" label="Duplicate" shortcut="Ctrl+D" onClick={duplicate} />
+        <div role="menu" aria-label={t('editor.blockMenuLabel')} className="py-1">
+          <MenuItem icon="⎘" label={t('editor.duplicate')} shortcut="Ctrl+D" onClick={duplicate} />
           <MenuItem
             icon="⇄"
-            label="Turn into"
+            label={t('editor.turnInto')}
             trailing="▸"
             onClick={() => setSubmenu('turn-into')}
           />
-          <MenuItem icon="🔗" label="Copy link to block" onClick={copyLink} />
-          <MenuItem icon="★" label="Save block" onClick={saveBlock} />
+          <MenuItem
+            icon="🎨"
+            label={t('editor.color')}
+            trailing="▸"
+            onClick={() => setSubmenu('color')}
+          />
+          <MenuItem icon="🔗" label={t('editor.copyBlockLink')} onClick={copyLink} />
+          <MenuItem icon="💬" label={t('editor.comment')} onClick={commentPlaceholder} />
+          <MenuItem
+            icon="↪"
+            label={t('editor.moveTo')}
+            trailing="▸"
+            onClick={() => setSubmenu('move-to')}
+          />
           <div className="my-1 border-t border-border-hairline" />
-          <MenuItem icon="🗑" label="Delete" shortcut="Ctrl+⌫" danger onClick={remove} />
+          <MenuItem icon="🗑" label={t('editor.delete')} shortcut="Ctrl+⌫" danger onClick={remove} />
         </div>
       )}
 
       {submenu === 'turn-into' && (
-        <div className="py-1">
+        <div role="menu" aria-label={t('editor.turnInto')} className="py-1">
+          <div className="px-2.5 pb-1 text-[10px] uppercase tracking-wider text-text-tertiary">
+            {t('editor.turnInto')}
+          </div>
           <MenuItem
             icon="Aa"
-            label="Text"
+            label={t('editor.text')}
             trailing={currentType === 'paragraph' ? '✓' : undefined}
             onClick={() => turnInto('paragraph')}
           />
           <MenuItem
             icon="H₁"
-            label="Heading 1"
+            label={t('editor.heading1')}
             trailing={currentType === 'heading' && currentLevel === 1 ? '✓' : undefined}
             onClick={() => turnInto('heading', 1)}
           />
           <MenuItem
             icon="H₂"
-            label="Heading 2"
+            label={t('editor.heading2')}
             trailing={currentType === 'heading' && currentLevel === 2 ? '✓' : undefined}
             onClick={() => turnInto('heading', 2)}
           />
           <MenuItem
             icon="H₃"
-            label="Heading 3"
+            label={t('editor.heading3')}
             trailing={currentType === 'heading' && currentLevel === 3 ? '✓' : undefined}
             onClick={() => turnInto('heading', 3)}
           />
           <MenuItem
             icon="❝"
-            label="Quote"
+            label={t('editor.quote')}
             trailing={currentType === 'blockquote' ? '✓' : undefined}
             onClick={() => turnInto('blockquote')}
           />
           <MenuItem
             icon="</>"
-            label="Code"
+            label={t('editor.code')}
             trailing={currentType === 'codeBlock' ? '✓' : undefined}
             onClick={() => turnInto('codeBlock')}
           />
+          <MenuItem
+            icon="•"
+            label={t('editor.bulletedList')}
+            trailing={currentType === 'bulletList' ? '✓' : undefined}
+            onClick={() => turnInto('bulletList')}
+          />
+          <MenuItem
+            icon="1."
+            label={t('editor.numberedList')}
+            trailing={currentType === 'orderedList' ? '✓' : undefined}
+            onClick={() => turnInto('orderedList')}
+          />
+          <MenuItem
+            icon="☐"
+            label={t('editor.todoList')}
+            trailing={currentType === 'taskList' ? '✓' : undefined}
+            onClick={() => turnInto('taskList')}
+          />
+          <MenuItem
+            icon="▸"
+            label={t('editor.toggle')}
+            trailing={currentType === 'toggle' ? '✓' : undefined}
+            onClick={() => turnInto('toggle')}
+          />
+        </div>
+      )}
+
+      {submenu === 'color' && (
+        <div className="p-2">
+          <ColorSubmenu editor={editor} blockPos={blockPos} onDone={onClose} onBack={() => setSubmenu(null)} />
+        </div>
+      )}
+
+      {submenu === 'move-to' && (
+        <div className="p-1">
+          <MoveToSubpage onBack={() => setSubmenu(null)} onPick={moveTo} />
         </div>
       )}
     </Popover>
+  );
+}
+
+/** Color submenu: 9 text colors + 9 highlight colors + Default (clear). */
+function ColorSubmenu({
+  editor,
+  blockPos,
+  onDone,
+  onBack,
+}: {
+  editor: Editor;
+  blockPos: number;
+  onDone: () => void;
+  onBack: () => void;
+}) {
+  const { t } = useTranslation();
+  const apply = (color: string | null, kind: 'text' | 'highlight') => {
+    const { from, to } = findBlockRange(editor, blockPos);
+    editor.chain().setTextSelection({ from, to }).focus();
+    if (kind === 'text') {
+      if (color) editor.chain().setColor(color).run();
+      else editor.chain().unsetColor().run();
+    } else {
+      if (color) editor.chain().toggleHighlight({ color }).run();
+      else editor.chain().unsetHighlight().run();
+    }
+    onDone();
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between px-1 pb-1.5">
+        <span className="text-[10px] uppercase tracking-wider text-text-tertiary">{t('editor.color')}</span>
+        <button
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onBack();
+          }}
+          className="text-[11px] text-text-tertiary hover:text-text-primary"
+        >
+          ◂ {t('common.back')}
+        </button>
+      </div>
+
+      <div className="text-[10px] px-1 pt-1 text-text-tertiary">{t('editor.text')}</div>
+      <div className="grid grid-cols-5 gap-1 px-1 py-1">
+        <ColorSwatch color={null} kind="text" onPick={apply} title={t('editor.default')} />
+        {TEXT_COLORS.map((c) => (
+          <ColorSwatch key={c.value} color={c.value} kind="text" onPick={apply} title={t('editor.color' + c.label)} />
+        ))}
+      </div>
+
+      <div className="text-[10px] px-1 pt-2 text-text-tertiary">{t('editor.background')}</div>
+      <div className="grid grid-cols-5 gap-1 px-1 py-1">
+        <ColorSwatch color={null} kind="highlight" onPick={apply} title={t('editor.default')} />
+        {HIGHLIGHT_COLORS.map((c) => (
+          <ColorSwatch key={c.value} color={c.value} kind="highlight" onPick={apply} title={t('editor.color' + c.label)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ColorSwatch({
+  color,
+  kind,
+  onPick,
+  title,
+}: {
+  color: string | null;
+  kind: 'text' | 'highlight';
+  onPick: (color: string | null, kind: 'text' | 'highlight') => void;
+  title: string;
+}) {
+  const style: React.CSSProperties =
+    color === null
+      ? { background: 'transparent', border: '1px dashed var(--color-border-strong)' }
+      : kind === 'text'
+        ? { background: 'transparent', color, border: `1px solid ${color}` }
+        : { background: color, border: '1px solid rgba(0,0,0,0.08)' };
+  return (
+    <button
+      type="button"
+      title={title}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        onPick(color, kind);
+      }}
+      className="w-7 h-7 rounded-md text-[11px] flex items-center justify-center hover:scale-110 transition-transform"
+      style={style}
+    >
+      {color === null ? '∅' : ''}
+    </button>
+  );
+}
+
+/**
+ * Inline page-tree picker for "Move to". Reads the workspace store's
+ * `rootPages` + `childrenCache` and dispatches the selected parent id.
+ */
+function MoveToSubpage({
+  onBack,
+  onPick,
+}: {
+  onBack: () => void;
+  onPick: (parentId: string | null) => void;
+}) {
+  const { t } = useTranslation();
+  const rootPages = useWorkspaceStore((s) => s.rootPages);
+  const childrenCache = useWorkspaceStore((s) => s.childrenCache);
+  const loadChildren = useWorkspaceStore((s) => s.loadChildren);
+  const expanded = useWorkspaceStore((s) => s.expanded);
+  const toggleExpand = useWorkspaceStore((s) => s.toggleExpand);
+
+  const renderNode = (page: { id: string; title: string; icon: string | null; parentType: string }, depth: number): React.ReactNode => {
+    const isExpanded = expanded.has(page.id);
+    const children = childrenCache[page.id] ?? [];
+    return (
+      <div key={page.id}>
+        <div
+          className="flex items-center gap-1 px-1 py-0.5 text-[12px] hover:bg-bg-hover rounded cursor-pointer"
+          style={{ paddingLeft: depth * 10 }}
+        >
+          {page.parentType === 'page' || page.parentType === 'workspace' ? (
+            <button
+              type="button"
+              className="w-4 text-text-tertiary"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                void loadChildren(page.id);
+                toggleExpand(page.id);
+              }}
+            >
+              {isExpanded ? '▾' : '▸'}
+            </button>
+          ) : (
+            <span className="w-4" />
+          )}
+          <button
+            type="button"
+            className="flex-1 text-left truncate"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onPick(page.id);
+            }}
+            title={page.title || t('common.untitled')}
+          >
+            <span className="mr-1">{page.icon || '📄'}</span>
+            <span className="text-text-primary">{page.title || t('common.untitled')}</span>
+          </button>
+        </div>
+        {isExpanded && children.map((c) => renderNode(c, depth + 1))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="max-h-[280px] overflow-y-auto" style={{ width: 200 }}>
+      <div className="flex items-center justify-between px-1 pb-1.5">
+        <span className="text-[10px] uppercase tracking-wider text-text-tertiary">{t('editor.moveTo')}</span>
+        <button
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onBack();
+          }}
+          className="text-[11px] text-text-tertiary hover:text-text-primary"
+        >
+          ◂ {t('common.back')}
+        </button>
+      </div>
+      <div
+        className="flex items-center gap-1 px-1 py-0.5 text-[12px] hover:bg-bg-hover rounded cursor-pointer"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          onPick(null);
+        }}
+      >
+        <span className="w-4" />
+        <span className="text-text-primary">{t('editor.workspaceRoot')}</span>
+      </div>
+      {rootPages.length === 0 ? (
+        <div className="px-2 py-2 text-[11px] text-text-tertiary">{t('common.noPagesYet')}</div>
+      ) : (
+        rootPages.map((p) => renderNode(p, 0))
+      )}
+    </div>
   );
 }
 
@@ -173,6 +424,7 @@ function MenuItem({
   return (
     <button
       type="button"
+      role="menuitem"
       onMouseDown={(e) => {
         e.preventDefault();
         onClick();
@@ -191,6 +443,32 @@ function MenuItem({
 }
 
 // === Helpers ===
+
+/** 9 Notion semantic text colors. */
+const TEXT_COLORS: { label: string; value: string }[] = [
+  { label: 'Gray', value: '#9b9a97' },
+  { label: 'Brown', value: '#90765a' },
+  { label: 'Orange', value: '#d9730d' },
+  { label: 'Yellow', value: '#cb912f' },
+  { label: 'Green', value: '#448361' },
+  { label: 'Blue', value: '#0b6e99' },
+  { label: 'Purple', value: '#6940a5' },
+  { label: 'Pink', value: '#ad1a72' },
+  { label: 'Red', value: '#e03e31' },
+];
+
+/** 9 Notion semantic highlight colors (soft tints). */
+const HIGHLIGHT_COLORS: { label: string; value: string }[] = [
+  { label: 'Gray', value: 'rgba(120, 119, 116, 0.30)' },
+  { label: 'Brown', value: 'rgba(159, 107, 83, 0.30)' },
+  { label: 'Orange', value: 'rgba(217, 115, 13, 0.25)' },
+  { label: 'Yellow', value: 'rgba(203, 145, 47, 0.30)' },
+  { label: 'Green', value: 'rgba(68, 131, 97, 0.25)' },
+  { label: 'Blue', value: 'rgba(51, 126, 169, 0.25)' },
+  { label: 'Purple', value: 'rgba(144, 101, 176, 0.25)' },
+  { label: 'Pink', value: 'rgba(193, 76, 138, 0.20)' },
+  { label: 'Red', value: 'rgba(212, 76, 71, 0.25)' },
+];
 
 /**
  * Find the (node, from, to) of the top-level block whose start is `blockPos`.
