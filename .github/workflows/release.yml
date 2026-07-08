@@ -7,6 +7,11 @@ name: release
 #   beta    : push tag v0.x.x-beta.N     → rolling tag `beta-latest`
 #   nightly : schedule (daily 03:00 UTC) → rolling tag `nightly-latest`
 #
+# Each channel publishes to ONE rolling GitHub Release (e.g. `stable-latest`):
+# artifacts AND the `latest.json` updater manifest both land there.
+# `tauri-apps/tauri-action@v0` does NOT support splitting them across two
+# tags, so the rolling release is overwritten on every build and the dated
+# version number is recorded in `releaseName` / `releaseBody` for history.
 # The Tauri updater reads `latest.json` from each channel's rolling tag.
 #
 # Code is hosted on GitLab and mirrored to GitHub; this workflow runs on the
@@ -43,7 +48,7 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: '--target aarch64-apple-darwin --target x86_64-apple-darwin'
+            args: '--target universal-apple-darwin'
           - platform: ubuntu-22.04
             args: ''
           - platform: windows-latest
@@ -108,13 +113,13 @@ jobs:
           # AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           # AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         with:
-          # Dated release (artifacts land here).
-          tagName: ${{ steps.chan.outputs.dated }}
+          # Rolling channel release (e.g. `stable-latest`). Both artifacts and
+          # latest.json land here; clients read
+          # /releases/download/<channel>-latest/latest.json. Every build
+          # overwrites the previous artifacts in this release.
+          tagName: ${{ steps.chan.outputs.rolling }}
           releaseName: '${{ steps.chan.outputs.dated }} (${{ steps.chan.outputs.channel }})'
           releaseBody: 'Folio ${{ steps.chan.outputs.channel }} build ${{ steps.chan.outputs.dated }}'
           releaseDraft: false
           prerelease: ${{ steps.chan.outputs.channel != 'stable' }}
-          # The updater manifest (latest.json) is published/updated under the
-          # channel's rolling tag, so all platforms merge into one manifest.
-          updaterJsonPreferTagName: ${{ steps.chan.outputs.rolling }}
           args: ${{ matrix.args }}
