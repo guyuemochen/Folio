@@ -363,5 +363,28 @@
     "slashMenuLabel": "Insert block",
     "blockMenuLabel": "Block actions",
     "bubbleToolbarLabel": "Text formatting"
+  },
+
+  "about": {
+    "title": "About Folio",
+    "tagline": "Local-first, Notion-like desktop note app. All data lives on your machine.",
+    "version": "Version",
+    "licenseLabel": "License:",
+    "updateChannel": "Update channel",
+    "channelStable": "Stable",
+    "channelStableHint": "Official releases only — most reliable",
+    "channelBeta": "Beta",
+    "channelBetaHint": "Release candidates — try new features early",
+    "channelNightly": "Nightly",
+    "channelNightlyHint": "Every build — bleeding edge, may be unstable",
+    "channelPrivacy": "Updates are checked only when you click the button. No background telemetry.",
+    "checkForUpdates": "Check for updates",
+    "checking": "Checking…",
+    "checkingStatus": "Checking for updates…",
+    "upToDate": "You're up to date",
+    "updateAvailable": "Folio {{version}} is available",
+    "downloadInstall": "Download & install",
+    "installing": "Installing…",
+    "installingStatus": "Installing update…"
   }
 }

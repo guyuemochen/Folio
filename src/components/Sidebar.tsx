@@ -212,7 +212,7 @@ export function Sidebar() {
         <SidebarFooterLink
           icon="ℹ"
           label={t('sidebar.about')}
-          onClick={() => fireToast(t('sidebar.aboutText'))}
+          onClick={() => window.dispatchEvent(new CustomEvent('folio:open-about'))}
         />
       </div>
     </aside>

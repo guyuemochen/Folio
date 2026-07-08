@@ -363,5 +363,28 @@
     "slashMenuLabel": "插入块",
     "blockMenuLabel": "块操作",
     "bubbleToolbarLabel": "文字格式"
+  },
+
+  "about": {
+    "title": "关于 Folio",
+    "tagline": "本地优先的类 Notion 桌面笔记应用。所有数据都保存在你的设备上。",
+    "version": "版本",
+    "licenseLabel": "许可证:",
+    "updateChannel": "更新通道",
+    "channelStable": "稳定版",
+    "channelStableHint": "仅正式版 —— 最可靠",
+    "channelBeta": "测试版",
+    "channelBetaHint": "候选发布 —— 提前尝试新功能",
+    "channelNightly": "每日构建",
+    "channelNightlyHint": "每次构建 —— 最前沿,可能不稳定",
+    "channelPrivacy": "仅在你点击按钮时检查更新。无任何后台遥测。",
+    "checkForUpdates": "检查更新",
+    "checking": "检查中…",
+    "checkingStatus": "正在检查更新…",
+    "upToDate": "已是最新版本",
+    "updateAvailable": "Folio {{version}} 已可用",
+    "downloadInstall": "下载并安装",
+    "installing": "安装中…",
+    "installingStatus": "正在安装更新…"
   }
 }
