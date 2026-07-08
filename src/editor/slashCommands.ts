@@ -42,14 +42,31 @@ export const SLASH_RECENT_KEY = 'folio:slash-recent';
 export const SLASH_RECENT_MAX = 5;
 
 const setTextBlock = (editor: Editor, type: string, attrs?: Record<string, unknown>) => {
-  editor.chain().focus().deleteCurrentNode().setNode(type, attrs).run();
+  clearSlashText(editor).setNode(type, attrs).run();
 };
 
 const clearSlashAndRun = (editor: Editor, fn: () => void) => {
   // Clear the slash text first so the menu doesn't linger, then defer the
   // action so the editor state settles before side effects (e.g. navigation).
-  editor.chain().focus().deleteCurrentNode().run();
+  clearSlashText(editor).run();
   setTimeout(fn, 0);
+};
+
+/**
+ * Start a command chain by clearing the current textblock's text content.
+ *
+ * This replaces `deleteCurrentNode()`, which in TipTap v3 only operates on
+ * EMPTY nodes (it returns `false` when `content.size > 0`). When the
+ * paragraph contains the typed `/query` text, v3's `deleteCurrentNode`
+ * silently fails, leaving the slash text behind after a command is applied.
+ *
+ * Returns a ChainedCommands so callers can continue the chain
+ * (`.setNode(...).run()`, `.toggleBulletList().run()`, etc.).
+ */
+const clearSlashText = (editor: Editor) => {
+  const { from } = editor.state.selection;
+  const $from = editor.state.doc.resolve(from);
+  return editor.chain().focus().deleteRange({ from: $from.start(), to: $from.end() });
 };
 
 export const SLASH_COMMANDS: SlashCommandDef[] = [
@@ -97,7 +114,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     icon: '•',
     aliases: ['bullet', 'ul', 'list', 'unordered'],
     category: 'basic',
-    apply: (editor) => editor.chain().focus().deleteCurrentNode().toggleBulletList().run(),
+    apply: (editor) => clearSlashText(editor).toggleBulletList().run(),
   },
   {
     key: 'numbered-list',
@@ -106,7 +123,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     icon: '1.',
     aliases: ['numbered', 'ol', 'ordered', 'list'],
     category: 'basic',
-    apply: (editor) => editor.chain().focus().deleteCurrentNode().toggleOrderedList().run(),
+    apply: (editor) => clearSlashText(editor).toggleOrderedList().run(),
   },
   {
     key: 'todo',
@@ -115,7 +132,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     icon: '☐',
     aliases: ['todo', 'task', 'check', 'checklist', 'done'],
     category: 'basic',
-    apply: (editor) => editor.chain().focus().deleteCurrentNode().toggleTaskList().run(),
+    apply: (editor) => clearSlashText(editor).toggleTaskList().run(),
   },
   {
     key: 'quote',
@@ -124,7 +141,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     icon: '❝',
     aliases: ['quote', 'blockquote', 'citation'],
     category: 'basic',
-    apply: (editor) => editor.chain().focus().deleteCurrentNode().toggleBlockquote().run(),
+    apply: (editor) => clearSlashText(editor).toggleBlockquote().run(),
   },
   {
     key: 'callout',
@@ -134,7 +151,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     aliases: ['callout', 'box', 'info', 'tip', 'note', 'highlight'],
     category: 'basic',
     apply: (editor) => {
-      editor.chain().focus().deleteCurrentNode().setCallout().run();
+      clearSlashText(editor).setCallout().run();
     },
   },
   {
@@ -145,7 +162,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     aliases: ['toggle', 'collapse', 'expand', 'details', 'accordion', 'spoiler'],
     category: 'basic',
     apply: (editor) => {
-      editor.chain().focus().deleteCurrentNode().setToggle().run();
+      clearSlashText(editor).setToggle().run();
     },
   },
   {
@@ -155,7 +172,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     icon: '</>',
     aliases: ['code', 'snippet', 'pre', 'mono', 'syntax'],
     category: 'basic',
-    apply: (editor) => editor.chain().focus().deleteCurrentNode().toggleCodeBlock().run(),
+    apply: (editor) => clearSlashText(editor).toggleCodeBlock().run(),
   },
   {
     key: 'equation',
@@ -165,7 +182,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     aliases: ['equation', 'math', 'katex', 'latex', 'tex', 'formula'],
     category: 'basic',
     apply: (editor) => {
-      editor.chain().focus().deleteCurrentNode().setEquation().run();
+      clearSlashText(editor).setEquation().run();
     },
   },
   {
@@ -175,7 +192,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     icon: '---',
     aliases: ['divider', 'hr', 'line', 'separator', 'rule'],
     category: 'basic',
-    apply: (editor) => editor.chain().focus().deleteCurrentNode().setHorizontalRule().run(),
+    apply: (editor) => clearSlashText(editor).setHorizontalRule().run(),
   },
 
   // === Database ===========================================================
@@ -211,7 +228,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     aliases: ['table', 'grid', 'matrix', 'cells', 'simple'],
     category: 'database',
     apply: (editor) => {
-      editor.chain().focus().deleteCurrentNode().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+      clearSlashText(editor).insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
     },
   },
 
@@ -227,9 +244,9 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
       // Inline: prompt for URL (file upload hook deferred to M5).
       const url = window.prompt(i18n.t('editor.imageUrlPrompt'));
       if (url) {
-        editor.chain().focus().deleteCurrentNode().setImage({ src: url.trim() }).run();
+        clearSlashText(editor).setImage({ src: url.trim() }).run();
       } else {
-        editor.chain().focus().deleteCurrentNode().run();
+        clearSlashText(editor).run();
       }
     },
   },
@@ -243,10 +260,10 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     apply: (editor) => {
       const url = window.prompt(i18n.t('editor.pasteLinkPrompt'));
       if (!url) {
-        editor.chain().focus().deleteCurrentNode().run();
+        clearSlashText(editor).run();
         return;
       }
-      editor.chain().focus().deleteCurrentNode().setBookmark({ url: url.trim() }).run();
+      clearSlashText(editor).setBookmark({ url: url.trim() }).run();
     },
   },
   {
@@ -257,7 +274,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     aliases: ['embed', 'iframe', 'youtube', 'vimeo', 'figma', 'video'],
     category: 'media',
     apply: (editor) => {
-      editor.chain().focus().deleteCurrentNode().setEmbed({ src: '' }).run();
+      clearSlashText(editor).setEmbed({ src: '' }).run();
     },
   },
 
@@ -270,7 +287,7 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     aliases: ['column', 'columns', 'split', 'two-column', 'layout'],
     category: 'advanced',
     apply: (editor) => {
-      editor.chain().focus().deleteCurrentNode().setColumns().run();
+      clearSlashText(editor).setColumns().run();
     },
   },
   {
@@ -287,13 +304,13 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
         const page = await api.createPage(
           parentId ? { parentId, parentType: 'page', title: 'Untitled' } : { parentType: 'workspace', title: 'Untitled' },
         );
-        editor.chain().focus().setSubPage({ pageId: page.id, title: page.title || 'Untitled', icon: page.icon }).run();
+        clearSlashText(editor).setSubPage({ pageId: page.id, title: page.title || 'Untitled', icon: page.icon }).run();
       } catch (err) {
         console.error('[Folio] slash: sub-page creation failed', err);
         window.dispatchEvent(
           new CustomEvent('folio:toast', { detail: i18n.t('editor.subpageCreateFailed') }),
         );
-        editor.chain().focus().deleteCurrentNode().run();
+        clearSlashText(editor).run();
       }
     },
   },
