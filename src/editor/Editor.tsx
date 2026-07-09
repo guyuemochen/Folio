@@ -4,8 +4,6 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import type { Editor as TiptapEditor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
-import Underline from '@tiptap/extension-underline';
-import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import { TextStyle } from '@tiptap/extension-text-style';
 import Color from '@tiptap/extension-color';
@@ -156,7 +154,12 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
 
   useEffect(() => {
     pageIdRef.current = pageId;
-    lastSavedDocRef.current = initialDoc;
+    // NOTE: do NOT reset lastSavedDocRef here. The baseline is established
+    // in onCreate from `editor.getJSON()` (frontend-normalized serialization).
+    // Resetting it to the raw `initialDoc` string (backend serde-serialized,
+    // different key order / default attrs) would defeat the dedup check in
+    // onUpdate and let an init-time normalization transaction overwrite the
+    // persisted doc — see the import-disappears bug.
   }, [pageId, initialDoc]);
 
   const handleSlashClose = (editor: TiptapEditor) => {
@@ -183,16 +186,19 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
         heading: { levels: [1, 2, 3] },
         // Replace built-in CodeBlock with the lowlight-backed one (PRD §5.1.1).
         codeBlock: false,
+        // v3: StarterKit bundles Link + Underline by default. Configure them
+        // inline here instead of registering separate duplicates (which caused
+        // "Duplicate extension names found: ['link', 'underline']" warnings and
+        // schema/registration nondeterminism).
+        link: {
+          openOnClick: false,
+          autolink: true,
+          HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' },
+        },
       }),
       CodeBlockLowlight.configure({
         lowlight: lowlightInstance,
         HTMLAttributes: { class: 'ln-codeblock' },
-      }),
-      Underline,
-      Link.configure({
-        openOnClick: false,
-        autolink: true,
-        HTMLAttributes: { rel: 'noopener noreferrer', target: '_blank' },
       }),
       Image.configure({
         inline: false,
@@ -243,6 +249,16 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
       editorRef.current = ctx.editor;
       // Expose the current page id for slash commands that need it (sub-page creation).
       ctx.editor.storage.folioPageId = pageId;
+      // Synchronize the dedup baseline with the editor's actual loaded state.
+      // TipTap may dispatch a normalization/extension transaction right after
+      // mount (see TipTap issues #4649, #2583, #4535), which fires onUpdate.
+      // Without this, onUpdate would compare `JSON.stringify(editor.getJSON())`
+      // (frontend-normalized) against `initialDoc` (backend serde-serialized —
+      // different key order / default attrs), fail the dedup check, and
+      // overwrite the persisted doc with a normalized/lossy version. This is
+      // the root cause of imported Markdown content disappearing after
+      // navigating away and back.
+      lastSavedDocRef.current = JSON.stringify(ctx.editor.getJSON());
       onReady?.();
       // If the initial doc already contains code blocks, start loading the
       // highlighting grammars right away.
