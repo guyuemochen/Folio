@@ -3,10 +3,15 @@ name: release
 # M9 — build, sign, and publish Folio installers + the updater manifest.
 #
 # Three release channels share this workflow:
-#   stable  : PR merged into `master`     → rolling tag `stable-latest`
-#   beta    : PR merged into `dev`        → rolling tag `beta-latest`
-#   nightly : schedule (daily 03:00 UTC)  → rolling tag `nightly-latest`
+#   stable  : push tag v0.x.x            → rolling tag `stable-latest`
+#   beta    : push tag v0.x.x-beta.N     → rolling tag `beta-latest`
+#   nightly : schedule (daily 03:00 UTC) → rolling tag `nightly-latest`
 #
+# Each channel publishes to ONE rolling GitHub Release (e.g. `stable-latest`):
+# artifacts AND the `latest.json` updater manifest both land there.
+# `tauri-apps/tauri-action@v0` does NOT support splitting them across two
+# tags, so the rolling release is overwritten on every build and the dated
+# version number is recorded in `releaseName` / `releaseBody` for history.
 # The Tauri updater reads `latest.json` from each channel's rolling tag.
 #
 # Code is hosted on GitLab and mirrored to GitHub; this workflow runs on the
@@ -22,9 +27,10 @@ name: release
 #   AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET (Windows Authenticode)
 
 on:
-  pull_request:
-    types: [closed]
-    branches: [master, dev]
+  push:
+    tags:
+      - 'v*'           # stable + beta (v0.1.0, v0.1.1-beta.2)
+      - 'nightly-*'    # explicit nightly tag
   schedule:
     - cron: '0 3 * * *'  # nightly build at 03:00 UTC
   workflow_dispatch:
@@ -35,16 +41,22 @@ on:
         options: ['stable', 'beta', 'nightly']
         default: 'stable'
 
+# tauri-action creates the rolling GitHub Release + uploads artifacts via the
+# REST API using GITHUB_TOKEN. The token needs `contents: write` (and
+# `packages: write` if you ever publish anything to GHCR). Without this block
+# the token falls back to the repo default, which is read-only on most repos
+# → "Resource not accessible by integration" on create-a-release.
+permissions:
+  contents: write
+
 jobs:
   build:
-    # Skip when a PR is closed without merging.
-    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: macos-latest
-            args: '--target aarch64-apple-darwin --target x86_64-apple-darwin'
+            args: '--target universal-apple-darwin'
           - platform: ubuntu-22.04
             args: ''
           - platform: windows-latest
@@ -79,28 +91,21 @@ jobs:
         id: chan
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE="${{ github.event.pull_request.base.ref }}"
-            if   [ "$BASE" = "master" ]; then CH=stable
-            elif [ "$BASE" = "dev" ];     then CH=beta
-            else echo "::error::unexpected PR base: $BASE"; exit 1; fi
-          elif [ "${{ github.event_name }}" = "schedule" ]; then
-            CH=nightly
-          else
-            CH="${{ github.event.inputs.channel || 'stable' }}"
+          CH="${{ github.event.inputs.channel || '' }}"
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [ -z "$CH" ]; then
+            if [[ "$TAG" == nightly-* ]] || [ "${{ github.event_name }}" = "schedule" ]; then CH=nightly
+            elif [[ "$TAG" == *-beta* ]]; then CH=beta
+            else CH=stable; fi
           fi
-          SHA7=$(git rev-parse --short HEAD)
-          DATE=$(date -u +%Y-%m-%d)
-          VERSION=$(node -p "require('./package.json').version")
-          case "$CH" in
-            stable)  DATED="v$VERSION" ;;
-            beta)    DATED="v$VERSION-beta.$SHA7" ;;
-            nightly) DATED="nightly-$DATE" ;;
-            *)       DATED="$CH-$SHA7" ;;
-          esac
-          echo "channel=$CH"        >> "$GITHUB_OUTPUT"
-          echo "rolling=$CH-latest" >> "$GITHUB_OUTPUT"
-          echo "dated=$DATED"       >> "$GITHUB_OUTPUT"
+          ROLLING="$CH-latest"
+          DATED="$TAG"
+          if [ "$CH" = "nightly" ] && [ -z "$DATED" ]; then
+            DATED="nightly-$(date -u +%Y-%m-%d)"
+          fi
+          echo "channel=$CH"      >> "$GITHUB_OUTPUT"
+          echo "rolling=$ROLLING" >> "$GITHUB_OUTPUT"
+          echo "dated=$DATED"     >> "$GITHUB_OUTPUT"
 
       - uses: tauri-apps/tauri-action@v0
         env:
@@ -116,13 +121,13 @@ jobs:
           # AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           # AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         with:
-          # Dated release (artifacts land here).
-          tagName: ${{ steps.chan.outputs.dated }}
+          # Rolling channel release (e.g. `stable-latest`). Both artifacts and
+          # latest.json land here; clients read
+          # /releases/download/<channel>-latest/latest.json. Every build
+          # overwrites the previous artifacts in this release.
+          tagName: ${{ steps.chan.outputs.rolling }}
           releaseName: '${{ steps.chan.outputs.dated }} (${{ steps.chan.outputs.channel }})'
           releaseBody: 'Folio ${{ steps.chan.outputs.channel }} build ${{ steps.chan.outputs.dated }}'
           releaseDraft: false
           prerelease: ${{ steps.chan.outputs.channel != 'stable' }}
-          # The updater manifest (latest.json) is published/updated under the
-          # channel's rolling tag, so all platforms merge into one manifest.
-          updaterJsonPreferTagName: ${{ steps.chan.outputs.rolling }}
           args: ${{ matrix.args }}
