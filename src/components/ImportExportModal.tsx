@@ -65,7 +65,7 @@ export function ImportExportModal({ pageId, pageTitle, onClose }: ImportExportMo
           {tab === 'export' ? (
             <ExportTab pageId={pageId} pageTitle={pageTitle} onClose={onClose} />
           ) : (
-            <ImportTab onClose={onClose} />
+            <ImportTab pageId={pageId} pageTitle={pageTitle} onClose={onClose} />
           )}
         </div>
       </div>
@@ -249,18 +249,31 @@ function ExportTab({
 // Import tab
 // =============================================================================
 
-function ImportTab({ onClose }: { onClose: () => void }) {
+function ImportTab({
+  pageId,
+  pageTitle,
+  onClose,
+}: {
+  pageId: string;
+  pageTitle: string;
+  onClose: () => void;
+}) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const setCurrentPage = useWorkspaceStore((s) => s.setCurrentPage);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<'new' | 'overwrite'>('new');
 
   const importFile = async (
     label: string,
     extensions: string[],
-    importer: (path: string) => Promise<{ id: string; title: string }>,
+    importer: (path: string, targetPageId?: string) => Promise<{ id: string; title: string }>,
+    opts?: { supportsOverwrite?: boolean },
   ) => {
+    // Formats that create databases / multi-page trees (CSV, Notion zip) only
+    // support "new page" mode — silently fall back rather than blocking.
+    const targetPageId = opts?.supportsOverwrite === false ? undefined : mode === 'overwrite' ? pageId : undefined;
     setBusy(label);
     setError(null);
     try {
@@ -269,14 +282,27 @@ function ImportTab({ onClose }: { onClose: () => void }) {
         setBusy(null);
         return;
       }
-      const page = await importer(path);
+      const page = await importer(path, targetPageId);
       await queryClient.invalidateQueries({ queryKey: ['pages'] });
-      window.dispatchEvent(
-        new CustomEvent('folio:toast', {
-          detail: t('importExport.imported', { title: page.title || t('common.untitled') }),
-        }),
-      );
-      setCurrentPage(page.id);
+      // Overwrite mode: the page id is unchanged, so we must bust the page-doc
+      // cache so PageView re-fetches the freshly replaced content.
+      if (targetPageId) {
+        await queryClient.invalidateQueries({ queryKey: ['page', targetPageId] });
+        // Reuse the snapshot-restored event: PageView listens to it and bumps
+        // restoreEpoch, which forces <Editor key={pageId:restoreEpoch}> to
+        // remount with the freshly-overwritten doc.
+        window.dispatchEvent(new CustomEvent('folio:snapshot-restored'));
+        window.dispatchEvent(
+          new CustomEvent('folio:toast', { detail: t('importExport.overwritten') }),
+        );
+      } else {
+        window.dispatchEvent(
+          new CustomEvent('folio:toast', {
+            detail: t('importExport.imported', { title: page.title || t('common.untitled') }),
+          }),
+        );
+        setCurrentPage(page.id);
+      }
       onClose();
     } catch (err) {
       console.error('[Folio] import failed', err);
@@ -317,6 +343,22 @@ function ImportTab({ onClose }: { onClose: () => void }) {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-[13px] text-text-secondary">{t('importExport.importHint')}</p>
+
+      {/* Mode picker — only Markdown / HTML support overwrite. */}
+      <div className="flex gap-1 p-0.5 bg-bg-section rounded-md">
+        <ModeButton active={mode === 'new'} onClick={() => setMode('new')}>
+          {t('importExport.importModeNewPage')}
+        </ModeButton>
+        <ModeButton active={mode === 'overwrite'} onClick={() => setMode('overwrite')}>
+          {t('importExport.importModeOverwrite')}
+        </ModeButton>
+      </div>
+      {mode === 'overwrite' && (
+        <p className="text-[11px] text-status-amber bg-status-amber/10 rounded px-2 py-1.5">
+          {t('importExport.overwriteWarning', { title: pageTitle || t('common.untitled') })}
+        </p>
+      )}
+
       {error && (
         <p className="text-[12px] text-status-red bg-status-red/10 rounded px-2 py-1.5">{error}</p>
       )}
@@ -327,7 +369,11 @@ function ImportTab({ onClose }: { onClose: () => void }) {
           hint={t('importExport.markdownFileHint')}
           loading={busy === 'Markdown'}
           disabled={busy !== null}
-          onClick={() => importFile('Markdown', ['md', 'markdown'], (p) => api.importMarkdown(p))}
+          onClick={() =>
+            importFile('Markdown', ['md', 'markdown'], (p, tid) => api.importMarkdown(p, undefined, tid), {
+              supportsOverwrite: true,
+            })
+          }
         />
         <ActionCard
           icon="🌐"
@@ -335,14 +381,18 @@ function ImportTab({ onClose }: { onClose: () => void }) {
           hint={t('importExport.htmlFileHint')}
           loading={busy === 'HTML'}
           disabled={busy !== null}
-          onClick={() => importFile('HTML', ['html', 'htm'], (p) => api.importHtml(p))}
+          onClick={() =>
+            importFile('HTML', ['html', 'htm'], (p, tid) => api.importHtml(p, undefined, tid), {
+              supportsOverwrite: true,
+            })
+          }
         />
         <ActionCard
           icon="📊"
           label="CSV"
           hint={t('importExport.csvHint')}
           loading={busy === 'CSV'}
-          disabled={busy !== null}
+          disabled={busy !== null || mode === 'overwrite'}
           onClick={() => importFile('CSV', ['csv'], (p) => api.importCsv(p))}
         />
         <ActionCard
@@ -350,7 +400,7 @@ function ImportTab({ onClose }: { onClose: () => void }) {
           label="Notion export"
           hint={t('importExport.notionHint')}
           loading={busy === 'Notion export'}
-          disabled={busy !== null}
+          disabled={busy !== null || mode === 'overwrite'}
           onClick={importNotionZip}
         />
       </div>
@@ -392,6 +442,31 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <div className="text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5">
       {children}
     </div>
+  );
+}
+
+function ModeButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        'flex-1 px-3 py-1.5 text-[12px] font-medium rounded transition-colors',
+        active
+          ? 'bg-bg-page text-text-primary shadow-sm'
+          : 'text-text-tertiary hover:text-text-secondary',
+      ].join(' ')}
+    >
+      {children}
+    </button>
   );
 }
 
