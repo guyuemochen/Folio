@@ -86,6 +86,7 @@ interface WorkspaceState {
   createRootPage: (title?: string) => Promise<PageSummary>;
   createRootDatabase: (name?: string) => Promise<PageSummary>;
   createChildPage: (parentId: string, title?: string) => Promise<PageSummary>;
+  createChildDatabase: (parentId: string, name?: string) => Promise<PageSummary>;
   toggleExpand: (pageId: string) => void;
   setExpanded: (pageId: string, expanded: boolean) => void;
   removePageLocally: (pageId: string) => void;
@@ -205,6 +206,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   createChildPage: async (parentId, title) => {
     const page = await api.createPage({ parentId, parentType: 'page', title });
     const summary = summaryFromPage(page);
+    set((s) => {
+      const existing = s.childrenCache[parentId] ?? [];
+      return {
+        childrenCache: { ...s.childrenCache, [parentId]: [...existing, summary] },
+        expanded: new Set([...s.expanded, parentId]),
+      };
+    });
+    return summary;
+  },
+
+  createChildDatabase: async (parentId, name) => {
+    const db = await api.createDatabase({ parentId, parentType: 'page', name });
+    const summary = summaryFromPage(db);
     set((s) => {
       const existing = s.childrenCache[parentId] ?? [];
       return {
