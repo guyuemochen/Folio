@@ -177,11 +177,20 @@ export const api = {
     invoke('export_page', { pageId, format }),
 
   // --- Import (M5 §5.5.1) ------------------------------------------------
-  importMarkdown: (mdPath: string, parentId?: string): Promise<Page> =>
-    invoke('import_markdown', { mdPath, parentId }),
+  // `targetPageId` — when provided, overwrites the given page's content
+  // instead of creating a new page. Used by the Import modal's "overwrite
+  // current page" mode.
+  importMarkdown: (
+    mdPath: string,
+    parentId?: string,
+    targetPageId?: string,
+  ): Promise<Page> => invoke('import_markdown', { mdPath, parentId, targetPageId }),
 
-  importHtml: (htmlPath: string, parentId?: string): Promise<Page> =>
-    invoke('import_html', { htmlPath, parentId }),
+  importHtml: (
+    htmlPath: string,
+    parentId?: string,
+    targetPageId?: string,
+  ): Promise<Page> => invoke('import_html', { htmlPath, parentId, targetPageId }),
 
   importCsv: (csvPath: string, parentId?: string): Promise<Page> =>
     invoke('import_csv', { csvPath, parentId }),

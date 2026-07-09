@@ -573,15 +573,29 @@ fn export_page(
 // =============================================================================
 
 /// Shared backend for the import commands: given a parsed ProseMirror doc,
-/// create a page (with an auto-derived title) and persist the document.
+/// either create a new page (with an auto-derived title) or overwrite an
+/// existing page's content. `target_page_id = Some(id)` selects overwrite mode;
+/// otherwise a new page is created under `parent_id`.
 fn import_doc_to_page(
     db: &rusqlite::Connection,
     parent_id: Option<&str>,
+    target_page_id: Option<&str>,
     doc_value: &serde_json::Value,
 ) -> Result<Page> {
     let title = prosemirror::extract_title(doc_value);
     let doc_json = serde_json::to_string(doc_value)
         .map_err(|e| Error::Other(format!("doc serialize failed: {e}")))?;
+
+    if let Some(tid) = target_page_id {
+        // Overwrite mode: replace the target page's doc and bump its title
+        // to reflect the imported content (only when non-empty).
+        db::update_page_doc(db, tid, &doc_json)?;
+        if !title.is_empty() {
+            db::update_page_meta(db, tid, Some(&title), None, None)?;
+        }
+        return db::fetch_page(db, tid);
+    }
+
     let workspace = db::get_or_create_workspace(db)?;
     let parent_type = if parent_id.is_some() { "page" } else { "workspace" };
     let page = db::create_page(
@@ -596,31 +610,45 @@ fn import_doc_to_page(
     Ok(page)
 }
 
-/// Import a single Markdown file as a new page.
-/// `parent_id = None` creates the page at workspace root.
+/// Import a single Markdown file.
+/// - `parent_id = None` + `target_page_id = None` → new page at workspace root
+/// - `parent_id = Some(p)` + `target_page_id = None` → new subpage under p
+/// - `target_page_id = Some(id)` → overwrite existing page's content
 #[tauri::command]
 fn import_markdown(
     state: State<'_, AppState>,
     md_path: String,
     parent_id: Option<String>,
+    target_page_id: Option<String>,
 ) -> Result<Page> {
     let md = std::fs::read_to_string(&md_path)?;
     let doc_value = import::markdown::convert(&md)?;
     let db = state.db.lock();
-    import_doc_to_page(&db, parent_id.as_deref(), &doc_value)
+    import_doc_to_page(
+        &db,
+        parent_id.as_deref(),
+        target_page_id.as_deref(),
+        &doc_value,
+    )
 }
 
-/// Import a single HTML file as a new page.
+/// Import a single HTML file. Same mode semantics as `import_markdown`.
 #[tauri::command]
 fn import_html(
     state: State<'_, AppState>,
     html_path: String,
     parent_id: Option<String>,
+    target_page_id: Option<String>,
 ) -> Result<Page> {
     let html = std::fs::read_to_string(&html_path)?;
     let doc_value = import::html::convert(&html)?;
     let db = state.db.lock();
-    import_doc_to_page(&db, parent_id.as_deref(), &doc_value)
+    import_doc_to_page(
+        &db,
+        parent_id.as_deref(),
+        target_page_id.as_deref(),
+        &doc_value,
+    )
 }
 
 // =============================================================================
