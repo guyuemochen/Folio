@@ -635,9 +635,16 @@ function MoreMenu(props: MoreMenuProps) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Flip the menu upwards if it would overflow the viewport bottom.
+  const ESTIMATED_MENU_HEIGHT = 180;
+  const spaceBelow = window.innerHeight - anchorRect.bottom;
+  const top =
+    spaceBelow < ESTIMATED_MENU_HEIGHT + 16
+      ? Math.max(8, anchorRect.top - ESTIMATED_MENU_HEIGHT - 2)
+      : anchorRect.bottom + 2;
   const style: React.CSSProperties = {
     position: 'fixed',
-    top: anchorRect.bottom + 2,
+    top,
     left: Math.min(anchorRect.left - 100, window.innerWidth - 184),
     width: 176,
     zIndex: 1100,
