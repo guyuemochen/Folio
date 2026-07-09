@@ -4,7 +4,7 @@
 //! commands to the frontend.
 
 use parking_lot::Mutex;
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use std::sync::Arc;
 use tauri::{Manager, State};
 use tauri_plugin_updater::UpdaterExt;
@@ -572,6 +572,49 @@ fn export_page(
 // Import (M5 §5.5.1) — Markdown / HTML file import
 // =============================================================================
 
+/// Update a page's title, keeping database row titles in sync.
+///
+/// If the page is a database row (parent_type = "database"), the title is
+/// written through `database::update_cell` so both `page.title` and the row's
+/// `title` property cell are updated atomically — otherwise the DatabaseView
+/// name column would show a stale value after an overwrite import. For regular
+/// pages, falls back to a direct `update_page_meta`.
+fn sync_page_title(db: &rusqlite::Connection, page_id: &str, title: &str) -> Result<()> {
+    let parent: Option<(Option<String>, String)> = db
+        .query_row(
+            "SELECT parent_id, parent_type FROM page WHERE id = ?1",
+            params![page_id],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+        )
+        .ok();
+
+    if let Some((Some(parent_id), parent_type)) = parent {
+        if parent_type == "database" {
+            let title_prop: Option<String> = db
+                .query_row(
+                    "SELECT id FROM database_property \
+                     WHERE database_id = ?1 AND type = 'title' LIMIT 1",
+                    params![parent_id],
+                    |row| row.get(0),
+                )
+                .ok();
+            if let Some(prop_id) = title_prop {
+                database::update_cell(
+                    db,
+                    database::UpdateCellInput {
+                        page_id: page_id.to_string(),
+                        property_id: prop_id,
+                        value: serde_json::Value::String(title.to_string()),
+                    },
+                )?;
+                return Ok(());
+            }
+        }
+    }
+    db::update_page_meta(db, page_id, Some(title), None, None)?;
+    Ok(())
+}
+
 /// Shared backend for the import commands: given a parsed ProseMirror doc,
 /// either create a new page (with an auto-derived title) or overwrite an
 /// existing page's content. `target_page_id = Some(id)` selects overwrite mode;
@@ -591,7 +634,7 @@ fn import_doc_to_page(
         // to reflect the imported content (only when non-empty).
         db::update_page_doc(db, tid, &doc_json)?;
         if !title.is_empty() {
-            db::update_page_meta(db, tid, Some(&title), None, None)?;
+            sync_page_title(db, tid, &title)?;
         }
         return db::fetch_page(db, tid);
     }

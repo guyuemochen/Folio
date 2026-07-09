@@ -288,6 +288,10 @@ function ImportTab({
       // cache so PageView re-fetches the freshly replaced content.
       if (targetPageId) {
         await queryClient.invalidateQueries({ queryKey: ['page', targetPageId] });
+        // If the target is a database row, its title cell was also updated
+        // server-side — bust the rows cache so the DatabaseView name column
+        // reflects the new title on next visit.
+        await queryClient.invalidateQueries({ queryKey: ['database-rows'] });
         // Reuse the snapshot-restored event: PageView listens to it and bumps
         // restoreEpoch, which forces <Editor key={pageId:restoreEpoch}> to
         // remount with the freshly-overwritten doc.
