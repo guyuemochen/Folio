@@ -382,6 +382,19 @@
     "equationHint": "Ctrl+Enter 保存 · Esc 取消"
   },
 
+  "settings": {
+    "title": "设置",
+    "appearance": "外观",
+    "themeHint": "选择 Folio 的外观。「跟随系统」将使用操作系统的配色方案。",
+    "themeSystem": "跟随系统",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "language": "语言",
+    "languageHint": "选择 Folio 的显示语言。「跟随系统」将使用操作系统的区域设置。",
+    "languageSystem": "跟随系统",
+    "updates": "更新"
+  },
+
   "about": {
     "title": "关于 Folio",
     "tagline": "本地优先的类 Notion 桌面笔记应用。所有数据都保存在你的设备上。",

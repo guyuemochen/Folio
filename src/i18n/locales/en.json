@@ -382,6 +382,19 @@
     "equationHint": "Ctrl+Enter to save · Esc to cancel"
   },
 
+  "settings": {
+    "title": "Settings",
+    "appearance": "Appearance",
+    "themeHint": "Choose how Folio looks. System follows your OS color scheme.",
+    "themeSystem": "System",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "language": "Language",
+    "languageHint": "Choose Folio's display language. System follows your OS locale.",
+    "languageSystem": "System",
+    "updates": "Updates"
+  },
+
   "about": {
     "title": "About Folio",
     "tagline": "Local-first, Notion-like desktop note app. All data lives on your machine.",

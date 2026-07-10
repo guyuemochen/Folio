@@ -259,7 +259,7 @@ export function Sidebar() {
         <SidebarFooterLink
           icon="⚙"
           label={t('sidebar.settings')}
-          onClick={() => fireToast(t('sidebar.settingsSoon'))}
+          onClick={() => window.dispatchEvent(new CustomEvent('folio:open-settings'))}
         />
         <SidebarFooterLink
           icon="ℹ"
