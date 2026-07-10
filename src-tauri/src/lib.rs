@@ -483,6 +483,12 @@ fn purge_old_trash(state: State<'_, AppState>) -> Result<usize> {
 }
 
 #[tauri::command]
+fn empty_trash(state: State<'_, AppState>) -> Result<usize> {
+    let db = state.db.lock();
+    db::empty_trash(&db)
+}
+
+#[tauri::command]
 fn set_favorite(state: State<'_, AppState>, page_id: String, is_favorite: bool) -> Result<()> {
     let db = state.db.lock();
     db::set_favorite(&db, &page_id, is_favorite)
@@ -1000,6 +1006,7 @@ pub fn run() {
             // Trash + Favorites + Snapshots (M3 §5.2.4)
             list_trashed_pages,
             purge_old_trash,
+            empty_trash,
             set_favorite,
             list_favorites,
             reorder_favorites,

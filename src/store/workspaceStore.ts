@@ -104,6 +104,7 @@ interface WorkspaceState {
   trashPage: (pageId: string) => Promise<void>;
   restorePage: (pageId: string) => Promise<void>;
   deletePermanently: (pageId: string) => Promise<void>;
+  emptyTrash: () => Promise<void>;
 }
 
 function summaryFromPage(p: {
@@ -344,6 +345,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   deletePermanently: async (pageId) => {
     await api.deletePagePermanently(pageId);
     set((s) => ({ trashedPages: s.trashedPages.filter((p) => p.id !== pageId) }));
+  },
+
+  emptyTrash: async () => {
+    await api.emptyTrash();
+    set({ trashedPages: [] });
   },
 }));
 

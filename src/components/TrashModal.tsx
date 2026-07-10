@@ -21,6 +21,7 @@ export function TrashModal({ onClose }: TrashModalProps) {
   const loadTrashedPages = useWorkspaceStore((s) => s.loadTrashedPages);
   const restorePage = useWorkspaceStore((s) => s.restorePage);
   const deletePermanently = useWorkspaceStore((s) => s.deletePermanently);
+  const emptyTrash = useWorkspaceStore((s) => s.emptyTrash);
 
   useEffect(() => {
     loadTrashedPages().catch((err) => console.error('[Folio] load trash failed', err));
@@ -40,6 +41,21 @@ export function TrashModal({ onClose }: TrashModalProps) {
       <div {...dialog.containerProps} className="w-[560px] max-h-[70vh] bg-bg-page rounded-lg shadow-popover border border-border-hairline flex flex-col">
         <header className="px-5 py-3 border-b border-border-hairline flex items-center">
           <h2 className="text-h3 flex-1">{t('trash.title')}</h2>
+          {rows.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm(t('trash.emptyTrashConfirm', { count: rows.length }))) {
+                  emptyTrash().catch((err) =>
+                    console.error('[Folio] empty trash failed', err),
+                  );
+                }
+              }}
+              className="mr-2 px-2 py-1 text-[12px] rounded text-status-red hover:bg-bg-section"
+            >
+              {t('trash.emptyTrash')}
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}

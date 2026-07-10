@@ -150,6 +150,8 @@ export const api = {
 
   purgeOldTrash: (): Promise<number> => invoke('purge_old_trash'),
 
+  emptyTrash: (): Promise<number> => invoke('empty_trash'),
+
   setFavorite: (pageId: string, isFavorite: boolean): Promise<void> =>
     invoke('set_favorite', { pageId, isFavorite }),
 
