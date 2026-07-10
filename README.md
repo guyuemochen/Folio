@@ -279,17 +279,12 @@ Internationalization (PRD §10.5) and accessibility (PRD §10.4).
 
 ## What works in M9 — release + auto-update
 
-### License (Apache-2.0 + Commercial Use Condition)
+### License (Apache-2.0)
 
-- **Apache-2.0** with a **Commercial Use Condition** — see
-  [`LICENSE`](./LICENSE). Personal, educational, research, and internal
-  non-commercial use is free and unrestricted under the Apache-2.0 terms
-  (including patent grant). **Commercial use requires prior written
-  authorization** from the copyright holder: selling Folio (or a derivative)
-  as a product, offering it as a hosted / SaaS service, or deriving paid
-  consulting / support / hosting revenue from it all need a commercial
-  license. Internal evaluation, education, and non-commercial open-source
-  development do not.
+- **Apache License 2.0** — see [`LICENSE`](./LICENSE). A permissive license
+  covering personal, commercial, and open-source use, with an explicit
+  patent grant. You may use, modify, and distribute Folio (including
+  commercially) provided you retain the license notice and state changes.
 
 ### Auto-update (Q9 — stable / beta / nightly)
 
@@ -347,10 +342,9 @@ Post-M9 editor polish plus a license change. Shipped as `v0.2.0-beta.1`.
 
 ### License
 
-Switched from **AGPL-3.0-or-later** to **Apache-2.0 + Commercial Use
-Condition** — a permissive base (incl. patent grant) for personal /
-non-commercial use; commercial use requires authorization. See
-[`LICENSE`](./LICENSE).
+Switched from **AGPL-3.0-or-later** to the permissive **Apache-2.0** — use,
+modify, and distribute freely (including commercially) under the Apache
+terms, with an explicit patent grant. See [`LICENSE`](./LICENSE).
 
 ## What's next
 
@@ -359,19 +353,9 @@ code-signing (Q11), and P1 bugs from real-world use.
 
 ## License
 
-Folio is licensed under the **Apache License 2.0** with a **Commercial Use
-Condition** — see [`LICENSE`](./LICENSE).
+Folio is licensed under the **Apache License 2.0** — see [`LICENSE`](./LICENSE).
 
-- **Personal / non-commercial use** — free to use, modify, and distribute
-  under the Apache-2.0 terms (including the patent grant). Covers personal
-  use, education, academic research, internal evaluation/development, and
-  non-commercial open-source work.
-- **Commercial use** — selling Folio (or a derivative) as a product, offering
-  it as a hosted / SaaS service, or deriving paid consulting / support /
-  hosting revenue from it **requires prior written authorization** from the
-  copyright holder. Contact the maintainer for a commercial license.
-
-This is a deliberate "permissive core, commercial gate" stance: the Apache
-base keeps the project broadly usable for individuals and non-commercial
-work, while the Commercial Use Condition ensures commercial exploitation
-happens with authorization.
+- A permissive license: use, modify, and distribute Folio freely, including
+  commercially, provided you retain the copyright notice and state any
+  changes you make.
+- Includes an explicit patent grant from contributors.
