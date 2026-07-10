@@ -32,6 +32,7 @@ import { SlashCommand, type SlashState } from './extensions/SlashCommand';
 import { Callout } from './extensions/Callout';
 import { Toggle } from './extensions/Toggle';
 import { Equation } from './extensions/Equation';
+import { InlineMath } from './extensions/InlineMath';
 import { Bookmark } from './extensions/Bookmark';
 import { Embed } from './extensions/Embed';
 import { Columns, Column } from './extensions/Column';
@@ -217,6 +218,7 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
       Callout,
       Toggle,
       Equation,
+      InlineMath,
       Bookmark,
       Embed,
       Columns,

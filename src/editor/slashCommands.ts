@@ -186,6 +186,17 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     },
   },
   {
+    key: 'inline-math',
+    label: i18n.t('editor.slashInlineMath'),
+    description: i18n.t('editor.slashInlineMathDesc'),
+    icon: 'ƒ',
+    aliases: ['inline-math', 'inline', 'inlinemath', 'inline-equation', 'tex-inline', 'imath'],
+    category: 'basic',
+    apply: (editor) => {
+      clearSlashText(editor).setInlineMath().run();
+    },
+  },
+  {
     key: 'divider',
     label: i18n.t('editor.slashDivider'),
     description: i18n.t('editor.slashDividerDesc'),
