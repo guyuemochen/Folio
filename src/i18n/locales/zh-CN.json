@@ -374,7 +374,12 @@
     "regionLabel": "页面内容",
     "slashMenuLabel": "插入块",
     "blockMenuLabel": "块操作",
-    "bubbleToolbarLabel": "文字格式"
+    "bubbleToolbarLabel": "文字格式",
+    "clickToEditEquation": "点击编辑公式",
+    "equationEmptyHint": "点击添加公式",
+    "equationEditorTitle": "编辑公式",
+    "equationPlaceholder": "LaTeX，例如 \\int_0^\\infty e^{-x^2} dx",
+    "equationHint": "Ctrl+Enter 保存 · Esc 取消"
   },
 
   "about": {

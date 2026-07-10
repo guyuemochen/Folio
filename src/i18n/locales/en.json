@@ -374,7 +374,12 @@
     "regionLabel": "Page content",
     "slashMenuLabel": "Insert block",
     "blockMenuLabel": "Block actions",
-    "bubbleToolbarLabel": "Text formatting"
+    "bubbleToolbarLabel": "Text formatting",
+    "clickToEditEquation": "Click to edit LaTeX",
+    "equationEmptyHint": "Click to add a formula",
+    "equationEditorTitle": "Edit formula",
+    "equationPlaceholder": "LaTeX — e.g. \\int_0^\\infty e^{-x^2} dx",
+    "equationHint": "Ctrl+Enter to save · Esc to cancel"
   },
 
   "about": {
