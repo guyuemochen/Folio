@@ -1,26 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react';
 import katex from 'katex';
+import { FormulaPopover } from './FormulaPopover';
 
 /**
- * React NodeView for the Equation node.
+ * React NodeView for the Equation node (block-level KaTeX).
  *
- * Two modes:
- *   - Preview: shows rendered KaTeX. Click to switch to editing.
- *   - Edit: shows a textarea bound to `latex`; blur commits and returns to preview.
+ * Preview is always shown; clicking it opens {@link FormulaPopover} where the
+ * LaTeX is edited in a textarea with a live preview. The change is persisted
+ * only when the user clicks OK (or Ctrl/Cmd+Enter) — Cancel / Escape / outside
+ * click discards the draft.
  *
  * KaTeX errors are rendered in-place (throwOnError=false) so broken LaTeX
  * shows a red strikethrough hint instead of crashing the editor.
  */
 export function EquationView({ node, updateAttributes }: ReactNodeViewProps) {
+  const { t } = useTranslation();
   const latex = (node.attrs.latex as string) ?? '';
-  const [editing, setEditing] = useState(latex === '');
-  const [draft, setDraft] = useState(latex);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
 
-  // Re-render KaTeX on every latex change (preview mode).
+  // Render the committed LaTeX into the preview.
   useEffect(() => {
-    if (editing) return;
     const el = previewRef.current;
     if (!el) return;
     try {
@@ -32,57 +34,42 @@ export function EquationView({ node, updateAttributes }: ReactNodeViewProps) {
     } catch (err) {
       el.textContent = `[KaTeX error] ${(err as Error).message}`;
     }
-  }, [latex, editing]);
-
-  // Keep draft in sync when external edits change the node attrs.
-  useEffect(() => {
-    if (latex !== draft) setDraft(latex);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latex]);
 
-  const commit = () => {
-    updateAttributes({ latex: draft });
-    setEditing(false);
+  const open = (e: React.MouseEvent) => {
+    setAnchorRect((e.currentTarget as HTMLElement).getBoundingClientRect());
   };
 
   return (
-    <NodeViewWrapper
-      className="ln-equation-wrapper"
-      as="div"
-      data-equation-editing={editing ? 'true' : 'false'}
-    >
-      {editing ? (
-        <div className="ln-equation-editor" contentEditable={false}>
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                commit();
-              } else if (e.key === 'Escape') {
-                e.preventDefault();
-                setDraft(latex);
-                setEditing(false);
-              }
-            }}
-            placeholder="LaTeX — e.g. \int_0^\infty e^{-x^2} dx"
-            rows={2}
-            autoFocus
-            className="w-full px-3 py-2 font-mono text-[13px] rounded-md border border-accent/40 bg-bg-page outline-none"
-          />
-          <div className="mt-1 text-[10px] text-text-tertiary">
-            Enter to save · Esc to cancel
-          </div>
+    <NodeViewWrapper className="ln-equation-wrapper" as="div">
+      {latex === '' ? (
+        <div
+          className="ln-equation-preview ln-equation-placeholder"
+          contentEditable={false}
+          onClick={open}
+          title={t('editor.clickToEditEquation')}
+        >
+          {t('editor.equationEmptyHint')}
         </div>
       ) : (
         <div
           ref={previewRef}
           className="ln-equation-preview"
           contentEditable={false}
-          onClick={() => setEditing(true)}
-          title="Click to edit LaTeX"
+          onClick={open}
+          title={t('editor.clickToEditEquation')}
+        />
+      )}
+      {anchorRect && (
+        <FormulaPopover
+          anchorRect={anchorRect}
+          initialLatex={latex}
+          displayMode={true}
+          onCommit={(next) => {
+            updateAttributes({ latex: next });
+            setAnchorRect(null);
+          }}
+          onCancel={() => setAnchorRect(null)}
         />
       )}
     </NodeViewWrapper>
