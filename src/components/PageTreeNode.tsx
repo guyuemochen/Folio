@@ -63,20 +63,25 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
   const commitRename = async () => {
     setIsEditing(false);
     const next = draft.trim();
-    if (next && next !== page.title) {
-      try {
+    const prev = page.title;
+    if (!next || next === prev) {
+      setDraft(prev);
+      return;
+    }
+    // Optimistic: update the store immediately so this row (and any other
+    // place showing the page) reflects the rename without waiting for the
+    // IPC round-trip. Roll back if the backend rejects it.
+    renamePageLocally(page.id, next);
+    try {
       await api.renamePage(page.id, next);
-      renamePageLocally(page.id, next);
       // The renamed page may be a row in some database; bust the rows cache
       // so DatabaseView shows the new title on next visit. renamePageLocally
       // only updates the zustand page-list store, which DatabaseView doesn't
       // read (it uses React Query's ['database-rows', dbId] snapshot).
       void queryClient.invalidateQueries({ queryKey: ['database-rows'] });
-      } catch (err) {
-        console.error('[Folio] rename failed', err);
-      }
-    } else {
-      setDraft(page.title);
+    } catch (err) {
+      renamePageLocally(page.id, prev);
+      console.error('[Folio] rename failed', err);
     }
   };
 
