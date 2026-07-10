@@ -311,8 +311,9 @@ blockquote { border-left: 3px solid #d0d7de; padding-left: 1rem; color: #57606a;
 @media (prefers-color-scheme: dark) { blockquote { border-color: #30363d; color: #8b949e; } }
 blockquote.callout { border-left-color: #0969da; }
 blockquote.callout .callout-icon { font-size: 1.2em; }
-table { border-collapse: collapse; width: 100%; }
-th, td { border: 1px solid #d0d7de; padding: .4rem .6rem; text-align: left; }
+table { border-collapse: collapse; width: 100%; max-width: 100%; table-layout: auto; }
+th, td { border: 1px solid #d0d7de; padding: .4rem .6rem; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.katex-display { overflow-x: auto; padding-bottom: 4px; }
 .task-list { list-style: none; padding-left: 0; }
 .columns { display: flex; gap: 1.5rem; }
 .columns .column { flex: 1; }
