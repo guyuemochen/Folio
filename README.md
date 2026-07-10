@@ -320,11 +320,42 @@ Internationalization (PRD §10.5) and accessibility (PRD §10.4).
   button + channel picker belongs in a future Settings panel.
 - **Demo video.**
 
+## What's new in 0.2.0
+
+Post-M9 editor polish plus a license change. Shipped as `v0.2.0-beta.1`.
+
+### Tables
+
+- **Auto-width** — `table-layout: auto` so columns size to their content
+  instead of being forced into equal halves; the table stays within the
+  editor column (`max-width: 100%`).
+- **Formulas don't overflow** — long KaTeX scrolls inside its cell instead of
+  blowing out the table border, and the one-line-formula vertical-scrollbar
+  bug is fixed (`overflow-y: hidden` counters the CSS spec's `overflow-x: auto`
+  → `overflow-y: auto` rewrite).
+
+### Formula editing
+
+- **Popover editor** — block and inline formulas now edit in a floating
+  popover with a **textarea + live KaTeX preview**; changes save only on
+  **OK / Ctrl+Enter** (Cancel / Esc / outside click discards). Replaces the
+  old inline edit-in-place.
+- **Distinct backgrounds** — block equations get a tinted rounded block and
+  inline math a subtle token background, so formulas read apart from prose.
+- **Spacing rhythm** — differentiated vertical spacing across heading levels,
+  heading→paragraph (tight), paragraph→paragraph, and paragraph→formula.
+
+### License
+
+Switched from **AGPL-3.0-or-later** to **Apache-2.0 + Commercial Use
+Condition** — a permissive base (incl. patent grant) for personal /
+non-commercial use; commercial use requires authorization. See
+[`LICENSE`](./LICENSE).
+
 ## What's next
 
-M9 core (License + auto-update + release pipeline) is complete. Remaining
-before v1.0: updater UI, OS code-signing (Q11), and P1 bugs from real-world
-use.
+0.2.0 is in beta (`v0.2.0-beta.1`). Remaining before v1.0: updater UI, OS
+code-signing (Q11), and P1 bugs from real-world use.
 
 ## License
 
