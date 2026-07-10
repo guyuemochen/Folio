@@ -19,6 +19,7 @@ pub fn serialize(doc: &Value, title: &str) -> Result<String> {
          <meta charset=\"utf-8\">\n\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
          <title>{safe_title}</title>\n\
+         <link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/katex@0.16/dist/katex.min.css\" crossorigin=\"anonymous\">\n\
          <style>{STYLES}</style>\n\
          </head>\n\
          <body>\n\
@@ -26,6 +27,8 @@ pub fn serialize(doc: &Value, title: &str) -> Result<String> {
          <h1>{safe_title}</h1>\n\
          {body}\n\
          </article>\n\
+         <script defer src=\"https://cdn.jsdelivr.net/npm/katex@0.16/dist/katex.min.js\" crossorigin=\"anonymous\"></script>\n\
+         <script defer src=\"https://cdn.jsdelivr.net/npm/katex@0.16/dist/contrib/auto-render.min.js\" crossorigin=\"anonymous\" onload=\"renderMathInElement(document.body, {{delimiters:[{{left:'$$',right:'$$',display:true}},{{left:'$',right:'$',display:false}}]}})\"></script>\n\
          </body>\n\
          </html>\n"
     ))
@@ -68,8 +71,11 @@ fn serialize_block(node: &Value) -> String {
         "callout" => serialize_callout(node),
         "toggle" => serialize_toggle(node),
         "equation" => {
+            // Wrap in `$$…$$` so KaTeX auto-render (loaded in the doc head)
+            // picks it up as display math. escape_html keeps the document safe;
+            // auto-render reads `textContent`, which the browser decodes back.
             let latex = escape_html(attr_str(node, "latex", ""));
-            format!("<div class=\"equation\">{latex}</div>")
+            format!("<div class=\"equation\">$${latex}$$</div>")
         }
         "bookmark" => {
             let url = attr_str(node, "url", "");
@@ -223,6 +229,11 @@ fn serialize_inline(node: &Value) -> String {
             let title = escape_html(attr_str(node, "title", "Untitled"));
             let icon = attr_str(node, "icon", "📄");
             format!("<a class=\"subpage\">{icon} {title}</a>")
+        }
+        "inlineMath" => {
+            // Inline `$…$` so KaTeX auto-render renders it inline.
+            let latex = escape_html(attr_str(node, "latex", ""));
+            format!("${latex}$")
         }
         _ => escape_html(text_of(node)),
     }
@@ -429,5 +440,27 @@ mod tests {
         let d = doc(&[json!({ "type": "linkedDatabase", "attrs": { "sourceDatabaseId": "x9" } })]);
         let out = serialize(&d, "t").unwrap();
         assert!(out.contains("data-source-id=\"x9\""));
+    }
+
+    #[test]
+    fn equation_export_emits_dollars_and_katex_cdn() {
+        let d = doc(&[json!({ "type": "equation", "attrs": { "latex": "E=mc^2" } })]);
+        let out = serialize(&d, "t").unwrap();
+        // Wrapped in display-math delimiters for KaTeX auto-render.
+        assert!(out.contains("$$E=mc^2$$"));
+        // KaTeX stylesheet + auto-render script bundled in the doc.
+        assert!(out.contains("katex.min.css"));
+        assert!(out.contains("auto-render.min.js"));
+        assert!(out.contains("renderMathInElement"));
+    }
+
+    #[test]
+    fn inline_math_export_emits_inline_dollars() {
+        let d = doc(&[json!({
+            "type": "paragraph",
+            "content": [{ "type": "inlineMath", "attrs": { "latex": "x^2" } }]
+        })]);
+        let out = serialize(&d, "t").unwrap();
+        assert!(out.contains("$x^2$"));
     }
 }

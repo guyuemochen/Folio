@@ -349,6 +349,8 @@
     "slashCodeDesc": "带语法高亮和语言选择器的代码块",
     "slashEquation": "公式",
     "slashEquationDesc": "数学表达式块 (KaTeX)",
+    "slashInlineMath": "行内公式",
+    "slashInlineMathDesc": "行内数学表达式 (KaTeX)",
     "slashDivider": "分隔线",
     "slashDividerDesc": "视觉上分隔块",
     "slashDatabase": "数据库",

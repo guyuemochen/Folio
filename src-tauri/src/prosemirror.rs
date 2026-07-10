@@ -16,7 +16,7 @@
 //!   codeBlock, blockquote, horizontalRule, taskList, taskItem, table,
 //!   tableRow, tableHeader, tableCell, callout, toggle, equation, bookmark,
 //!   embed, columns, column
-//! Inline nodes: text, hardBreak, image
+//! Inline nodes: text, hardBreak, image, subPage, inlineMath
 //! Marks: bold, italic, strike, code, link, underline, textStyle, color,
 //!   highlight
 

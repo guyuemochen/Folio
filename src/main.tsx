@@ -6,6 +6,10 @@ import App from './App';
 import { perf } from './lib/perf';
 import './i18n/config';
 import './styles/globals.css';
+// KaTeX stylesheet — required for the Equation/InlineMath NodeViews to render
+// math with the correct fonts and spacing (output:'html' references these
+// font families). Vite's manualChunks routes katex to its own vendor chunk.
+import 'katex/dist/katex.min.css';
 import { initTheme } from './lib/theme';
 
 // Apply the OS color scheme before React renders, to avoid a flash of the

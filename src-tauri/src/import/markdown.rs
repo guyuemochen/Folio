@@ -11,6 +11,7 @@
 //!   List(task)/TaskItem→taskList/taskItem, Table→table,
 //!   Strong/Emph/Strikethrough/Underline/Code/Link→marks,
 //!   Image→image, SoftBreak/LineBreak→hardBreak.
+//!   Math: $…$→inlineMath, $$…$$ (standalone)→equation.
 
 use comrak::nodes::{AstNode, NodeValue};
 use comrak::{parse_document, Arena, Options};
@@ -32,6 +33,9 @@ fn parse_options() -> Options<'static> {
     opts.extension.strikethrough = true;
     opts.extension.tasklist = true;
     opts.extension.autolink = true;
+    // Math: `$...$` (inline) and `$$...$$` (display). Both surface as
+    // `NodeValue::Math`; display math is distinguishable via `display_math`.
+    opts.extension.math_dollars = true;
     opts
 }
 
@@ -42,7 +46,25 @@ fn parse_options() -> Options<'static> {
 fn convert_block<'a>(node: &'a AstNode<'a>) -> Value {
     let value = node.data.borrow().value.clone();
     match value {
-        NodeValue::Paragraph => json!({ "type": "paragraph", "content": convert_inlines(node, &[]) }),
+        NodeValue::Paragraph => {
+            // A standalone display-math block (`$$\n…\n$$`) parses as a
+            // paragraph whose sole child is a Math node with display_math=true.
+            // Promote it to a block equation.
+            let kids: Vec<_> = node.children().collect();
+            let is_display_equation = kids.len() == 1
+                && matches!(
+                    &kids[0].data.borrow().value,
+                    NodeValue::Math(m) if m.display_math
+                );
+            if is_display_equation {
+                let latex = match &kids[0].data.borrow().value {
+                    NodeValue::Math(m) => m.literal.trim().to_string(),
+                    _ => String::new(),
+                };
+                return json!({ "type": "equation", "attrs": { "latex": latex } });
+            }
+            json!({ "type": "paragraph", "content": convert_inlines(node, &[]) })
+        }
         NodeValue::Heading(h) => json!({
             "type": "heading",
             "attrs": { "level": h.level },
@@ -155,6 +177,13 @@ fn convert_inlines<'a>(node: &'a AstNode<'a>, marks: &[Value]) -> Vec<Value> {
             }
             NodeValue::SoftBreak | NodeValue::LineBreak => {
                 result.push(json!({ "type": "hardBreak" }));
+            }
+            NodeValue::Math(m) => {
+                // comrak emits both inline (`$…$`) and display (`$$…$$`) math as
+                // inline `Math` nodes. Display-math-as-sole-child is promoted to
+                // a block equation in convert_block; anything that reaches here
+                // is inline math (or display math mixed with other text).
+                result.push(json!({ "type": "inlineMath", "attrs": { "latex": m.literal.trim() } }));
             }
             NodeValue::Code(code) => {
                 let mut m = marks.to_vec();
@@ -390,5 +419,37 @@ mod tests {
         let inlines = para["content"].as_array().unwrap();
         // Should contain a hardBreak node
         assert!(inlines.iter().any(|n| n["type"] == "hardBreak"));
+    }
+
+    #[test]
+    fn inline_math_import() {
+        let d = convert("The formula $x^2$ is quadratic.").unwrap();
+        let para = &content_of(&d)[0];
+        let inlines = para["content"].as_array().unwrap();
+        let im = inlines
+            .iter()
+            .find(|n| n["type"] == "inlineMath")
+            .expect("inlineMath node present");
+        assert_eq!(im["attrs"]["latex"], "x^2");
+    }
+
+    #[test]
+    fn display_math_import() {
+        let d = convert("$$\nE=mc^2\n$$").unwrap();
+        let block = &content_of(&d)[0];
+        assert_eq!(block["type"], "equation");
+        assert_eq!(block["attrs"]["latex"], "E=mc^2");
+    }
+
+    #[test]
+    fn inline_math_survives_paragraph_with_text() {
+        // "costs $5" has no closing `$` → must NOT become math.
+        let d = convert("costs $5 today").unwrap();
+        let para = &content_of(&d)[0];
+        let inlines = para["content"].as_array().unwrap();
+        assert!(
+            !inlines.iter().any(|n| n["type"] == "inlineMath"),
+            "lone dollar must not produce a math node"
+        );
     }
 }
