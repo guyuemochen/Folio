@@ -121,7 +121,7 @@ export function AboutModal({ onClose }: AboutModalProps) {
           {/* License */}
           <div className="text-[12px] text-text-tertiary border-t border-border-hairline pt-3">
             {t('about.licenseLabel')}{' '}
-            <span className="text-text-secondary">AGPL-3.0-or-later</span>
+            <span className="text-text-secondary">Apache-2.0</span>
           </div>
 
           {/* Update channel */}

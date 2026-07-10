@@ -279,13 +279,17 @@ Internationalization (PRD §10.5) and accessibility (PRD §10.4).
 
 ## What works in M9 — release + auto-update
 
-### License (AGPL-3.0-or-later)
+### License (Apache-2.0 + Commercial Use Condition)
 
-- **GNU AGPL-3.0-or-later** — see [`LICENSE`](./LICENSE). Open-source-friendly:
-  personal / OSS use is unrestricted. Commercial use that distributes a
-  modified Folio or offers it as a network service must open-source
-  derivatives — or obtain a commercial license. (AGPL §13 only bites on
-  network services; pure local use is unrestricted.)
+- **Apache-2.0** with a **Commercial Use Condition** — see
+  [`LICENSE`](./LICENSE). Personal, educational, research, and internal
+  non-commercial use is free and unrestricted under the Apache-2.0 terms
+  (including patent grant). **Commercial use requires prior written
+  authorization** from the copyright holder: selling Folio (or a derivative)
+  as a product, offering it as a hosted / SaaS service, or deriving paid
+  consulting / support / hosting revenue from it all need a commercial
+  license. Internal evaluation, education, and non-commercial open-source
+  development do not.
 
 ### Auto-update (Q9 — stable / beta / nightly)
 
@@ -324,16 +328,19 @@ use.
 
 ## License
 
-Folio is licensed under the **GNU AGPL-3.0-or-later** — see [`LICENSE`](./LICENSE).
+Folio is licensed under the **Apache License 2.0** with a **Commercial Use
+Condition** — see [`LICENSE`](./LICENSE).
 
-- **Personal / open-source use** — free to use, modify, and distribute.
-- **Commercial use** — if you distribute a modified version of Folio (or
-  offer it as a network service), AGPL-3.0 requires you to open-source your
-  derivative work under the same license. For use cases that cannot meet this
-  obligation, contact the maintainer for a commercial license.
+- **Personal / non-commercial use** — free to use, modify, and distribute
+  under the Apache-2.0 terms (including the patent grant). Covers personal
+  use, education, academic research, internal evaluation/development, and
+  non-commercial open-source work.
+- **Commercial use** — selling Folio (or a derivative) as a product, offering
+  it as a hosted / SaaS service, or deriving paid consulting / support /
+  hosting revenue from it **requires prior written authorization** from the
+  copyright holder. Contact the maintainer for a commercial license.
 
-This is a deliberate "open-source-friendly, commercial-strict" stance: the
-AGPL keeps the project open while giving the maintainer a lever to offer
-commercial licenses to enterprise users. Note that AGPL-3.0 §13 (network-use
-copyleft) only bites on network services — purely local use of Folio by an
-organization (without redistribution) is unrestricted.
+This is a deliberate "permissive core, commercial gate" stance: the Apache
+base keeps the project broadly usable for individuals and non-commercial
+work, while the Commercial Use Condition ensures commercial exploitation
+happens with authorization.
