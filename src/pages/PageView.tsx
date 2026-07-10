@@ -150,7 +150,13 @@ export function PageView({ pageId }: { pageId: string }) {
 
   const persistTitle = async () => {
     const next = titleDraft.trim();
-    if (next === pageData.title) return;
+    const prev = pageData.title;
+    if (next === prev) return;
+    // Optimistic: update the sidebar/store in the same render cycle as the
+    // blur so the page-tree row reflects the new title immediately. Without
+    // this, the patch ran only after the IPC round-trip, leaving the sidebar
+    // stale until a navigation forced a re-render.
+    renamePageLocally(pageData.id, next);
     try {
       // For database rows with a `title` property, also push into the title cell.
       if (pageData.parentType === 'database') {
@@ -165,30 +171,36 @@ export function PageView({ pageId }: { pageId: string }) {
         }
       }
       await api.renamePage(pageData.id, next);
-      renamePageLocally(pageData.id, next);
-      // Bust any cached database-rows queries so DatabaseView reflects the
-      // new title when the user navigates back to the owning database.
-      // Without this, React Query serves the stale `DatabaseRow.title`
-      // snapshot indefinitely (renamePageLocally only updates the zustand
-      // page-list store, which DatabaseView doesn't read).
+      // Bust the page + database-rows caches so the page view and database
+      // view reflect the persisted title on revisit (previously only
+      // ['database-rows'] was busted, leaving ['page', id] holding the old
+      // title and diverging from the store).
+      void queryClient.invalidateQueries({ queryKey: ['page', pageData.id] });
       void queryClient.invalidateQueries({ queryKey: ['database-rows'] });
     } catch (err) {
+      // Rollback the optimistic sidebar update if the persist failed.
+      renamePageLocally(pageData.id, prev);
       console.error('[Folio] title rename failed', err);
     }
   };
 
   const setIcon = async (emoji: string) => {
     const next = emoji === '' ? null : emoji;
+    const prev = pageData.icon ?? null;
     setIconPickerAnchor(null);
+    // Optimistic: update the sidebar/store immediately so the page-tree row
+    // (and favorites) reflect the new icon in the same render cycle as the pick.
+    updateIconLocally(pageData.id, next);
     try {
       await api.updatePageMeta(pageData.id, { icon: next });
-      updateIconLocally(pageData.id, next);
       // Refresh the cached page so the chrome re-renders with the new icon.
       void queryClient.invalidateQueries({ queryKey: ['page', pageData.id] });
       // DatabaseView caches DatabaseRow.icon as a snapshot, same as title —
       // bust it so the row icon column updates on next visit.
       void queryClient.invalidateQueries({ queryKey: ['database-rows'] });
     } catch (err) {
+      // Rollback the optimistic update if the persist failed.
+      updateIconLocally(pageData.id, prev);
       console.error('[Folio] set icon failed', err);
     }
   };
@@ -324,7 +336,8 @@ export function PageView({ pageId }: { pageId: string }) {
           onKeyDown={(e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
               e.preventDefault();
-              persistTitle();
+              // Blur fires onBlur={persistTitle}; don't call it explicitly
+              // here too, or it runs twice (double IPC + double patch).
               (e.target as HTMLTextAreaElement).blur();
             }
           }}
