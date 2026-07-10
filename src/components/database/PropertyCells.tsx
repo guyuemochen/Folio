@@ -81,13 +81,67 @@ export const PropertyCell = memo(function PropertyCell({
 
 const TitleCell = memo(function TitleCell({ value, property, onChange }: SimpleCellProps) {
   const { t } = useTranslation();
+  // Drive the DOM from a local draft, not directly from the backend value.
+  // The old per-keystroke `onChange(e.target.value)` round-tripped every IME
+  // intermediate state ("n" → "ni" → "nihao") through updateCell + refetchRows,
+  // which re-rendered this controlled input mid-composition and broke Chinese
+  // input (stray Latin letters, broken backspace). With a local draft the
+  // input is never reset while focused; the backend is updated via a debounce
+  // and on blur, so IME composition proceeds undisturbed.
+  const strValue = typeof value === 'string' ? value : '';
+  const [draft, setDraft] = useState(strValue);
+  const focusedRef = useRef(false);
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync the draft from the backend value, but only while the input is NOT
+  // focused — otherwise a stale refetch landing mid-typing would clobber the
+  // user's current edit.
+  useEffect(() => {
+    if (!focusedRef.current) {
+      setDraft(typeof value === 'string' ? value : '');
+    }
+  }, [value]);
+
+  // Flush any pending debounced commit if the cell unmounts.
+  useEffect(() => {
+    return () => {
+      if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    };
+  }, []);
+
+  const scheduleCommit = (val: string) => {
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    commitTimerRef.current = setTimeout(() => {
+      commitTimerRef.current = null;
+      onChange(val);
+    }, 400);
+  };
+
+  const flushCommit = (val: string) => {
+    if (commitTimerRef.current) {
+      clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+    }
+    if (val !== strValue) onChange(val);
+  };
+
   return (
     <input
       type="text"
       aria-label={property?.name ?? t('editor.text')}
-      value={typeof value === 'string' ? value : ''}
+      value={draft}
       placeholder={t('common.untitled')}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        scheduleCommit(e.target.value);
+      }}
+      onFocus={() => {
+        focusedRef.current = true;
+      }}
+      onBlur={() => {
+        focusedRef.current = false;
+        flushCommit(draft);
+      }}
       className="w-full bg-transparent outline-none text-sm text-text-primary placeholder:text-text-tertiary"
     />
   );

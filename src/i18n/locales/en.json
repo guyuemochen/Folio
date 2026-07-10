@@ -56,7 +56,11 @@
     "moreActions": "More actions",
     "favorite": "Favorite",
     "noPages": "No pages",
-    "moveToTrashConfirm": "Move \"{{title}}\" to trash?"
+    "moveToTrashConfirm": "Move \"{{title}}\" to trash?",
+    "create": "Create",
+    "newPage": "New page",
+    "newDatabase": "New database",
+    "newSubdatabase": "New sub-database"
   },
 
   "page": {
@@ -174,6 +178,10 @@
     "backupCreated": "Backup created",
     "backupRestored": "Backup restored. Restart Folio to apply.",
     "importHint": "Import content from an external file. New pages are created at the workspace root.",
+    "importModeNewPage": "Import as new page",
+    "importModeOverwrite": "Overwrite current page",
+    "overwriteWarning": "The content of the current page \"{{title}}\" will be replaced by the imported content.",
+    "overwritten": "Replaced current page content",
     "markdownFileHint": ".md or .markdown file",
     "htmlFileHint": ".html or .htm file",
     "csvHint": "Spreadsheet → database with auto-typed columns",

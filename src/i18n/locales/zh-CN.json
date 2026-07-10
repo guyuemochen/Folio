@@ -56,7 +56,11 @@
     "moreActions": "更多操作",
     "favorite": "收藏",
     "noPages": "无页面",
-    "moveToTrashConfirm": "将「{{title}}」移至回收站?"
+    "moveToTrashConfirm": "将「{{title}}」移至回收站?",
+    "create": "创建",
+    "newPage": "新建页面",
+    "newDatabase": "新建数据库",
+    "newSubdatabase": "新建子数据库"
   },
 
   "page": {
@@ -174,6 +178,10 @@
     "backupCreated": "备份已创建",
     "backupRestored": "备份已恢复。重启 Folio 以应用更改。",
     "importHint": "从外部文件导入内容。新页面将创建在工作区根目录下。",
+    "importModeNewPage": "导入为新页面",
+    "importModeOverwrite": "覆盖当前页面",
+    "overwriteWarning": "当前页面「{{title}}」的内容将被导入的内容替换。",
+    "overwritten": "已替换当前页面的内容",
     "markdownFileHint": ".md 或 .markdown 文件",
     "htmlFileHint": ".html 或 .htm 文件",
     "csvHint": "电子表格 → 自动类型列的数据库",
