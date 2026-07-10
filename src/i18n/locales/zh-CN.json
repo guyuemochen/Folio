@@ -132,6 +132,8 @@
     "restore": "恢复",
     "deleteForever": "永久删除",
     "deleteForeverConfirm": "永久删除「{{title}}」?此操作无法撤销。",
+    "emptyTrash": "清空回收站",
+    "emptyTrashConfirm": "永久删除回收站中的全部 {{count}} 个页面?此操作无法撤销。",
     "autoPurgeHint": "回收站页面会在 30 天后自动清除。"
   },
 

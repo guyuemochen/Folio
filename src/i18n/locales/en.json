@@ -132,6 +132,8 @@
     "restore": "Restore",
     "deleteForever": "Delete forever",
     "deleteForeverConfirm": "Permanently delete \"{{title}}\"? This cannot be undone.",
+    "emptyTrash": "Empty trash",
+    "emptyTrashConfirm": "Permanently delete all {{count}} page(s) in trash? This cannot be undone.",
     "autoPurgeHint": "Trashed pages are auto-purged after 30 days."
   },
 
