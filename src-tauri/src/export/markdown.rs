@@ -9,7 +9,7 @@
 //!   blockquote, horizontalRule, taskList, taskItem, table*,
 //!   callout, toggle, equation, bookmark, embed, columns/column,
 //!   linkedDatabase.
-//! Inline: text (with marks), hardBreak, image, subPage.
+//! Inline: text (with marks), hardBreak, image, subPage, inlineMath.
 //! Marks: bold, italic, strike, code, link, underline, highlight.
 //!   (textStyle/color have no clean MD equivalent → dropped.)
 
@@ -291,6 +291,10 @@ fn serialize_inline(node: &Value) -> String {
             let page_id = attr_str(node, "pageId", "");
             format!("[{}](folio://{page_id})", escape_inline(title))
         }
+        "inlineMath" => {
+            let latex = attr_str(node, "latex", "");
+            format!("${latex}$")
+        }
         _ => text_of(node).to_string(),
     }
 }
@@ -517,6 +521,19 @@ mod tests {
     fn equation_block() {
         let d = doc(&[json!({ "type": "equation", "attrs": { "latex": "E=mc^2" } })]);
         assert_eq!(serialize(&d).unwrap(), "$$\nE=mc^2\n$$\n");
+    }
+
+    #[test]
+    fn inline_math() {
+        let d = doc(&[json!({
+            "type": "paragraph",
+            "content": [
+                { "type": "text", "text": "The value of " },
+                { "type": "inlineMath", "attrs": { "latex": "x^2" } },
+                { "type": "text", "text": " is unknown." }
+            ]
+        })]);
+        assert_eq!(serialize(&d).unwrap(), "The value of $x^2$ is unknown.\n");
     }
 
     #[test]
