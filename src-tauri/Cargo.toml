@@ -1,11 +1,11 @@
 [package]
 name = "folio"
-version = "0.1.0"
+version = "0.2.0"
 description = "Folio — local-first Notion-like desktop note app"
 authors = ["Folio"]
 edition = "2021"
 rust-version = "1.77.2"
-license = "Apache-2.0"
+license-file = "../LICENSE"
 
 [lib]
 name = "folio_lib"
