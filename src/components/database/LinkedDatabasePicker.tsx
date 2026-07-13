@@ -1,9 +1,10 @@
 import { createElement, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import { useQuery } from '@tanstack/react-query';
+import { QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../lib/invoke';
+import { queryClient } from '../../lib/queryClient';
 import type { DatabaseWithSchema, PageSummary } from '../../lib/types';
 
 interface LinkedDatabasePickerProps {
@@ -199,8 +200,17 @@ export function openLinkedDatabasePicker(): Promise<string | null> {
       resolve(null);
     };
 
+    // The picker mounts its own React root on document.body (detached from the
+    // <App/> tree), so it has no access to the app's <QueryClientProvider>.
+    // Wrap it explicitly with the shared client — otherwise the `useQuery`
+    // calls inside LinkedDatabasePicker throw "No QueryClient set" and the
+    // picker crashes silently the moment it mounts.
     root.render(
-      createElement(LinkedDatabasePicker, { onPick: handlePick, onClose: handleClose }),
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(LinkedDatabasePicker, { onPick: handlePick, onClose: handleClose }),
+      ),
     );
   });
 }
