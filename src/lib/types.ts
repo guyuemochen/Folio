@@ -308,17 +308,41 @@ export interface TrashedPage {
 // ============================================================================
 
 /**
+ * Subset of {@link ViewConfig} that a linked-database block carries inline
+ * (inside the page document) instead of referencing a row in
+ * `database_view`. Keeping the config in the document lets every
+ * linked-database block have its own independent filter / sort / group /
+ * hidden columns / column widths without polluting the source database's
+ * saved views.
+ */
+export interface LocalViewConfig {
+  filter?: FilterNode | null;
+  sort?: SortEntry[] | null;
+  group?: GroupConfig | null;
+  hiddenProperties?: string[] | null;
+  columnWidths?: Record<string, number> | null;
+}
+
+/**
  * Attributes persisted on a `linkedDatabase` TipTap node (PRD §5.3.8).
  *
  * The block renders a DatabaseView inline that mirrors a source database.
  * `sourceDatabaseId` points at the row in `page` of `type='database'`.
- * `viewId` selects which of the source database's views to display; null falls
- * back to the source database's default view. Mutations propagate
- * automatically because both views query the same source via query_database.
+ * `viewConfig` is the *local* view configuration stored in the document —
+ * it is independent of any saved view on the source database, so each
+ * linked-database block can filter/sort/group differently while still
+ * reading the same underlying rows via `query_database`.
+ *
+ * `sourceViewId` is optional metadata: when the user picks a starting
+ * view from the source db's view list, we copy that view's config into
+ * `viewConfig` and record its id here so the header can show which view
+ * the link was based on. It is never read back to look up state.
  */
 export interface LinkedDatabaseAttrs {
   sourceDatabaseId: string;
-  viewId: string | null;
+  viewConfig: LocalViewConfig;
+  /** Optional: id of the source-db view this link was originally based on. */
+  sourceViewId?: string | null;
 }
 
 /** Window event payload for inserting a block via loose coupling with the editor. */
