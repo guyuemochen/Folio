@@ -344,7 +344,13 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
         .focus()
         .insertContent({
           type: 'linkedDatabase',
-          attrs: { sourceDatabaseId, viewId: null },
+          attrs: {
+            sourceDatabaseId,
+            // Empty local view config — the linked block carries its own
+            // filter/sort/group inline (independent of source db's views).
+            viewConfig: { filter: null, sort: null, group: null, hiddenProperties: [], columnWidths: {} },
+            sourceViewId: null,
+          },
         })
         .run();
     };
