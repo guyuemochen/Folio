@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -75,6 +75,7 @@ export function DatabaseView({
   onEmbeddedViewChange,
 }: DatabaseViewProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const setCurrentPage = useWorkspaceStore((s) => s.setCurrentPage);
   const loadChildren = useWorkspaceStore((s) => s.loadChildren);
   const removePageLocally = useWorkspaceStore((s) => s.removePageLocally);
@@ -143,6 +144,10 @@ export function DatabaseView({
 
   // Debounced view persistence.
   const persistRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The latest patch + viewId that has not yet been flushed to the backend.
+  // Captured so the unmount cleanup can fire a final api.updateView instead
+  // of silently discarding the 250ms debounce timer.
+  const pendingPersistRef = useRef<{ viewId: string; databaseId: string; patch: Partial<ViewConfig> } | null>(null);
   // M6 perf: scroll container ref shared with the body virtualizer.
   const tableScrollRef = useRef<HTMLDivElement>(null);
   // In embedded mode collapsed-groups are persisted via onEmbeddedViewChange
@@ -171,13 +176,39 @@ export function DatabaseView({
       return;
     }
     if (persistRef.current) clearTimeout(persistRef.current);
+    pendingPersistRef.current = { viewId: activeView.id, databaseId, patch };
     persistRef.current = setTimeout(() => {
-      api.updateView(activeView.id, patch).catch((e) =>
+      pendingPersistRef.current = null;
+      api.updateView(activeView.id, patch).then(() => {
+        // Invalidate the schema cache so a remount (navigate away + back)
+        // reads the updated view config from the backend instead of stale
+        // cached data.
+        void queryClient.invalidateQueries({ queryKey: ['database', databaseId] });
+      }).catch((e) =>
         console.error('[Folio] view persist failed', e),
       );
     }, 250);
   };
-  useEffect(() => () => { if (persistRef.current) clearTimeout(persistRef.current); }, []);
+  // Flush unsaved view changes on unmount. Without this, the 250ms debounce
+  // timer is discarded and the last filter/sort/group/column change is lost
+  // when the user navigates to another page.
+  useEffect(() => {
+    return () => {
+      if (persistRef.current) {
+        clearTimeout(persistRef.current);
+        persistRef.current = null;
+      }
+      const pending = pendingPersistRef.current;
+      if (pending) {
+        // Fire-and-forget: the component is unmounting, we cannot await.
+        api.updateView(pending.viewId, pending.patch).then(() => {
+          void queryClient.invalidateQueries({ queryKey: ['database', pending.databaseId] });
+        }).catch((e) =>
+          console.error('[Folio] view persist flush on unmount failed', e),
+        );
+      }
+    };
+  }, []);
 
   // --- Column menu state ---------------------------------------------------
   const [menuOpenFor, setMenuOpenFor] = useState<

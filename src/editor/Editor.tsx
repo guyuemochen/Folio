@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEditor, EditorContent } from '@tiptap/react';
 import type { Editor as TiptapEditor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
@@ -48,6 +49,7 @@ import { BubbleToolbar } from './components/BubbleToolbar';
 import { BlockDragHandle } from './components/BlockDragHandle';
 import { FindBar } from './components/FindBar';
 import { api } from '../lib/invoke';
+import type { PageWithDoc } from '../lib/types';
 
 interface EditorProps {
   pageId: string;
@@ -139,6 +141,7 @@ function triggerLowlightLoad(editor: TiptapEditor): void {
  */
 export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [slashState, setSlashState] = useState<SlashState>({
     active: false,
     query: '',
@@ -152,6 +155,11 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedDocRef = useRef<string>(initialDoc);
   const pageIdRef = useRef<string>(pageId);
+  // The latest doc that has not yet been flushed to the backend. Captured in
+  // onUpdate so the unmount cleanup can fire a final save instead of silently
+  // discarding the 200ms debounce timer (which loses linked-block filter /
+  // sort / group changes when the user navigates to another page quickly).
+  const pendingDocRef = useRef<string | null>(null);
 
   useEffect(() => {
     pageIdRef.current = pageId;
@@ -283,11 +291,20 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
       const doc = JSON.stringify(e.getJSON());
       if (doc === lastSavedDocRef.current) return;
 
+      pendingDocRef.current = doc;
       saveTimerRef.current = setTimeout(async () => {
         const targetPageId = pageIdRef.current;
         try {
           await api.updatePageDoc(targetPageId, doc);
           lastSavedDocRef.current = doc;
+          pendingDocRef.current = null;
+          // Sync the React Query cache so a remount (navigate away + back)
+          // shows the saved doc — without this, linked-block filter / sort
+          // changes are lost because the Editor only reads initialDoc on
+          // mount and never refreshes from the stale cache.
+          queryClient.setQueryData<PageWithDoc>(['page', targetPageId], (old) =>
+            old ? { ...old, doc } : old,
+          );
           // PageView's DocUpdatedBridge listens to this for snapshot scheduling.
           window.dispatchEvent(
             new CustomEvent('folio:doc-updated', { detail: { pageId: targetPageId, doc } }),
@@ -306,11 +323,29 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
     }
   }, [editor, pageId]);
 
-  // Clean up save timer on unmount.
+  // Flush unsaved doc changes on unmount. Without this, the 200ms debounce
+  // timer is simply discarded and the last edit (e.g. a linked-database
+  // block's filter/sort change made via updateAttributes) is lost forever
+  // when the user navigates to another page.
   useEffect(() => {
     return () => {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      const doc = pendingDocRef.current;
+      if (doc && doc !== lastSavedDocRef.current) {
+        const targetPageId = pageIdRef.current;
+        // Fire-and-forget: the component is unmounting, we cannot await.
+        api.updatePageDoc(targetPageId, doc).then(() => {
+          lastSavedDocRef.current = doc;
+          // Sync the cache so the next mount of this page shows the saved doc.
+          queryClient.setQueryData<PageWithDoc>(['page', targetPageId], (old) =>
+            old ? { ...old, doc } : old,
+          );
+        }).catch((err) => {
+          console.error('[Folio] failed to flush page save on unmount', targetPageId, err);
+        });
       }
     };
   }, []);
