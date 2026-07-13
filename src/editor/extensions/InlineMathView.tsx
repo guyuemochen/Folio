@@ -5,21 +5,20 @@ import katex from 'katex';
 import { FormulaPopover } from './FormulaPopover';
 
 /**
- * React NodeView for the Equation node (block-level KaTeX).
+ * React NodeView for the InlineMath node (inline KaTeX).
  *
- * Preview is always shown; clicking it opens {@link FormulaPopover} where the
- * LaTeX is edited in a textarea with a live preview. The change is persisted
- * only when the user clicks OK (or Ctrl/Cmd+Enter) — Cancel / Escape / outside
- * click discards the draft.
+ * Mirrors {@link EquationView} but renders inline (displayMode:false) and uses
+ * a `span` wrapper so the math sits inside a line of text. Clicking the rendered
+ * math opens {@link FormulaPopover} (textarea + live preview, OK to save).
  *
  * KaTeX errors are rendered in-place (throwOnError=false) so broken LaTeX
  * shows a red strikethrough hint instead of crashing the editor.
  */
-export function EquationView({ node, updateAttributes }: ReactNodeViewProps) {
+export function InlineMathView({ node, updateAttributes }: ReactNodeViewProps) {
   const { t } = useTranslation();
   const latex = (node.attrs.latex as string) ?? '';
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
-  const previewRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLSpanElement>(null);
 
   // Render the committed LaTeX into the preview.
   useEffect(() => {
@@ -27,7 +26,7 @@ export function EquationView({ node, updateAttributes }: ReactNodeViewProps) {
     if (!el) return;
     try {
       katex.render(latex || '\\,', el, {
-        displayMode: true,
+        displayMode: false,
         throwOnError: false,
         output: 'html',
       });
@@ -41,21 +40,19 @@ export function EquationView({ node, updateAttributes }: ReactNodeViewProps) {
   };
 
   return (
-    <NodeViewWrapper className="ln-equation-wrapper" as="div">
+    <NodeViewWrapper className="ln-inlinemath-wrapper" as="span" contentEditable={false}>
       {latex === '' ? (
-        <div
-          className="ln-equation-preview ln-equation-placeholder"
-          contentEditable={false}
+        <span
+          className="ln-inlinemath-preview ln-inlinemath-placeholder"
           onClick={open}
           title={t('editor.clickToEditEquation')}
         >
           {t('editor.equationEmptyHint')}
-        </div>
+        </span>
       ) : (
-        <div
+        <span
           ref={previewRef}
-          className="ln-equation-preview"
-          contentEditable={false}
+          className="ln-inlinemath-preview"
           onClick={open}
           title={t('editor.clickToEditEquation')}
         />
@@ -64,7 +61,7 @@ export function EquationView({ node, updateAttributes }: ReactNodeViewProps) {
         <FormulaPopover
           anchorRect={anchorRect}
           initialLatex={latex}
-          displayMode={true}
+          displayMode={false}
           onCommit={(next) => {
             updateAttributes({ latex: next });
             setAnchorRect(null);

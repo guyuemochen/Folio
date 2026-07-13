@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import type { PageSummary } from '../lib/types';
@@ -32,6 +32,8 @@ export function Sidebar() {
   const loadRootPages = useWorkspaceStore((s) => s.loadRootPages);
   const loadFavorites = useWorkspaceStore((s) => s.loadFavorites);
   const setCurrentPage = useWorkspaceStore((s) => s.setCurrentPage);
+  const createRootPage = useWorkspaceStore((s) => s.createRootPage);
+  const createRootDatabase = useWorkspaceStore((s) => s.createRootDatabase);
   const reorderFavorites = useWorkspaceStore((s) => s.reorderFavorites);
 
   useEffect(() => {
@@ -93,6 +95,28 @@ export function Sidebar() {
       window.dispatchEvent(new CustomEvent('folio:toast', { detail: msg })),
     [],
   );
+
+  // Create menu (New page / New database) anchored to the "+" button in the
+  // Pages section header.
+  const [createMenuRect, setCreateMenuRect] = useState<DOMRect | null>(null);
+  const handleNewRootPage = useCallback(async () => {
+    setCreateMenuRect(null);
+    try {
+      const p = await createRootPage('Untitled');
+      setCurrentPage(p.id);
+    } catch (err) {
+      console.error('[Folio] new page failed', err);
+    }
+  }, [createRootPage, setCurrentPage]);
+  const handleNewRootDatabase = useCallback(async () => {
+    setCreateMenuRect(null);
+    try {
+      const db = await createRootDatabase('Untitled database');
+      setCurrentPage(db.id);
+    } catch (err) {
+      console.error('[Folio] new database failed', err);
+    }
+  }, [createRootDatabase, setCurrentPage]);
 
   return (
     <aside className="w-sidebar bg-bg-sidebar border-r border-border-hairline flex flex-col select-none text-[13px]">
@@ -182,7 +206,25 @@ export function Sidebar() {
         </SidebarSection>
 
         {/* === Page tree === */}
-        <SidebarSection label={t('sidebar.pages')}>
+        <SidebarSection
+          label={t('sidebar.pages')}
+          action={
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setCreateMenuRect(
+                  (e.currentTarget as HTMLElement).getBoundingClientRect(),
+                );
+              }}
+              className="text-text-tertiary hover:text-text-primary -mr-1 px-0.5 leading-none text-[14px]"
+              aria-label={t('sidebar.create')}
+              title={t('sidebar.create')}
+            >
+              +
+            </button>
+          }
+        >
           {rootPages.length === 0 ? (
             <SidebarEmptyHint>
               {t('sidebar.noPagesHint')}
@@ -196,6 +238,16 @@ export function Sidebar() {
           )}
         </SidebarSection>
       </div>
+
+      {/* === Create menu (New page / New database) === */}
+      {createMenuRect && (
+        <CreateMenu
+          anchorRect={createMenuRect}
+          onClose={() => setCreateMenuRect(null)}
+          onNewPage={() => void handleNewRootPage()}
+          onNewDatabase={() => void handleNewRootDatabase()}
+        />
+      )}
 
       {/* === Footer === */}
       <div className="px-2 py-1.5 border-t border-border-hairline text-text-secondary">
@@ -221,15 +273,18 @@ export function Sidebar() {
 
 function SidebarSection({
   label,
+  action,
   children,
 }: {
   label: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section className="px-1.5 pt-2 pb-1">
-      <div className="px-2 pb-1 text-[11px] font-medium text-text-tertiary select-none">
-        {label}
+      <div className="px-2 pb-1 flex items-center text-[11px] font-medium text-text-tertiary select-none">
+        <span className="flex-1">{label}</span>
+        {action}
       </div>
       {children}
     </section>
@@ -256,6 +311,82 @@ function SidebarFooterLink({
       className="w-full px-2 py-1 text-left rounded flex items-center gap-2 hover:bg-bg-hover transition-colors"
     >
       <span className="w-4 text-center text-[13px] leading-none">{icon}</span>
+      <span className="flex-1">{label}</span>
+    </button>
+  );
+}
+
+interface CreateMenuProps {
+  anchorRect: DOMRect;
+  onClose: () => void;
+  onNewPage: () => void;
+  onNewDatabase: () => void;
+}
+
+/**
+ * Popover anchored to the "+" button in the Pages section header.
+ * Offers New page / New database at the workspace root.
+ */
+function CreateMenu({ anchorRect, onClose, onNewPage, onNewDatabase }: CreateMenuProps) {
+  const { t } = useTranslation();
+
+  // Close on outside click (deferred binding so the opening click won't close it).
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-create-menu]')) onClose();
+    };
+    const timer = setTimeout(() => document.addEventListener('mousedown', onDown), 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('mousedown', onDown);
+    };
+  }, [onClose]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const style: React.CSSProperties = {
+    position: 'fixed',
+    top: anchorRect.bottom + 2,
+    left: Math.min(anchorRect.left, window.innerWidth - 184),
+    width: 176,
+    zIndex: 1100,
+  };
+
+  return (
+    <div
+      data-create-menu
+      style={style}
+      className="rounded-md border border-border-hairline bg-bg-page shadow-popover py-1 text-[13px]"
+    >
+      <CreateMenuItem icon="📄" label={t('sidebar.newPage')} onClick={onNewPage} />
+      <CreateMenuItem icon="🗄" label={t('sidebar.newDatabase')} onClick={onNewDatabase} />
+    </div>
+  );
+}
+
+function CreateMenuItem({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: string;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left px-3 py-1.5 hover:bg-bg-hover flex items-center gap-2 text-text-primary"
+    >
+      <span className="w-4 text-center text-[13px] leading-none flex-shrink-0">{icon}</span>
       <span className="flex-1">{label}</span>
     </button>
   );

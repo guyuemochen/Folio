@@ -1513,7 +1513,7 @@ on('page:restored', payload: { pageId: string });
 
 ### C.3 M9 决议（2026-07 补）
 
-- **License**：**AGPL-3.0-or-later**。开源宽松（个人/开源自由使用）+ 商用严格（分发修改版或提供网络服务须开源衍生品，或另签商业许可）。注：AGPL §13 网络条款只对网络服务生效，纯本地使用无约束。
+- **License**：**Apache-2.0**。宽松许可证，允许个人、商用、开源场景自由使用、修改、分发（含专利授权），只需保留版权声明并注明改动。详见 `LICENSE`。
 - **Q9 自动更新通道**：**stable / beta / nightly 三通道**。CI 用 **GitHub Actions**（代码主仓库在 GitLab，镜像到 GitHub 出包），更新 JSON 托管在 **GitHub Releases** 的 rolling tag（`stable-latest` / `beta-latest` / `nightly-latest`）。更新包用 **Tauri minisign 自生成密钥**签名（区别于 OS 级代码签名）。检查频率：仅用户主动触发，符合 §10.3「除用户主动检查更新」白名单。
 - **Q11 OS 代码签名 / macOS 公证**：**仍待决议**。需 Apple Developer 账号（$99/yr）+ Windows 代码签名证书（~$200/yr）。M9 先发**未签名 OS 包**（用户首次启动需手动信任 / 关闭 Gatekeeper / SmartScreen），正式签名延后到有预算时。
 

@@ -279,13 +279,12 @@ Internationalization (PRD §10.5) and accessibility (PRD §10.4).
 
 ## What works in M9 — release + auto-update
 
-### License (AGPL-3.0-or-later)
+### License (Apache-2.0)
 
-- **GNU AGPL-3.0-or-later** — see [`LICENSE`](./LICENSE). Open-source-friendly:
-  personal / OSS use is unrestricted. Commercial use that distributes a
-  modified Folio or offers it as a network service must open-source
-  derivatives — or obtain a commercial license. (AGPL §13 only bites on
-  network services; pure local use is unrestricted.)
+- **Apache License 2.0** — see [`LICENSE`](./LICENSE). A permissive license
+  covering personal, commercial, and open-source use, with an explicit
+  patent grant. You may use, modify, and distribute Folio (including
+  commercially) provided you retain the license notice and state changes.
 
 ### Auto-update (Q9 — stable / beta / nightly)
 
@@ -316,24 +315,47 @@ Internationalization (PRD §10.5) and accessibility (PRD §10.4).
   button + channel picker belongs in a future Settings panel.
 - **Demo video.**
 
+## What's new in 0.2.0
+
+Post-M9 editor polish plus a license change. Shipped as `v0.2.0-beta.1`.
+
+### Tables
+
+- **Auto-width** — `table-layout: auto` so columns size to their content
+  instead of being forced into equal halves; the table stays within the
+  editor column (`max-width: 100%`).
+- **Formulas don't overflow** — long KaTeX scrolls inside its cell instead of
+  blowing out the table border, and the one-line-formula vertical-scrollbar
+  bug is fixed (`overflow-y: hidden` counters the CSS spec's `overflow-x: auto`
+  → `overflow-y: auto` rewrite).
+
+### Formula editing
+
+- **Popover editor** — block and inline formulas now edit in a floating
+  popover with a **textarea + live KaTeX preview**; changes save only on
+  **OK / Ctrl+Enter** (Cancel / Esc / outside click discards). Replaces the
+  old inline edit-in-place.
+- **Distinct backgrounds** — block equations get a tinted rounded block and
+  inline math a subtle token background, so formulas read apart from prose.
+- **Spacing rhythm** — differentiated vertical spacing across heading levels,
+  heading→paragraph (tight), paragraph→paragraph, and paragraph→formula.
+
+### License
+
+Switched from **AGPL-3.0-or-later** to the permissive **Apache-2.0** — use,
+modify, and distribute freely (including commercially) under the Apache
+terms, with an explicit patent grant. See [`LICENSE`](./LICENSE).
+
 ## What's next
 
-M9 core (License + auto-update + release pipeline) is complete. Remaining
-before v1.0: updater UI, OS code-signing (Q11), and P1 bugs from real-world
-use.
+0.2.0 is in beta (`v0.2.0-beta.1`). Remaining before v1.0: updater UI, OS
+code-signing (Q11), and P1 bugs from real-world use.
 
 ## License
 
-Folio is licensed under the **GNU AGPL-3.0-or-later** — see [`LICENSE`](./LICENSE).
+Folio is licensed under the **Apache License 2.0** — see [`LICENSE`](./LICENSE).
 
-- **Personal / open-source use** — free to use, modify, and distribute.
-- **Commercial use** — if you distribute a modified version of Folio (or
-  offer it as a network service), AGPL-3.0 requires you to open-source your
-  derivative work under the same license. For use cases that cannot meet this
-  obligation, contact the maintainer for a commercial license.
-
-This is a deliberate "open-source-friendly, commercial-strict" stance: the
-AGPL keeps the project open while giving the maintainer a lever to offer
-commercial licenses to enterprise users. Note that AGPL-3.0 §13 (network-use
-copyleft) only bites on network services — purely local use of Folio by an
-organization (without redistribution) is unrestricted.
+- A permissive license: use, modify, and distribute Folio freely, including
+  commercially, provided you retain the copyright notice and state any
+  changes you make.
+- Includes an explicit patent grant from contributors.

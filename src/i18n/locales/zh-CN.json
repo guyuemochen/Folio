@@ -56,7 +56,11 @@
     "moreActions": "更多操作",
     "favorite": "收藏",
     "noPages": "无页面",
-    "moveToTrashConfirm": "将「{{title}}」移至回收站?"
+    "moveToTrashConfirm": "将「{{title}}」移至回收站?",
+    "create": "创建",
+    "newPage": "新建页面",
+    "newDatabase": "新建数据库",
+    "newSubdatabase": "新建子数据库"
   },
 
   "page": {
@@ -132,6 +136,8 @@
     "restore": "恢复",
     "deleteForever": "永久删除",
     "deleteForeverConfirm": "永久删除「{{title}}」?此操作无法撤销。",
+    "emptyTrash": "清空回收站",
+    "emptyTrashConfirm": "永久删除回收站中的全部 {{count}} 个页面?此操作无法撤销。",
     "autoPurgeHint": "回收站页面会在 30 天后自动清除。"
   },
 
@@ -174,6 +180,10 @@
     "backupCreated": "备份已创建",
     "backupRestored": "备份已恢复。重启 Folio 以应用更改。",
     "importHint": "从外部文件导入内容。新页面将创建在工作区根目录下。",
+    "importModeNewPage": "导入为新页面",
+    "importModeOverwrite": "覆盖当前页面",
+    "overwriteWarning": "当前页面「{{title}}」的内容将被导入的内容替换。",
+    "overwritten": "已替换当前页面的内容",
     "markdownFileHint": ".md 或 .markdown 文件",
     "htmlFileHint": ".html 或 .htm 文件",
     "csvHint": "电子表格 → 自动类型列的数据库",
@@ -341,6 +351,8 @@
     "slashCodeDesc": "带语法高亮和语言选择器的代码块",
     "slashEquation": "公式",
     "slashEquationDesc": "数学表达式块 (KaTeX)",
+    "slashInlineMath": "行内公式",
+    "slashInlineMathDesc": "行内数学表达式 (KaTeX)",
     "slashDivider": "分隔线",
     "slashDividerDesc": "视觉上分隔块",
     "slashDatabase": "数据库",
@@ -362,7 +374,12 @@
     "regionLabel": "页面内容",
     "slashMenuLabel": "插入块",
     "blockMenuLabel": "块操作",
-    "bubbleToolbarLabel": "文字格式"
+    "bubbleToolbarLabel": "文字格式",
+    "clickToEditEquation": "点击编辑公式",
+    "equationEmptyHint": "点击添加公式",
+    "equationEditorTitle": "编辑公式",
+    "equationPlaceholder": "LaTeX，例如 \\int_0^\\infty e^{-x^2} dx",
+    "equationHint": "Ctrl+Enter 保存 · Esc 取消"
   },
 
   "about": {

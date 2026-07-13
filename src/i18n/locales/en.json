@@ -56,7 +56,11 @@
     "moreActions": "More actions",
     "favorite": "Favorite",
     "noPages": "No pages",
-    "moveToTrashConfirm": "Move \"{{title}}\" to trash?"
+    "moveToTrashConfirm": "Move \"{{title}}\" to trash?",
+    "create": "Create",
+    "newPage": "New page",
+    "newDatabase": "New database",
+    "newSubdatabase": "New sub-database"
   },
 
   "page": {
@@ -132,6 +136,8 @@
     "restore": "Restore",
     "deleteForever": "Delete forever",
     "deleteForeverConfirm": "Permanently delete \"{{title}}\"? This cannot be undone.",
+    "emptyTrash": "Empty trash",
+    "emptyTrashConfirm": "Permanently delete all {{count}} page(s) in trash? This cannot be undone.",
     "autoPurgeHint": "Trashed pages are auto-purged after 30 days."
   },
 
@@ -174,6 +180,10 @@
     "backupCreated": "Backup created",
     "backupRestored": "Backup restored. Restart Folio to apply.",
     "importHint": "Import content from an external file. New pages are created at the workspace root.",
+    "importModeNewPage": "Import as new page",
+    "importModeOverwrite": "Overwrite current page",
+    "overwriteWarning": "The content of the current page \"{{title}}\" will be replaced by the imported content.",
+    "overwritten": "Replaced current page content",
     "markdownFileHint": ".md or .markdown file",
     "htmlFileHint": ".html or .htm file",
     "csvHint": "Spreadsheet → database with auto-typed columns",
@@ -341,6 +351,8 @@
     "slashCodeDesc": "Code block with syntax highlighting + language selector",
     "slashEquation": "Equation",
     "slashEquationDesc": "Block math expression (KaTeX)",
+    "slashInlineMath": "Inline math",
+    "slashInlineMathDesc": "Inline math expression (KaTeX)",
     "slashDivider": "Divider",
     "slashDividerDesc": "Visually divide blocks",
     "slashDatabase": "Database",
@@ -362,7 +374,12 @@
     "regionLabel": "Page content",
     "slashMenuLabel": "Insert block",
     "blockMenuLabel": "Block actions",
-    "bubbleToolbarLabel": "Text formatting"
+    "bubbleToolbarLabel": "Text formatting",
+    "clickToEditEquation": "Click to edit LaTeX",
+    "equationEmptyHint": "Click to add a formula",
+    "equationEditorTitle": "Edit formula",
+    "equationPlaceholder": "LaTeX — e.g. \\int_0^\\infty e^{-x^2} dx",
+    "equationHint": "Ctrl+Enter to save · Esc to cancel"
   },
 
   "about": {

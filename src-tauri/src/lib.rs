@@ -4,7 +4,7 @@
 //! commands to the frontend.
 
 use parking_lot::Mutex;
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use std::sync::Arc;
 use tauri::{Manager, State};
 use tauri_plugin_updater::UpdaterExt;
@@ -483,6 +483,12 @@ fn purge_old_trash(state: State<'_, AppState>) -> Result<usize> {
 }
 
 #[tauri::command]
+fn empty_trash(state: State<'_, AppState>) -> Result<usize> {
+    let db = state.db.lock();
+    db::empty_trash(&db)
+}
+
+#[tauri::command]
 fn set_favorite(state: State<'_, AppState>, page_id: String, is_favorite: bool) -> Result<()> {
     let db = state.db.lock();
     db::set_favorite(&db, &page_id, is_favorite)
@@ -572,16 +578,73 @@ fn export_page(
 // Import (M5 §5.5.1) — Markdown / HTML file import
 // =============================================================================
 
+/// Update a page's title, keeping database row titles in sync.
+///
+/// If the page is a database row (parent_type = "database"), the title is
+/// written through `database::update_cell` so both `page.title` and the row's
+/// `title` property cell are updated atomically — otherwise the DatabaseView
+/// name column would show a stale value after an overwrite import. For regular
+/// pages, falls back to a direct `update_page_meta`.
+fn sync_page_title(db: &rusqlite::Connection, page_id: &str, title: &str) -> Result<()> {
+    let parent: Option<(Option<String>, String)> = db
+        .query_row(
+            "SELECT parent_id, parent_type FROM page WHERE id = ?1",
+            params![page_id],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+        )
+        .ok();
+
+    if let Some((Some(parent_id), parent_type)) = parent {
+        if parent_type == "database" {
+            let title_prop: Option<String> = db
+                .query_row(
+                    "SELECT id FROM database_property \
+                     WHERE database_id = ?1 AND type = 'title' LIMIT 1",
+                    params![parent_id],
+                    |row| row.get(0),
+                )
+                .ok();
+            if let Some(prop_id) = title_prop {
+                database::update_cell(
+                    db,
+                    database::UpdateCellInput {
+                        page_id: page_id.to_string(),
+                        property_id: prop_id,
+                        value: serde_json::Value::String(title.to_string()),
+                    },
+                )?;
+                return Ok(());
+            }
+        }
+    }
+    db::update_page_meta(db, page_id, Some(title), None, None)?;
+    Ok(())
+}
+
 /// Shared backend for the import commands: given a parsed ProseMirror doc,
-/// create a page (with an auto-derived title) and persist the document.
+/// either create a new page (with an auto-derived title) or overwrite an
+/// existing page's content. `target_page_id = Some(id)` selects overwrite mode;
+/// otherwise a new page is created under `parent_id`.
 fn import_doc_to_page(
     db: &rusqlite::Connection,
     parent_id: Option<&str>,
+    target_page_id: Option<&str>,
     doc_value: &serde_json::Value,
 ) -> Result<Page> {
     let title = prosemirror::extract_title(doc_value);
     let doc_json = serde_json::to_string(doc_value)
         .map_err(|e| Error::Other(format!("doc serialize failed: {e}")))?;
+
+    if let Some(tid) = target_page_id {
+        // Overwrite mode: replace the target page's doc and bump its title
+        // to reflect the imported content (only when non-empty).
+        db::update_page_doc(db, tid, &doc_json)?;
+        if !title.is_empty() {
+            sync_page_title(db, tid, &title)?;
+        }
+        return db::fetch_page(db, tid);
+    }
+
     let workspace = db::get_or_create_workspace(db)?;
     let parent_type = if parent_id.is_some() { "page" } else { "workspace" };
     let page = db::create_page(
@@ -596,31 +659,45 @@ fn import_doc_to_page(
     Ok(page)
 }
 
-/// Import a single Markdown file as a new page.
-/// `parent_id = None` creates the page at workspace root.
+/// Import a single Markdown file.
+/// - `parent_id = None` + `target_page_id = None` → new page at workspace root
+/// - `parent_id = Some(p)` + `target_page_id = None` → new subpage under p
+/// - `target_page_id = Some(id)` → overwrite existing page's content
 #[tauri::command]
 fn import_markdown(
     state: State<'_, AppState>,
     md_path: String,
     parent_id: Option<String>,
+    target_page_id: Option<String>,
 ) -> Result<Page> {
     let md = std::fs::read_to_string(&md_path)?;
     let doc_value = import::markdown::convert(&md)?;
     let db = state.db.lock();
-    import_doc_to_page(&db, parent_id.as_deref(), &doc_value)
+    import_doc_to_page(
+        &db,
+        parent_id.as_deref(),
+        target_page_id.as_deref(),
+        &doc_value,
+    )
 }
 
-/// Import a single HTML file as a new page.
+/// Import a single HTML file. Same mode semantics as `import_markdown`.
 #[tauri::command]
 fn import_html(
     state: State<'_, AppState>,
     html_path: String,
     parent_id: Option<String>,
+    target_page_id: Option<String>,
 ) -> Result<Page> {
     let html = std::fs::read_to_string(&html_path)?;
     let doc_value = import::html::convert(&html)?;
     let db = state.db.lock();
-    import_doc_to_page(&db, parent_id.as_deref(), &doc_value)
+    import_doc_to_page(
+        &db,
+        parent_id.as_deref(),
+        target_page_id.as_deref(),
+        &doc_value,
+    )
 }
 
 // =============================================================================
@@ -929,6 +1006,7 @@ pub fn run() {
             // Trash + Favorites + Snapshots (M3 §5.2.4)
             list_trashed_pages,
             purge_old_trash,
+            empty_trash,
             set_favorite,
             list_favorites,
             reorder_favorites,

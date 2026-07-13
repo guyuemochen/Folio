@@ -231,26 +231,26 @@ body {
   font-weight: 700;
   line-height: 1.25;
   letter-spacing: -0.018em;
-  margin-top: 24px;
-  margin-bottom: 2px;
+  margin-top: 28px;
+  margin-bottom: 6px;
 }
 .prose-mirror h2 {
   font-size: 24px;
   font-weight: 700;
   line-height: 1.3;
   letter-spacing: -0.012em;
-  margin-top: 18px;
-  margin-bottom: 1px;
+  margin-top: 22px;
+  margin-bottom: 4px;
 }
 .prose-mirror h3 {
   font-size: 19px;
   font-weight: 600;
   line-height: 1.35;
-  margin-top: 14px;
-  margin-bottom: 1px;
+  margin-top: 16px;
+  margin-bottom: 4px;
 }
 .prose-mirror p {
-  margin: 0 0 2px;
+  margin: 0 0 10px;
   line-height: 1.6;
 }
 .prose-mirror ul,
@@ -447,14 +447,32 @@ body {
 }
 .prose-mirror .ln-equation-preview {
   min-height: 1.4em;
-  cursor: text;
+  cursor: pointer;
 }
-.prose-mirror .ln-equation-editor textarea {
-  resize: vertical;
-  min-height: 60px;
-  width: 100%;
+/* Placeholder shown when a formula has no LaTeX yet — invites a click. */
+.prose-mirror .ln-equation-placeholder,
+.prose-mirror .ln-inlinemath-placeholder {
+  color: var(--color-text-tertiary);
+  font-style: italic;
+  font-size: 13px;
 }
-.ln-equation-wrapper { margin: 8px 0; }
+.prose-mirror .ln-inlinemath-preview {
+  cursor: pointer;
+  /* Subtle background so inline math reads as a distinct token (like code). */
+  background: var(--color-bg-section);
+  padding: 0.12em 0.35em;
+  border-radius: 3px;
+}
+/* Block equation: a tinted, rounded block so it stands apart from prose. */
+.ln-equation-wrapper {
+  margin: 8px 0;
+  padding: 12px 16px;
+  background: var(--color-bg-section);
+  border-radius: 4px;
+  /* Scroll long (non-wrapping) KaTeX inside the tinted block so the background
+     always covers the full formula instead of being overflowed by it. */
+  overflow-x: auto;
+}
 
 /* --- Bookmark (§5.1.1) --------------------------------------------------- */
 .prose-mirror .ln-bookmark,
@@ -611,13 +629,18 @@ body {
 .ln-subpage-title { font-weight: 500; }
 
 /* --- Simple table (§5.1.1) ----------------------------------------------- */
+/* `table-layout: auto` lets each column size to its content (a 2-column table
+   isn't forced into equal halves; a narrow column stays narrow). `max-width:
+   100%` keeps the table inside the editor column even when a cell holds a long
+   formula — combined with the per-cell scroll below, wide KaTeX scrolls within
+   its cell instead of blowing out the table. */
 .prose-mirror .ln-table,
 .prose-mirror table {
   border-collapse: collapse;
-  table-layout: fixed;
+  table-layout: auto;
   width: 100%;
+  max-width: 100%;
   margin: 8px 0;
-  overflow: hidden;
   border-radius: 4px;
 }
 .prose-mirror .ln-table th,
@@ -628,6 +651,9 @@ body {
   padding: 6px 10px;
   vertical-align: top;
   font-size: 14px;
+  /* Wrap long unbreakable tokens (URLs, code, identifiers) instead of pushing
+     the column — and therefore the table — wider than the editor. */
+  overflow-wrap: anywhere;
 }
 .prose-mirror .ln-table th,
 .prose-mirror table th {
@@ -639,6 +665,28 @@ body {
 .prose-mirror table td > p {
   margin: 0;
   line-height: 1.5;
+}
+/* Long non-wrapping content (KaTeX formulas) inside a cell scrolls horizontally
+   within the cell rather than overflowing the table border. Cell text lives in
+   <p> blocks; block equations sit directly under the td, so they're covered
+   explicitly. Once the table hits its max-width the cell can't grow further, so
+   the bounded <p>/wrapper scrolls the formula.
+   `overflow-y: hidden` is mandatory here: per CSS spec, setting overflow-x to a
+   non-`visible` value forces the default `overflow-y: visible` to compute to
+   `auto`, which makes every cell a vertical scroll container — a one-line
+   formula then sprouts a vertical scrollbar and inflates the row height. Hidden
+   removes that; cell height still tracks its content (auto height), so nothing
+   real is clipped. */
+.prose-mirror .ln-table td > p,
+.prose-mirror table td > p,
+.prose-mirror .ln-table td > .ln-equation-wrapper,
+.prose-mirror table td > .ln-equation-wrapper,
+.prose-mirror .ln-table td > [data-type="equation"],
+.prose-mirror table td > [data-type="equation"],
+.prose-mirror .ln-table td > [data-type="block-math"],
+.prose-mirror table td > [data-type="block-math"] {
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 /* --- Code block (lowlight) ----------------------------------------------- */

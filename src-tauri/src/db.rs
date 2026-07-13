@@ -521,6 +521,14 @@ pub fn purge_old_trash(conn: &rusqlite::Connection, max_age_seconds: i64) -> Res
     Ok(affected)
 }
 
+/// Permanently delete every trashed page, regardless of age. The "Empty trash"
+/// action (PRD §5.2.4). Returns the number of pages removed. Non-trashed pages
+/// are never touched.
+pub fn empty_trash(conn: &rusqlite::Connection) -> Result<usize> {
+    let affected = conn.execute("DELETE FROM page WHERE is_trashed = 1", [])?;
+    Ok(affected)
+}
+
 // =============================================================================
 // Favorites (PRD §5.2.3)
 // =============================================================================

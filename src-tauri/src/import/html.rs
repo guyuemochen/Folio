@@ -69,6 +69,13 @@ fn convert_block(tag: &str, el: ElementRef) -> Option<Value> {
         "br" => json!({ "type": "paragraph" }),
         // Sectioning / layout elements: flatten their children into blocks.
         "div" | "section" | "article" | "main" | "header" | "footer" | "aside" => {
+            // Equation block exported by Folio (`data-type="equation"`) or a
+            // generic math div — reconstruct the equation node before flattening.
+            if tag == "div" {
+                if let Some(equation) = try_convert_equation_div(el) {
+                    return Some(equation);
+                }
+            }
             // If the div wraps a single block, unwrap it; else flatten.
             let children = convert_block_children(el);
             if children.len() == 1 {
@@ -86,6 +93,56 @@ fn convert_block(tag: &str, el: ElementRef) -> Option<Value> {
         _ => return None,
     };
     Some(block)
+}
+
+/// Detect an equation block div (`data-type="equation"` or class `equation`).
+/// Extracts LaTeX from `data-latex`, or from a KaTeX `<annotation>` if present,
+/// or falls back to the div's text content (which may be `$$…$$` or raw LaTeX).
+fn try_convert_equation_div(el: ElementRef) -> Option<Value> {
+    let is_equation = el.value().attr("data-type") == Some("equation")
+        || el.value().attr("data-type") == Some("block-math")
+        || el.value().attr("class").map_or(false, |c| c.split_whitespace().any(|c| c == "equation"));
+    if !is_equation {
+        return None;
+    }
+    let latex = el
+        .value()
+        .attr("data-latex")
+        .map(str::to_string)
+        .or_else(|| extract_katex_annotation(el))
+        .unwrap_or_else(|| {
+            let text = el.text().collect::<String>();
+            // Strip surrounding `$$` delimiters if the export wrapped them.
+            text.trim().trim_start_matches("$$").trim_end_matches("$$").trim().to_string()
+        });
+    Some(json!({ "type": "equation", "attrs": { "latex": latex } }))
+}
+
+/// Detect an inline-math span (`data-type="inlineMath"`). Extracts LaTeX from
+/// `data-latex`, else from a KaTeX annotation, else the span text (stripping
+/// surrounding `$`).
+fn try_convert_inlinemath_span(el: ElementRef) -> Option<Value> {
+    if el.value().attr("data-type") != Some("inlineMath") {
+        return None;
+    }
+    let latex = el
+        .value()
+        .attr("data-latex")
+        .map(str::to_string)
+        .or_else(|| extract_katex_annotation(el))
+        .unwrap_or_else(|| {
+            let text = el.text().collect::<String>();
+            text.trim().trim_start_matches('$').trim_end_matches('$').trim().to_string()
+        });
+    Some(json!({ "type": "inlineMath", "attrs": { "latex": latex } }))
+}
+
+/// KaTeX-rendered HTML keeps the original LaTeX in
+/// `<annotation encoding="application/x-tex">…</annotation>`.
+fn extract_katex_annotation(el: ElementRef) -> Option<String> {
+    let sel = Selector::parse("annotation[encoding='application/x-tex']").expect("static selector");
+    let anno = el.select(&sel).next()?;
+    Some(anno.text().collect::<String>())
 }
 
 fn convert_pre_block(el: ElementRef) -> Value {
@@ -227,6 +284,20 @@ fn convert_inline_element(tag: &str, el: ElementRef, marks: &[Value], out: &mut 
         }
         "br" => out.push(json!({ "type": "hardBreak" })),
         "span" | "sub" | "sup" | "small" | "font" => {
+            // Inline math exported by Folio (`data-type="inlineMath"`).
+            if tag == "span" {
+                if let Some(im) = try_convert_inlinemath_span(el) {
+                    out.push(im);
+                    return;
+                }
+                // KaTeX-rendered inline math (`.katex`) — recover original LaTeX.
+                if el.value().attr("class").map_or(false, |c| c.split_whitespace().any(|c| c == "katex")) {
+                    if let Some(latex) = extract_katex_annotation(el) {
+                        out.push(json!({ "type": "inlineMath", "attrs": { "latex": latex } }));
+                        return;
+                    }
+                }
+            }
             // Inline wrappers we don't model separately — recurse transparently.
             convert_inlines_into(el, marks, out);
         }
@@ -392,5 +463,31 @@ mod tests {
         let rows = block["content"].as_array().unwrap();
         assert_eq!(rows[0]["content"][0]["type"], "tableHeader");
         assert_eq!(rows[1]["content"][0]["type"], "tableCell");
+    }
+
+    #[test]
+    fn equation_html_import() {
+        let d = convert("<div data-type=\"equation\" data-latex=\"E=mc^2\"></div>").unwrap();
+        let block = &content_of(&d)[0];
+        assert_eq!(block["type"], "equation");
+        assert_eq!(block["attrs"]["latex"], "E=mc^2");
+    }
+
+    #[test]
+    fn equation_html_import_from_dollar_text() {
+        // Export wraps latex in `$$…$$`; round-trip recovers it.
+        let d = convert("<div class=\"equation\">$$E=mc^2$$</div>").unwrap();
+        let block = &content_of(&d)[0];
+        assert_eq!(block["type"], "equation");
+        assert_eq!(block["attrs"]["latex"], "E=mc^2");
+    }
+
+    #[test]
+    fn inline_math_html_import() {
+        let d = convert("<p>a <span data-type=\"inlineMath\" data-latex=\"x^2\">x²</span> b</p>").unwrap();
+        let para = &content_of(&d)[0];
+        let inlines = para["content"].as_array().unwrap();
+        let im = inlines.iter().find(|n| n["type"] == "inlineMath").expect("inlineMath node");
+        assert_eq!(im["attrs"]["latex"], "x^2");
     }
 }

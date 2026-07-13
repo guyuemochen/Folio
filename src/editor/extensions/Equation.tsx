@@ -1,5 +1,6 @@
-import { Node, mergeAttributes } from '@tiptap/core';
+import { Node, mergeAttributes, InputRule, PasteRule } from '@tiptap/core';
 import { ReactNodeViewRenderer } from '@tiptap/react';
+import { TextSelection } from '@tiptap/pm/state';
 import katex from 'katex';
 import { EquationView } from './EquationView';
 
@@ -73,6 +74,72 @@ export const Equation = Node.create<EquationOptions>({
 
   addNodeView() {
     return ReactNodeViewRenderer(EquationView);
+  },
+
+  addInputRules() {
+    return [
+      // Typing `$$content$$` (the closing `$` triggers) converts the paragraph
+      // into a block equation. Fires only when the paragraph is exactly
+      // `$$content$$` — mixed-line math is entered via the slash command.
+      // Replaces the paragraph with [equation, empty-paragraph] so the cursor
+      // has a valid home after the atom equation.
+      new InputRule({
+        find: /\$\$([^$\n]+)\$\$$/,
+        handler: ({ state, range, match }) => {
+          const tr = state.tr;
+          const equationType = state.schema.nodes.equation;
+          const paragraphType = state.schema.nodes.paragraph;
+          if (!equationType || !paragraphType) return null;
+
+          const $start = state.doc.resolve(range.from);
+          const para = $start.parent;
+          if (para.type.name !== 'paragraph') return null;
+          // Only convert when the whole paragraph is the `$$content$$` run.
+          if (para.textContent !== match[0]) return null;
+
+          const latex = (match[1] ?? '').trim();
+          const paraStart = $start.before(1);
+          const equationNode = equationType.create({ latex });
+          const newPara = paragraphType.create();
+
+          tr.replaceWith(paraStart, paraStart + para.nodeSize, [equationNode, newPara]);
+          // Place the caret inside the new trailing paragraph.
+          const caret = paraStart + equationNode.nodeSize + 1;
+          tr.setSelection(TextSelection.create(tr.doc, caret));
+        },
+      }),
+    ];
+  },
+
+  addPasteRules() {
+    return [
+      // Pasting `$$content$$` as a standalone paragraph converts it to a block
+      // equation. Same scope as the InputRule (whole-paragraph match); mixed
+      // inline `$$…$$` paste is left as text (use the slash command).
+      new PasteRule({
+        find: /\$\$([^$\n]+)\$\$/g,
+        handler: ({ state, range, match }) => {
+          const tr = state.tr;
+          const equationType = state.schema.nodes.equation;
+          const paragraphType = state.schema.nodes.paragraph;
+          if (!equationType || !paragraphType) return null;
+
+          const $start = state.doc.resolve(range.from);
+          const para = $start.parent;
+          if (para.type.name !== 'paragraph') return null;
+          if (para.textContent !== match[0]) return null;
+
+          const latex = (match[1] ?? '').trim();
+          const paraStart = $start.before(1);
+          const equationNode = equationType.create({ latex });
+          const newPara = paragraphType.create();
+
+          tr.replaceWith(paraStart, paraStart + para.nodeSize, [equationNode, newPara]);
+          const caret = paraStart + equationNode.nodeSize + 1;
+          tr.setSelection(TextSelection.create(tr.doc, caret));
+        },
+      }),
+    ];
   },
 });
 

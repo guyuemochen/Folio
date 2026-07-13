@@ -28,6 +28,7 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
   const toggleExpand = useWorkspaceStore((s) => s.toggleExpand);
   const setExpanded = useWorkspaceStore((s) => s.setExpanded);
   const createChildPage = useWorkspaceStore((s) => s.createChildPage);
+  const createChildDatabase = useWorkspaceStore((s) => s.createChildDatabase);
   const renamePageLocally = useWorkspaceStore((s) => s.renamePageLocally);
   const trashPage = useWorkspaceStore((s) => s.trashPage);
   const setFavorite = useWorkspaceStore((s) => s.setFavorite);
@@ -62,20 +63,25 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
   const commitRename = async () => {
     setIsEditing(false);
     const next = draft.trim();
-    if (next && next !== page.title) {
-      try {
+    const prev = page.title;
+    if (!next || next === prev) {
+      setDraft(prev);
+      return;
+    }
+    // Optimistic: update the store immediately so this row (and any other
+    // place showing the page) reflects the rename without waiting for the
+    // IPC round-trip. Roll back if the backend rejects it.
+    renamePageLocally(page.id, next);
+    try {
       await api.renamePage(page.id, next);
-      renamePageLocally(page.id, next);
       // The renamed page may be a row in some database; bust the rows cache
       // so DatabaseView shows the new title on next visit. renamePageLocally
       // only updates the zustand page-list store, which DatabaseView doesn't
       // read (it uses React Query's ['database-rows', dbId] snapshot).
       void queryClient.invalidateQueries({ queryKey: ['database-rows'] });
-      } catch (err) {
-        console.error('[Folio] rename failed', err);
-      }
-    } else {
-      setDraft(page.title);
+    } catch (err) {
+      renamePageLocally(page.id, prev);
+      console.error('[Folio] rename failed', err);
     }
   };
 
@@ -86,6 +92,16 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
       setCurrentPage(child.id);
     } catch (err) {
       console.error('[Folio] new subpage failed', err);
+    }
+  };
+
+  const handleNewSubdatabase = async () => {
+    try {
+      const child = await createChildDatabase(page.id, 'Untitled database');
+      setExpanded(page.id, true);
+      setCurrentPage(child.id);
+    } catch (err) {
+      console.error('[Folio] new subdatabase failed', err);
     }
   };
 
@@ -230,6 +246,10 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
             setMenuOpen(false);
             void handleNewSubpage();
           }}
+          onNewSubdatabase={() => {
+            setMenuOpen(false);
+            void handleNewSubdatabase();
+          }}
           onRename={() => {
             setMenuOpen(false);
             setDraft(page.title);
@@ -272,6 +292,7 @@ interface NodeMenuProps {
   isFavorite: boolean;
   onClose: () => void;
   onNewSubpage: () => void;
+  onNewSubdatabase: () => void;
   onRename: () => void;
   onDuplicate: () => void;
   onMoveTo: () => void;
@@ -306,9 +327,17 @@ function NodeMenu(props: NodeMenuProps) {
   }, [onClose]);
 
   // Position the menu just below the row, right-aligned to the row.
+  // If the menu would overflow the viewport bottom (e.g. node is near the
+  // bottom of the sidebar), flip it to open upwards above the row.
+  const ESTIMATED_MENU_HEIGHT = 260;
+  const spaceBelow = window.innerHeight - anchorRect.bottom;
+  const top =
+    spaceBelow < ESTIMATED_MENU_HEIGHT + 16
+      ? Math.max(8, anchorRect.top - ESTIMATED_MENU_HEIGHT - 2)
+      : anchorRect.bottom + 2;
   const style: React.CSSProperties = {
     position: 'fixed',
-    top: anchorRect.bottom + 2,
+    top,
     left: Math.min(anchorRect.right - 176, window.innerWidth - 184),
     width: 176,
     zIndex: 1100,
@@ -321,6 +350,7 @@ function NodeMenu(props: NodeMenuProps) {
       className="rounded-md border border-border-hairline bg-bg-page shadow-popover py-1 text-[13px]"
     >
       <MenuItem label={t('sidebar.newSubpage')} onClick={handlers.onNewSubpage} />
+      <MenuItem label={t('sidebar.newSubdatabase')} onClick={handlers.onNewSubdatabase} />
       <MenuItem label={t('common.rename')} onClick={handlers.onRename} />
       <MenuItem label={t('common.duplicate')} onClick={handlers.onDuplicate} />
       <MenuItem label={t('common.moveTo')} onClick={handlers.onMoveTo} />
