@@ -82,6 +82,10 @@ export function SlashMenu({ editor, query, anchor, onClose }: SlashMenuProps) {
   // Keyboard handling.
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      // Don't intercept keys during IME composition (e.g. Chinese input):
+      // otherwise Enter used to confirm a candidate would apply the selected
+      // command instead of letting the IME commit the character.
+      if (e.isComposing) return;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setSelectedIndex((i) => (i + 1) % Math.max(flat.length, 1));
