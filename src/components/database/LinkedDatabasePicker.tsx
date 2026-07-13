@@ -59,6 +59,10 @@ export function LinkedDatabasePicker({ onClose, onPick }: LinkedDatabasePickerPr
   useEffect(() => setSelectedIdx(0), [query]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Don't intercept keys during IME composition (e.g. Chinese input):
+      // otherwise Enter used to confirm a candidate would pick the selected
+      // database instead of letting the IME commit the character.
+      if (e.isComposing) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         onClose();

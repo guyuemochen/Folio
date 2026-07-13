@@ -91,6 +91,10 @@ export function SearchModal({ onClose }: SearchModalProps) {
   // Keyboard navigation
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Don't intercept keys during IME composition (e.g. Chinese input):
+      // otherwise Enter used to confirm a candidate would open the selected
+      // result instead of letting the IME commit the character.
+      if (e.isComposing) return;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setSelectedIndex((i) => Math.min(i + 1, flatItems.length - 1));
