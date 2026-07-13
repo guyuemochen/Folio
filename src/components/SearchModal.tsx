@@ -17,7 +17,7 @@ interface SearchModalProps {
  *   - 480×640px modal, centered
  *   - Top: input with placeholder "Search pages and content..."
  *   - Body: grouped results
- *     - When query empty: show Recents (last 10 viewed pages)
+ *     - When query empty: show Recents (last 5 viewed pages)
  *     - When query non-empty: show search hits with snippet + <mark> highlight
  *   - Keyboard: ↑↓ navigate, Enter open, Escape close, Cmd+Enter open in place
  *   - Click item: open + close

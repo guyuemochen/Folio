@@ -3,7 +3,7 @@ import type { PageSummary, TrashedPage, Workspace } from '../lib/types';
 import { api } from '../lib/invoke';
 
 const RECENTS_KEY = 'folio:recents';
-const RECENTS_MAX = 10;
+const RECENTS_MAX = 5;
 const EXPANDED_KEY = 'folio:expanded-tree-nodes';
 
 function loadRecents(): string[] {
@@ -71,7 +71,7 @@ interface WorkspaceState {
   expanded: Set<string>;
   /** Currently open page id (drives the route). */
   currentPageId: string | null;
-  /** Recently opened page ids (most recent first). Cap at 10. */
+  /** Recently opened page ids (most recent first). Cap at RECENTS_MAX (5). */
   recents: string[];
   /** Favorited pages (ordered by user). */
   favorites: PageSummary[];
@@ -172,8 +172,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   setCurrentPage: (pageId) =>
     set((s) => {
       if (!pageId) return { currentPageId: null };
-      // Prepend to recents (dedupe, cap at 10), persist to localStorage.
-      const next = [pageId, ...s.recents.filter((id) => id !== pageId)].slice(0, 10);
+      // Prepend to recents (dedupe, cap at RECENTS_MAX), persist to localStorage.
+      const next = [pageId, ...s.recents.filter((id) => id !== pageId)].slice(0, RECENTS_MAX);
       saveRecents(next);
       return { currentPageId: pageId, recents: next };
     }),

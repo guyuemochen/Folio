@@ -12,7 +12,7 @@ import { PageTreeNode } from './PageTreeNode';
  *   ─────────
  *   Favorites              (drag to rearrange)
  *   ─────────
- *   Recents                (last 10 viewed)
+ *   Recents                (last 5 viewed)
  *   ─────────
  *   Teamspaces             (label-only MVP)
  *   └─ Page Tree           (recursive, lazy load)
