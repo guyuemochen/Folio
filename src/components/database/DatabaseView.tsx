@@ -19,7 +19,7 @@ import { PropertyCell } from './PropertyCells';
 import { PropertyMenu } from './PropertyMenu';
 import { FilterBar } from './FilterBar';
 import { FilterEditor } from './FilterEditor';
-import { applyFilter } from './filterEngine';
+import { applyFilter, normalizeFilter } from './filterEngine';
 
 /**
  * Table view for a database page (PRD §5.3.3–§5.3.7).
@@ -134,7 +134,7 @@ export function DatabaseView({
   // Hydrate local config when the active view changes.
   useEffect(() => {
     if (!activeView) return;
-    setFilter(activeView.filter ?? null);
+    setFilter(normalizeFilter(activeView.filter));
     setSorts(activeView.sort ?? []);
     setGroup(activeView.group ?? null);
     setHidden(activeView.hiddenProperties ?? []);
@@ -342,9 +342,9 @@ export function DatabaseView({
     setFilterEditorOpen(true);
   };
 
-  const handleRemoveFilterLeaf = (leaf: { propertyId: string; operator: string }) => {
+  const handleRemoveFilterLeaf = (leafId: string) => {
     if (!filter) return;
-    const next = removeLeaf(filter, leaf);
+    const next = removeLeaf(filter, leafId);
     setFilter(next);
     persistView({ filter: next });
   };
@@ -1405,16 +1405,12 @@ function groupBy(rows: DatabaseRow[], prop: PropertyDef): GroupBucket[] {
   return [...buckets.values()].filter((b) => b.rows.length > 0 || b.key === unfiledKey && b.rows.length > 0);
 }
 
-function removeLeaf(
-  node: FilterNode,
-  target: { propertyId: string; operator: string },
-): FilterNode | null {
+function removeLeaf(node: FilterNode, leafId: string): FilterNode | null {
   if (node.kind === 'leaf') {
-    if (node.propertyId === target.propertyId && node.operator === target.operator) return null;
-    return node;
+    return node.id === leafId ? null : node;
   }
   const next = node.children
-    .map((c) => removeLeaf(c, target))
+    .map((c) => removeLeaf(c, leafId))
     .filter((c): c is FilterNode => c !== null);
   if (next.length === 0) return null;
   return { kind: 'group', op: node.op, children: next };

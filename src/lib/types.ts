@@ -126,6 +126,10 @@ export interface PropertyDef {
  */
 export interface FilterLeaf {
   kind: 'leaf';
+  /** Stable unique ID so a leaf can be targeted for removal/editing even when
+   * the same property+operator appears in multiple groups. Backfilled by
+   * `normalizeFilter` for filters persisted before this field existed. */
+  id: string;
   propertyId: string;
   /** e.g. 'contains' | 'is' | 'is_before'. Varies by property type. */
   operator: string;
