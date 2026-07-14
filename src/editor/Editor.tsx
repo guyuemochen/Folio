@@ -5,7 +5,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import type { Editor as TiptapEditor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
-import Image from '@tiptap/extension-image';
+import { ImageBlock } from './extensions/Image';
 import { TextStyle } from '@tiptap/extension-text-style';
 import Color from '@tiptap/extension-color';
 import Highlight from '@tiptap/extension-highlight';
@@ -209,7 +209,7 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
         lowlight: lowlightInstance,
         HTMLAttributes: { class: 'ln-codeblock' },
       }),
-      Image.configure({
+      ImageBlock.configure({
         inline: false,
         allowBase64: true,
         HTMLAttributes: { class: 'ln-image' },

@@ -289,6 +289,9 @@
   "editor": {
     "placeholder": "Press '/' for commands, or just start typing...",
     "imageUrlPrompt": "Image URL:",
+    "imageUpload": "Upload image",
+    "imageChange": "Change image",
+    "imageBoothHint": "Click here to upload an image",
     "pasteLinkPrompt": "Paste link:",
     "subpageCreateFailed": "Could not create sub-page",
     "noMatchingBlocks": "No matching blocks",
