@@ -166,6 +166,9 @@ export interface ViewConfig {
   group?: GroupConfig | null;
   hiddenProperties?: string[] | null;
   columnWidths?: Record<string, number> | null;
+  /** Manual row order (drag-to-reorder). Array of row page ids. Only
+   * consulted when no explicit `sort` is active. */
+  manualOrder?: string[] | null;
   isDefault: boolean;
   createdAt: number;
 }
@@ -274,6 +277,7 @@ export interface UpdateViewInput {
   group?: GroupConfig | null;
   hiddenProperties?: string[] | null;
   columnWidths?: Record<string, number> | null;
+  manualOrder?: string[] | null;
 }
 
 // ============================================================================
@@ -325,6 +329,7 @@ export interface LocalViewConfig {
   group?: GroupConfig | null;
   hiddenProperties?: string[] | null;
   columnWidths?: Record<string, number> | null;
+  manualOrder?: string[] | null;
 }
 
 /**

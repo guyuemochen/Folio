@@ -283,7 +283,8 @@
     "formatPercent": "12%",
     "formatCurrency": "¥1,234",
     "sortAscending": "升序排列",
-    "sortDescending": "降序排列"
+    "sortDescending": "降序排列",
+    "dragToReorder": "拖动以调整顺序"
   },
 
   "editor": {

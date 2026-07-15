@@ -283,7 +283,8 @@
     "formatPercent": "12%",
     "formatCurrency": "$1,234",
     "sortAscending": "Sort ascending",
-    "sortDescending": "Sort descending"
+    "sortDescending": "Sort descending",
+    "dragToReorder": "Drag to reorder"
   },
 
   "editor": {
