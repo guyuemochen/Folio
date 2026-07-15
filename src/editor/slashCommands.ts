@@ -252,13 +252,9 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
     aliases: ['image', 'img', 'picture', 'photo', 'upload'],
     category: 'media',
     apply: (editor) => {
-      // Inline: prompt for URL (file upload hook deferred to M5).
-      const url = window.prompt(i18n.t('editor.imageUrlPrompt'));
-      if (url) {
-        clearSlashText(editor).setImage({ src: url.trim() }).run();
-      } else {
-        clearSlashText(editor).run();
-      }
+      // Insert an empty image node — the NodeView renders an upload "booth"
+      // placeholder. The user uploads (or replaces) via the booth button.
+      clearSlashText(editor).setImage({ src: '' }).run();
     },
   },
   {

@@ -12,7 +12,7 @@ import { PageTreeNode } from './PageTreeNode';
  *   ─────────
  *   Favorites              (drag to rearrange)
  *   ─────────
- *   Recents                (last 10 viewed)
+ *   Recents                (last 5 viewed)
  *   ─────────
  *   Teamspaces             (label-only MVP)
  *   └─ Page Tree           (recursive, lazy load)
@@ -259,7 +259,7 @@ export function Sidebar() {
         <SidebarFooterLink
           icon="⚙"
           label={t('sidebar.settings')}
-          onClick={() => fireToast(t('sidebar.settingsSoon'))}
+          onClick={() => window.dispatchEvent(new CustomEvent('folio:open-settings'))}
         />
         <SidebarFooterLink
           icon="ℹ"

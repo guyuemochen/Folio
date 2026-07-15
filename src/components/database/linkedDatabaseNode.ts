@@ -8,24 +8,17 @@ import { LinkedDatabaseBlock } from './LinkedDatabaseBlock';
  *
  * Atomic, non-editable leaf node. Persists:
  *   - sourceDatabaseId — id of the source `page` row with type='database'
- *   - viewId            — id of a saved view on the source db (null = default)
+ *   - viewConfig       — LOCAL view config (filter/sort/group/hidden/widths),
+ *                        stored in the document so each linked-database
+ *                        block has its own independent view. Row data still
+ *                        comes from the source db via query_database.
+ *   - sourceViewId     — optional id of the source-db view this link was
+ *                        originally based on (metadata only, not used to
+ *                        look up live state).
  *
- * Mutations made inside the linked view write through to the source db via
- * `update_cell_cmd` / `add_database_row` etc., so both views stay in sync.
- *
- * INTEGRATION NOTE (M2 / Editor.tsx owner):
- * -----------------------------------------
- * This file EXPORTS the node definition only. It is **not** registered
- * anywhere yet — registering it requires editing `src/editor/Editor.tsx`
- * (owned by M2), which is out of scope here. The editor should:
- *
- *   1. import { linkedDatabaseNode } from '../components/database/linkedDatabaseNode';
- *   2. add it to the `extensions: [...]` array of `useEditor(...)`.
- *
- * Until M2 wires it, the `/linked-database` slash command still opens the
- * picker (via the loose-coupling event `folio:insert-block`) but the actual
- * node insertion will be rejected by ProseMirror's schema. See
- * `slashCommands.ts` for the event contract.
+ * Mutations to the underlying rows (cell edits, new rows, deletes) write
+ * through to the source db, so the data stays in sync. Filter / sort /
+ * group / column layout stay local to this block.
  */
 export const linkedDatabaseNode = Node.create<{
   HTMLAttributes: Record<string, unknown>;
@@ -47,11 +40,28 @@ export const linkedDatabaseNode = Node.create<{
             ? ['data-source-database', attrs.sourceDatabaseId]
             : [],
       },
-      viewId: {
-        default: null,
-        parseHTML: (el) => el.getAttribute('data-view-id'),
+      // viewConfig is a JSON blob — TipTap serializes it to the doc JSON as-is.
+      viewConfig: {
+        default: { filter: null, sort: null, group: null, hiddenProperties: [], columnWidths: {} },
+        parseHTML: (el) => {
+          const raw = el.getAttribute('data-view-config');
+          if (!raw) return null;
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return null;
+          }
+        },
         renderHTML: (attrs: LinkedDatabaseAttrs) =>
-          attrs.viewId ? ['data-view-id', attrs.viewId] : [],
+          attrs.viewConfig && Object.keys(attrs.viewConfig).length > 0
+            ? ['data-view-config', JSON.stringify(attrs.viewConfig)]
+            : [],
+      },
+      sourceViewId: {
+        default: null,
+        parseHTML: (el) => el.getAttribute('data-source-view-id'),
+        renderHTML: (attrs: LinkedDatabaseAttrs) =>
+          attrs.sourceViewId ? ['data-source-view-id', attrs.sourceViewId] : [],
       },
     };
   },

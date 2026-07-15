@@ -24,6 +24,9 @@ const HistoryModal = lazy(() =>
 const AboutModal = lazy(() =>
   import('./components/AboutModal').then((m) => ({ default: m.AboutModal })),
 );
+const SettingsModal = lazy(() =>
+  import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal })),
+);
 
 /**
  * App shell:
@@ -51,6 +54,7 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [historyTarget, setHistoryTarget] = useState<{ pageId: string; title: string } | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // M6 perf: end the cold-start timer once the shell has mounted.
   useEffect(() => {
@@ -83,6 +87,7 @@ export default function App() {
     const onOpenSearch = () => setSearchOpen(true);
     const onOpenTrash = () => setTrashOpen(true);
     const onOpenAbout = () => setAboutOpen(true);
+    const onOpenSettings = () => setSettingsOpen(true);
     const onOpenHistory = (e: Event) => {
       const detail = (e as CustomEvent<{ pageId: string; title: string }>).detail;
       if (detail) setHistoryTarget(detail);
@@ -110,6 +115,7 @@ export default function App() {
     window.addEventListener('folio:open-search', onOpenSearch);
     window.addEventListener('folio:open-trash', onOpenTrash);
     window.addEventListener('folio:open-about', onOpenAbout);
+    window.addEventListener('folio:open-settings', onOpenSettings);
     window.addEventListener('folio:open-history', onOpenHistory);
     window.addEventListener('folio:toast', onToast);
     window.addEventListener('folio:page-trashed', onPageTrashed);
@@ -120,6 +126,7 @@ export default function App() {
       window.removeEventListener('folio:open-search', onOpenSearch);
       window.removeEventListener('folio:open-trash', onOpenTrash);
       window.removeEventListener('folio:open-about', onOpenAbout);
+      window.removeEventListener('folio:open-settings', onOpenSettings);
       window.removeEventListener('folio:open-history', onOpenHistory);
       window.removeEventListener('folio:toast', onToast);
       window.removeEventListener('folio:page-trashed', onPageTrashed);
@@ -171,6 +178,11 @@ export default function App() {
       {aboutOpen && (
         <Suspense fallback={null}>
           <AboutModal onClose={() => setAboutOpen(false)} />
+        </Suspense>
+      )}
+      {settingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsModal onClose={() => setSettingsOpen(false)} />
         </Suspense>
       )}
       {toast && (

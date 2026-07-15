@@ -158,16 +158,35 @@ fn default_view_type() -> String {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateViewInput {
     pub name: Option<String>,
-    #[serde(default)]
+    /// All JSON-value fields use `deserialize_some` so that an explicit
+    /// `null` from the frontend (meaning "clear this field") is preserved as
+    /// `Some(Value::Null)` and is NOT collapsed to `None` (which means "field
+    /// absent — don't touch"). Without this, clearing a filter by sending
+    /// `{ filter: null }` is silently ignored because serde treats `null` the
+    /// same as a missing key for `Option<T>`.
+    #[serde(default, deserialize_with = "deserialize_some")]
     pub filter: Option<serde_json::Value>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_some")]
     pub sort: Option<serde_json::Value>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_some")]
     pub group: Option<serde_json::Value>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_some")]
     pub hidden_properties: Option<serde_json::Value>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_some")]
     pub column_widths: Option<serde_json::Value>,
+}
+
+/// Serde helper: wrap the deserialized value in `Some(...)` so that an
+/// explicit JSON `null` becomes `Some(Value::Null)` instead of `None`.
+/// Combined with `#[serde(default)]` on the field, this gives a three-way
+/// distinction: key absent → `None`, key present & `null` → `Some(Null)`,
+/// key present & value → `Some(value)`.
+fn deserialize_some<'de, T, D>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
+where
+    T: serde::Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    serde::Deserialize::deserialize(deserializer).map(Some)
 }
 
 // =============================================================================

@@ -20,7 +20,15 @@ import zhCN from './locales/zh-CN.json';
 export const SUPPORTED_LANGUAGES = ['en', 'zh-CN'] as const;
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
+/**
+ * The user's language preference. `'system'` follows the OS locale (via
+ * `detectLanguage`); an explicit code forces that language regardless of OS.
+ */
+export type LanguagePreference = 'system' | SupportedLanguage;
+
 export const DEFAULT_LANGUAGE: SupportedLanguage = 'en';
+
+const LANG_PREF_KEY = 'folio:language-preference';
 
 /**
  * Resolve the user's preferred language from the webview environment.
@@ -44,12 +52,34 @@ export function detectLanguage(): SupportedLanguage {
   return DEFAULT_LANGUAGE;
 }
 
+/** Read the persisted language preference (defaults to `'system'`). */
+export function getLanguagePreference(): LanguagePreference {
+  const p = localStorage.getItem(LANG_PREF_KEY);
+  if (p === 'en' || p === 'zh-CN') return p;
+  return 'system';
+}
+
+/** Resolve a preference (possibly `'system'`) to a concrete language code. */
+export function resolveLanguage(pref: LanguagePreference): SupportedLanguage {
+  return pref === 'system' ? detectLanguage() : pref;
+}
+
+/**
+ * Persist + immediately apply a language preference. `i18n.changeLanguage`
+ * triggers a re-render of every `useTranslation()` consumer, so the whole
+ * UI updates live without a reload.
+ */
+export function setLanguagePreference(pref: LanguagePreference): void {
+  localStorage.setItem(LANG_PREF_KEY, pref);
+  void i18n.changeLanguage(resolveLanguage(pref));
+}
+
 void i18n.use(initReactI18next).init({
   resources: {
     en: { translation: en },
     'zh-CN': { translation: zhCN },
   },
-  lng: detectLanguage(),
+  lng: resolveLanguage(getLanguagePreference()),
   fallbackLng: DEFAULT_LANGUAGE,
   supportedLngs: [...SUPPORTED_LANGUAGES],
   // Allow `t('sidebar.favorites')` style dot-lookup on the flat JSON.

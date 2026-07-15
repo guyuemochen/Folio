@@ -17,7 +17,7 @@ interface SearchModalProps {
  *   - 480×640px modal, centered
  *   - Top: input with placeholder "Search pages and content..."
  *   - Body: grouped results
- *     - When query empty: show Recents (last 10 viewed pages)
+ *     - When query empty: show Recents (last 5 viewed pages)
  *     - When query non-empty: show search hits with snippet + <mark> highlight
  *   - Keyboard: ↑↓ navigate, Enter open, Escape close, Cmd+Enter open in place
  *   - Click item: open + close
@@ -91,6 +91,10 @@ export function SearchModal({ onClose }: SearchModalProps) {
   // Keyboard navigation
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Don't intercept keys during IME composition (e.g. Chinese input):
+      // otherwise Enter used to confirm a candidate would open the selected
+      // result instead of letting the IME commit the character.
+      if (e.isComposing) return;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setSelectedIndex((i) => Math.min(i + 1, flatItems.length - 1));

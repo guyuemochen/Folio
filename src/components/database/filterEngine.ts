@@ -16,67 +16,69 @@ import type {
   FilterNode,
   PropertyDef,
   PropertyType,
+  SelectOption,
 } from '../../lib/types';
 
 export interface OperatorDef {
   value: string;
-  label: string;
+  /** i18n key — resolved to display text by the caller via t(labelKey). */
+  labelKey: string;
 }
 
 /** Operators available for a given property type (PRD §5.3.4 table). */
 
 const TEXT_OPS: OperatorDef[] = [
-  { value: 'contains', label: 'contains' },
-  { value: 'does_not_contain', label: 'does not contain' },
-  { value: 'starts_with', label: 'starts with' },
-  { value: 'ends_with', label: 'ends with' },
-  { value: 'is_empty', label: 'is empty' },
-  { value: 'is_not_empty', label: 'is not empty' },
+  { value: 'contains', labelKey: 'database.opContains' },
+  { value: 'does_not_contain', labelKey: 'database.opDoesNotContain' },
+  { value: 'starts_with', labelKey: 'database.opStartsWith' },
+  { value: 'ends_with', labelKey: 'database.opEndsWith' },
+  { value: 'is_empty', labelKey: 'database.opIsEmpty' },
+  { value: 'is_not_empty', labelKey: 'database.opIsNotEmpty' },
 ];
 
 const NUMBER_OPS: OperatorDef[] = [
-  { value: 'equals', label: '=' },
-  { value: 'not_equals', label: '≠' },
-  { value: 'greater', label: '>' },
-  { value: 'less', label: '<' },
-  { value: 'greater_equal', label: '≥' },
-  { value: 'less_equal', label: '≤' },
-  { value: 'is_empty', label: 'is empty' },
-  { value: 'is_not_empty', label: 'is not empty' },
+  { value: 'equals', labelKey: 'database.opEquals' },
+  { value: 'not_equals', labelKey: 'database.opNotEquals' },
+  { value: 'greater', labelKey: 'database.opGreater' },
+  { value: 'less', labelKey: 'database.opLess' },
+  { value: 'greater_equal', labelKey: 'database.opGreaterEqual' },
+  { value: 'less_equal', labelKey: 'database.opLessEqual' },
+  { value: 'is_empty', labelKey: 'database.opIsEmpty' },
+  { value: 'is_not_empty', labelKey: 'database.opIsNotEmpty' },
 ];
 
 const SELECT_OPS: OperatorDef[] = [
-  { value: 'is', label: 'is' },
-  { value: 'is_not', label: 'is not' },
-  { value: 'is_empty', label: 'is empty' },
-  { value: 'is_not_empty', label: 'is not empty' },
+  { value: 'is', labelKey: 'database.opIs' },
+  { value: 'is_not', labelKey: 'database.opIsNot' },
+  { value: 'is_empty', labelKey: 'database.opIsEmpty' },
+  { value: 'is_not_empty', labelKey: 'database.opIsNotEmpty' },
 ];
 
 const DATE_OPS: OperatorDef[] = [
-  { value: 'is', label: 'is' },
-  { value: 'is_before', label: 'is before' },
-  { value: 'is_after', label: 'is after' },
-  { value: 'is_within', label: 'is within' },
-  { value: 'is_empty', label: 'is empty' },
-  { value: 'is_not_empty', label: 'is not empty' },
+  { value: 'is', labelKey: 'database.opIs' },
+  { value: 'is_before', labelKey: 'database.opIsBefore' },
+  { value: 'is_after', labelKey: 'database.opIsAfter' },
+  { value: 'is_within', labelKey: 'database.opIsWithin' },
+  { value: 'is_empty', labelKey: 'database.opIsEmpty' },
+  { value: 'is_not_empty', labelKey: 'database.opIsNotEmpty' },
 ];
 
 const CHECKBOX_OPS: OperatorDef[] = [
-  { value: 'is_checked', label: 'is checked' },
-  { value: 'is_unchecked', label: 'is unchecked' },
+  { value: 'is_checked', labelKey: 'database.opIsChecked' },
+  { value: 'is_unchecked', labelKey: 'database.opIsUnchecked' },
 ];
 
 const URL_OPS: OperatorDef[] = [
-  { value: 'is', label: 'is' },
-  { value: 'is_not', label: 'is not' },
-  { value: 'contains', label: 'contains' },
-  { value: 'starts_with', label: 'starts with' },
-  { value: 'ends_with', label: 'ends with' },
+  { value: 'is', labelKey: 'database.opIs' },
+  { value: 'is_not', labelKey: 'database.opIsNot' },
+  { value: 'contains', labelKey: 'database.opContains' },
+  { value: 'starts_with', labelKey: 'database.opStartsWith' },
+  { value: 'ends_with', labelKey: 'database.opEndsWith' },
 ];
 
 const EMPTY_OPS: OperatorDef[] = [
-  { value: 'is_empty', label: 'is empty' },
-  { value: 'is_not_empty', label: 'is not empty' },
+  { value: 'is_empty', labelKey: 'database.opIsEmpty' },
+  { value: 'is_not_empty', labelKey: 'database.opIsNotEmpty' },
 ];
 
 const OPERATORS_BY_TYPE: Record<PropertyType, OperatorDef[]> = {
@@ -102,18 +104,56 @@ export function operatorNeedsValue(operator: string): boolean {
   return !['is_empty', 'is_not_empty', 'is_checked', 'is_unchecked'].includes(operator);
 }
 
-/** Build a fresh leaf with sensible defaults for the first operator of a type. */
-export function makeLeaf(propertyId: string, type: PropertyType): FilterLeaf {
-  const ops = operatorsFor(type);
+/** Build a fresh leaf with sensible defaults for the first operator of a type.
+ * Accepts the full PropertyDef so option-based types (select/status) can
+ * default to the first available option instead of an empty string that
+ * silently matches nothing. */
+export function makeLeaf(property: PropertyDef): FilterLeaf {
+  const ops = operatorsFor(property.type);
   const op = ops[0]?.value ?? 'is_empty';
-  return { kind: 'leaf', propertyId, operator: op, value: defaultValueFor(op, type) };
+  return {
+    kind: 'leaf',
+    id: newId(),
+    propertyId: property.id,
+    operator: op,
+    value: defaultValueFor(op, property.type, property.options),
+  };
 }
 
 export function makeGroup(op: 'and' | 'or' = 'and'): FilterGroup {
   return { kind: 'group', op, children: [] };
 }
 
-function defaultValueFor(operator: string, type: PropertyType): unknown {
+/** Generate a stable unique ID for a filter leaf.
+ * `crypto.randomUUID` is available in all Tauri webviews (Chromium ≥ 92,
+ * WKWebView, WebKitGTK 2.42+). The fallback covers rare headless/test envs. */
+function newId(): string {
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `f_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+  );
+}
+
+/** Backfill missing `id` fields on leaves for filters persisted before the
+ * `id` field was added. Returns the same node shape with IDs guaranteed.
+ * Call this once when loading a filter from storage. */
+export function normalizeFilter(node: FilterNode | null | undefined): FilterNode | null {
+  if (!node) return null;
+  const fix = (n: FilterNode): FilterNode => {
+    if (n.kind === 'leaf') {
+      return n.id ? n : { ...n, id: newId() };
+    }
+    const children = n.children.map(fix);
+    return children === n.children ? n : { ...n, children };
+  };
+  return fix(node);
+}
+
+function defaultValueFor(
+  operator: string,
+  type: PropertyType,
+  options?: SelectOption[],
+): unknown {
   if (!operatorNeedsValue(operator)) return null;
   switch (type) {
     case 'number':
@@ -124,6 +164,13 @@ function defaultValueFor(operator: string, type: PropertyType): unknown {
       return [];
     case 'date':
       return new Date().toISOString().slice(0, 10);
+    case 'select':
+    case 'status':
+      // Default to the first defined option so the filter is immediately useful.
+      return options?.[0]?.value ?? '';
+    case 'person':
+      // Person is MVP-simplified to a single "Me" option (see PersonCell).
+      return 'Me';
     default:
       return '';
   }
@@ -240,43 +287,71 @@ function toDate(v: unknown): Date | null {
 }
 
 // =============================================================================
-// Chip rendering (flatten leaves into "property operator value" strings)
+// Token rendering — flatten the tree into a structured token stream that
+// preserves AND/OR connectors and group boundaries, so the FilterBar can show
+// (A AND B) OR (C AND D) instead of an ambiguous flat chip list.
 // =============================================================================
 
-export interface FilterChip {
-  leaf: FilterLeaf;
-  propertyName: string;
-  operatorLabel: string;
-  valueLabel: string;
-}
+export type FilterToken =
+  | {
+      kind: 'chip';
+      leaf: FilterLeaf;
+      propertyName: string;
+      /** i18n key for the operator — caller translates via t(operatorLabelKey). */
+      operatorLabelKey: string;
+      valueLabel: string;
+    }
+  | { kind: 'connector'; op: 'and' | 'or' }
+  | { kind: 'group_open' }
+  | { kind: 'group_close' };
 
-export function flattenChips(
+/** Flatten the filter tree into an ordered token stream.
+ *
+ * Root group is never parenthesized. A non-root group with more than one child
+ * is wrapped in `group_open` / `group_close` so the logical structure is
+ * visible. Single-child and empty groups produce no delimiters — they are
+ * transparent (a single-child group is logically equivalent to its child).
+ *
+ * Example:  OR( AND(A, B), C )
+ * Tokens:   group_open · chip(A) · connector(AND) · chip(B) · group_close · connector(OR) · chip(C)
+ * Renders:  (A AND B) OR C
+ */
+export function flattenTokens(
   filter: FilterNode | null | undefined,
   properties: PropertyDef[],
-): FilterChip[] {
+): FilterToken[] {
   if (!filter) return [];
   const byId = new Map(properties.map((p) => [p.id, p]));
-  const out: FilterChip[] = [];
-  walk(filter, byId, out);
+  const out: FilterToken[] = [];
+  walkTokens(filter, byId, out, 0);
   return out;
 }
 
-function walk(
+function walkTokens(
   node: FilterNode,
   properties: Map<string, PropertyDef>,
-  out: FilterChip[],
+  out: FilterToken[],
+  depth: number,
 ): void {
   if (node.kind === 'group') {
-    for (const c of node.children) walk(c, properties, out);
+    if (node.children.length === 0) return;
+    const wrap = depth > 0 && node.children.length > 1;
+    if (wrap) out.push({ kind: 'group_open' });
+    for (let i = 0; i < node.children.length; i++) {
+      if (i > 0) out.push({ kind: 'connector', op: node.op });
+      walkTokens(node.children[i], properties, out, depth + 1);
+    }
+    if (wrap) out.push({ kind: 'group_close' });
     return;
   }
   const prop = properties.get(node.propertyId);
   const ops = prop ? operatorsFor(prop.type) : [];
-  const opLabel = ops.find((o) => o.value === node.operator)?.label ?? node.operator;
+  const opLabelKey = ops.find((o) => o.value === node.operator)?.labelKey ?? node.operator;
   out.push({
+    kind: 'chip',
     leaf: node,
     propertyName: prop?.name ?? node.propertyId,
-    operatorLabel: opLabel,
+    operatorLabelKey: opLabelKey,
     valueLabel: valueLabelFor(node),
   });
 }

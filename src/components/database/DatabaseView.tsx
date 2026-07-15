@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -9,6 +9,7 @@ import type {
   DatabaseTemplate,
   FilterNode,
   GroupConfig,
+  LocalViewConfig,
   PropertyDef,
   SelectOption,
   SortEntry,
@@ -18,7 +19,7 @@ import { PropertyCell } from './PropertyCells';
 import { PropertyMenu } from './PropertyMenu';
 import { FilterBar } from './FilterBar';
 import { FilterEditor } from './FilterEditor';
-import { applyFilter } from './filterEngine';
+import { applyFilter, normalizeFilter } from './filterEngine';
 
 /**
  * Table view for a database page (PRD §5.3.3–§5.3.7).
@@ -33,15 +34,27 @@ import { applyFilter } from './filterEngine';
  *   - "+ New" with template picker (§5.3.7)
  *
  * Filter/sort/group evaluation is client-side (rows are <10k in MVP).
- * Config is persisted to the active database_view row via update_view.
+ *
+ * Two persistence modes:
+ *   - **Persisted** (default): config is read from / written to the active
+ *     `database_view` row via `update_view`. Used when the DatabaseView is
+ *     the main view of a database page.
+ *   - **Embedded**: config is supplied by the caller via `embeddedView` and
+ *     changes are reported back through `onEmbeddedViewChange`. No
+ *     `update_view` calls are made — the caller owns persistence (e.g. a
+ *     linked-database block stores the config in the page document).
  *
  * `linked` renders a "🔗 linked" badge for linked-database blocks (§5.3.8).
- * `viewId` selects which view config to read/write (defaults to the default view).
  */
 interface DatabaseViewProps {
   databaseId: string;
   linked?: boolean;
+  /** Persisted mode: id of the saved view to read/write. */
   viewId?: string;
+  /** Embedded mode: caller-supplied local view config. */
+  embeddedView?: LocalViewConfig | null;
+  /** Embedded mode: callback whenever the local view config changes. */
+  onEmbeddedViewChange?: (next: LocalViewConfig) => void;
 }
 
 const DEFAULT_COL_WIDTH = 200;
@@ -54,8 +67,15 @@ const COL_GROUPABLE: PropertyDef['type'][] = ['select', 'multi_select', 'status'
  */
 const ROW_HEIGHT = 40;
 
-export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) {
+export function DatabaseView({
+  databaseId,
+  linked,
+  viewId,
+  embeddedView,
+  onEmbeddedViewChange,
+}: DatabaseViewProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const setCurrentPage = useWorkspaceStore((s) => s.setCurrentPage);
   const loadChildren = useWorkspaceStore((s) => s.loadChildren);
   const removePageLocally = useWorkspaceStore((s) => s.removePageLocally);
@@ -75,12 +95,33 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
     queryFn: () => api.listTemplates(databaseId),
   });
 
+  const isEmbedded = embeddedView !== undefined;
+
   // --- Active view + persisted config --------------------------------------
+  // In embedded mode, build a synthetic ViewConfig from the caller-supplied
+  // LocalViewConfig so downstream code (which expects a ViewConfig-shaped
+  // object) keeps working. The id/name are placeholders; persistence goes
+  // through onEmbeddedViewChange instead of api.updateView.
   const activeView: ViewConfig | undefined = useMemo(() => {
+    if (isEmbedded) {
+      return {
+        id: '__embedded__',
+        databaseId,
+        name: '',
+        type: 'table',
+        filter: embeddedView?.filter ?? null,
+        sort: embeddedView?.sort ?? null,
+        group: embeddedView?.group ?? null,
+        hiddenProperties: embeddedView?.hiddenProperties ?? null,
+        columnWidths: embeddedView?.columnWidths ?? null,
+        isDefault: false,
+        createdAt: 0,
+      };
+    }
     if (!schema) return undefined;
     if (viewId) return schema.views.find((v) => v.id === viewId);
     return schema.views.find((v) => v.isDefault) ?? schema.views[0];
-  }, [schema, viewId]);
+  }, [schema, viewId, isEmbedded, embeddedView, databaseId]);
 
   const [filter, setFilter] = useState<FilterNode | null>(null);
   const [sorts, setSorts] = useState<SortEntry[]>([]);
@@ -93,28 +134,81 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
   // Hydrate local config when the active view changes.
   useEffect(() => {
     if (!activeView) return;
-    setFilter(activeView.filter ?? null);
+    setFilter(normalizeFilter(activeView.filter));
     setSorts(activeView.sort ?? []);
     setGroup(activeView.group ?? null);
     setHidden(activeView.hiddenProperties ?? []);
     setWidths(activeView.columnWidths ?? {});
     setCollapsedGroups(new Set(activeView.group?.collapsedGroups ?? []));
-  }, [activeView?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeView?.id, embeddedView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounced view persistence.
   const persistRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The latest patch + viewId that has not yet been flushed to the backend.
+  // Captured so the unmount cleanup can fire a final api.updateView instead
+  // of silently discarding the 250ms debounce timer.
+  const pendingPersistRef = useRef<{ viewId: string; databaseId: string; patch: Partial<ViewConfig> } | null>(null);
   // M6 perf: scroll container ref shared with the body virtualizer.
   const tableScrollRef = useRef<HTMLDivElement>(null);
+  // In embedded mode collapsed-groups are persisted via onEmbeddedViewChange
+  // too — keep a ref so the persistView closure can read the latest array.
+  const collapsedGroupsArrayRef = useRef<string[]>([]);
+  useEffect(() => {
+    collapsedGroupsArrayRef.current = [...collapsedGroups];
+  }, [collapsedGroups]);
   const persistView = (patch: Partial<ViewConfig>) => {
     if (!activeView) return;
+    // Embedded mode: report the change to the caller — do not call api.updateView.
+    if (isEmbedded) {
+      if (!onEmbeddedViewChange) return;
+      const next: LocalViewConfig = {
+        filter: ('filter' in patch ? patch.filter : activeView.filter) ?? null,
+        sort: ('sort' in patch ? patch.sort : activeView.sort) ?? null,
+        group: ('group' in patch ? patch.group : activeView.group) ?? null,
+        hiddenProperties: ('hiddenProperties' in patch ? patch.hiddenProperties : activeView.hiddenProperties) ?? [],
+        columnWidths: ('columnWidths' in patch ? patch.columnWidths : activeView.columnWidths) ?? {},
+      };
+      // collapsedGroups live inside `group` — preserve them when patch updates group.
+      if ('group' in patch && patch.group) {
+        next.group = { ...patch.group, collapsedGroups: patch.group.collapsedGroups ?? collapsedGroupsArrayRef.current };
+      }
+      onEmbeddedViewChange(next);
+      return;
+    }
     if (persistRef.current) clearTimeout(persistRef.current);
+    pendingPersistRef.current = { viewId: activeView.id, databaseId, patch };
     persistRef.current = setTimeout(() => {
-      api.updateView(activeView.id, patch).catch((e) =>
+      pendingPersistRef.current = null;
+      api.updateView(activeView.id, patch).then(() => {
+        // Invalidate the schema cache so a remount (navigate away + back)
+        // reads the updated view config from the backend instead of stale
+        // cached data.
+        void queryClient.invalidateQueries({ queryKey: ['database', databaseId] });
+      }).catch((e) =>
         console.error('[Folio] view persist failed', e),
       );
     }, 250);
   };
-  useEffect(() => () => { if (persistRef.current) clearTimeout(persistRef.current); }, []);
+  // Flush unsaved view changes on unmount. Without this, the 250ms debounce
+  // timer is discarded and the last filter/sort/group/column change is lost
+  // when the user navigates to another page.
+  useEffect(() => {
+    return () => {
+      if (persistRef.current) {
+        clearTimeout(persistRef.current);
+        persistRef.current = null;
+      }
+      const pending = pendingPersistRef.current;
+      if (pending) {
+        // Fire-and-forget: the component is unmounting, we cannot await.
+        api.updateView(pending.viewId, pending.patch).then(() => {
+          void queryClient.invalidateQueries({ queryKey: ['database', pending.databaseId] });
+        }).catch((e) =>
+          console.error('[Folio] view persist flush on unmount failed', e),
+        );
+      }
+    };
+  }, []);
 
   // --- Column menu state ---------------------------------------------------
   const [menuOpenFor, setMenuOpenFor] = useState<
@@ -248,9 +342,9 @@ export function DatabaseView({ databaseId, linked, viewId }: DatabaseViewProps) 
     setFilterEditorOpen(true);
   };
 
-  const handleRemoveFilterLeaf = (leaf: { propertyId: string; operator: string }) => {
+  const handleRemoveFilterLeaf = (leafId: string) => {
     if (!filter) return;
-    const next = removeLeaf(filter, leaf);
+    const next = removeLeaf(filter, leafId);
     setFilter(next);
     persistView({ filter: next });
   };
@@ -1311,16 +1405,12 @@ function groupBy(rows: DatabaseRow[], prop: PropertyDef): GroupBucket[] {
   return [...buckets.values()].filter((b) => b.rows.length > 0 || b.key === unfiledKey && b.rows.length > 0);
 }
 
-function removeLeaf(
-  node: FilterNode,
-  target: { propertyId: string; operator: string },
-): FilterNode | null {
+function removeLeaf(node: FilterNode, leafId: string): FilterNode | null {
   if (node.kind === 'leaf') {
-    if (node.propertyId === target.propertyId && node.operator === target.operator) return null;
-    return node;
+    return node.id === leafId ? null : node;
   }
   const next = node.children
-    .map((c) => removeLeaf(c, target))
+    .map((c) => removeLeaf(c, leafId))
     .filter((c): c is FilterNode => c !== null);
   if (next.length === 0) return null;
   return { kind: 'group', op: node.op, children: next };

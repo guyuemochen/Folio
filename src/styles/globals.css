@@ -343,6 +343,80 @@ body {
   margin: 4px 0;
   display: block;
 }
+
+/* --- Image block NodeView (booth + change toolbar) ----------------------- */
+.ln-image-wrapper { margin: 6px 0; }
+.ln-image-file-input { display: none; }
+
+/* Booth placeholder (empty src) */
+.ln-image-booth {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 160px;
+  padding: 24px;
+  border: 1.5px dashed var(--color-border-strong);
+  border-radius: 6px;
+  background: var(--color-bg-section);
+  cursor: pointer;
+  transition: border-color 100ms ease-out, background 100ms ease-out;
+}
+.ln-image-booth:hover,
+.ln-image-booth:focus-visible {
+  border-color: var(--color-accent);
+  background: var(--color-bg-hover);
+  outline: none;
+}
+.ln-image-wrapper[data-selected="true"] .ln-image-booth {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+.ln-image-booth-icon { font-size: 28px; line-height: 1; }
+.ln-image-booth-hint { font-size: 13px; color: var(--color-text-tertiary); }
+
+/* Filled image figure with hover toolbar */
+.ln-image-figure {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  border-radius: 4px;
+}
+.ln-image-figure .ln-image { margin: 0; }
+.ln-image-wrapper[data-selected="true"] .ln-image-figure {
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+.ln-image-toolbar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.ln-image-figure:hover .ln-image-toolbar,
+.ln-image-wrapper[data-selected="true"] .ln-image-toolbar {
+  opacity: 1;
+}
+
+/* Shared button styling */
+.ln-image-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid var(--color-border-hairline);
+  border-radius: 4px;
+  background: var(--color-bg-page);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: background 100ms ease-out;
+}
+.ln-image-btn:hover { background: var(--color-bg-hover); }
+.ln-image-btn--accent {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+.ln-image-btn--accent:hover { background: var(--color-accent-hover); }
 .prose-mirror a {
   color: inherit;
   text-decoration: underline;

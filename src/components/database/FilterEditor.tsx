@@ -7,6 +7,7 @@ import type {
   FilterNode,
   PropertyDef,
   PropertyType,
+  SelectOption,
 } from '../../lib/types';
 import { makeGroup, makeLeaf, operatorNeedsValue, operatorsFor } from './filterEngine';
 
@@ -21,7 +22,8 @@ interface FilterEditorProps {
  * Filter editor modal (PRD §5.3.4). 600px wide.
  *
  * Renders a recursive AND/OR tree. The root is always a group; nested groups
- * are capped at 2 levels deep (root + one sub-group) per the PRD.
+ * are allowed at arbitrary depth to support complex strategies such as
+ * ((A AND B) OR (C AND D)) AND (E OR F).
  */
 export function FilterEditor({ filter, properties, onClose, onChange }: FilterEditorProps) {
   const { t } = useTranslation();
@@ -108,7 +110,10 @@ interface GroupEditorProps {
   onChange: (next: FilterGroup) => void;
 }
 
-const MAX_DEPTH = 1; // root(0) + one nested group(1) = 2 levels per PRD
+/** Reasonable guard against runaway nesting. 10 levels is far beyond any
+ * realistic filter — each level adds visual indentation + a border, so deep
+ * trees are self-discouraging in the UI. */
+const MAX_DEPTH = 10;
 
 function GroupEditor({ group, depth, properties, onChange }: GroupEditorProps) {
   const { t } = useTranslation();
@@ -117,7 +122,7 @@ function GroupEditor({ group, depth, properties, onChange }: GroupEditorProps) {
   const addLeaf = () => {
     const firstProp = properties[0];
     if (!firstProp) return;
-    onChange({ ...group, children: [...group.children, makeLeaf(firstProp.id, firstProp.type)] });
+    onChange({ ...group, children: [...group.children, makeLeaf(firstProp)] });
   };
 
   const addSubgroup = () => {
@@ -245,7 +250,7 @@ function LeafRow({ leaf, properties, onChange, onRemove }: LeafRowProps) {
         value={leaf.propertyId}
         onChange={(e) => {
           const next = properties.find((p) => p.id === e.target.value);
-          if (next) onChange(makeLeaf(next.id, next.type));
+          if (next) onChange(makeLeaf(next));
         }}
         className="px-2 py-1 text-xs border border-border-hairline rounded bg-bg-page outline-none focus:border-accent"
       >
@@ -263,13 +268,13 @@ function LeafRow({ leaf, properties, onChange, onRemove }: LeafRowProps) {
       >
         {ops.map((o) => (
           <option key={o.value} value={o.value}>
-            {o.label}
+            {t(o.labelKey)}
           </option>
         ))}
       </select>
 
       {needsValue && (
-        <ValueInput leaf={leaf} type={type} onChange={onChange} />
+        <ValueInput leaf={leaf} type={type} options={prop?.options ?? []} onChange={onChange} />
       )}
 
       <button
@@ -284,13 +289,18 @@ function LeafRow({ leaf, properties, onChange, onRemove }: LeafRowProps) {
   );
 }
 
+/** Person is MVP-simplified to a single "Me" option (mirrors PersonCell). */
+const PERSON_OPTIONS: SelectOption[] = [{ value: 'Me', color: 'blue' }];
+
 function ValueInput({
   leaf,
   type,
+  options,
   onChange,
 }: {
   leaf: FilterLeaf;
   type: PropertyType;
+  options: SelectOption[];
   onChange: (next: FilterLeaf) => void;
 }) {
   const { t } = useTranslation();
@@ -335,7 +345,51 @@ function ValueInput({
     );
   }
 
-  // text / url / select / status / multi_select / person
+  // select / status / multi_select / person — dropdown with predefined options
+  // instead of a plain text input that requires the user to type the exact
+  // option value blind.
+  if (type === 'select' || type === 'status' || type === 'multi_select' || type === 'person') {
+    const opts = type === 'person' ? PERSON_OPTIONS : options;
+    // No options defined on the property — fall back to text input.
+    if (opts.length === 0) {
+      return (
+        <input
+          type="text"
+          value={typeof leaf.value === 'string' ? leaf.value : ''}
+          placeholder={t('database.value')}
+          onChange={(e) => setText(e.target.value)}
+          className={inputCls}
+        />
+      );
+    }
+    const currentVal = typeof leaf.value === 'string' ? leaf.value : '';
+    const valueInOptions = opts.some((o) => o.value === currentVal);
+    return (
+      <select
+        value={currentVal}
+        onChange={(e) => onChange({ ...leaf, value: e.target.value })}
+        className={inputCls}
+      >
+        {currentVal === '' && (
+          <option value="" disabled>
+            {t('database.selectOption')}
+          </option>
+        )}
+        {/* Orphan value: the option was deleted after the filter was saved.
+            Show it so the user sees the stale value and can fix it. */}
+        {!valueInOptions && currentVal !== '' && (
+          <option value={currentVal}>{currentVal}</option>
+        )}
+        {opts.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.value}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  // text / rich_text / title / url
   return (
     <input
       type="text"

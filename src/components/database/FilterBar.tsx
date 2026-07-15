@@ -1,24 +1,27 @@
 import { useTranslation } from 'react-i18next';
 import type { FilterNode, PropertyDef } from '../../lib/types';
-import { flattenChips } from './filterEngine';
+import { flattenTokens, type FilterToken } from './filterEngine';
 
 interface FilterBarProps {
   filter: FilterNode | null;
   properties: PropertyDef[];
   onOpenEditor: () => void;
-  onRemoveLeaf: (leaf: FilterLeaf) => void;
+  onRemoveLeaf: (leafId: string) => void;
 }
-
-import type { FilterLeaf } from '../../lib/types';
 
 /**
  * Filter bar (PRD §5.3.4): 36px tall, white bg + border-bottom, sits below the
- * table header. Shows one pill chip per leaf filter with a × to remove.
+ * table header. Renders one pill chip per leaf filter with AND/OR connectors
+ * and group parentheses so the logical structure is visible:
+ *
+ *   (Status is "open" AND Priority > 3) OR (Assignee is "me")
+ *
+ * Each chip has a × to remove; connectors and parens are display-only.
  */
 export function FilterBar({ filter, properties, onOpenEditor, onRemoveLeaf }: FilterBarProps) {
   const { t } = useTranslation();
-  const chips = flattenChips(filter, properties);
-  if (chips.length === 0) {
+  const tokens = flattenTokens(filter, properties);
+  if (tokens.length === 0) {
     return (
       <div className="flex items-center gap-2 px-3 h-9 border-b border-border-hairline bg-bg-page">
         <button
@@ -34,23 +37,8 @@ export function FilterBar({ filter, properties, onOpenEditor, onRemoveLeaf }: Fi
 
   return (
     <div className="flex items-center gap-1.5 px-3 h-9 border-b border-border-hairline bg-bg-page overflow-x-auto">
-      {chips.map((chip, i) => (
-        <span
-          key={i}
-          className="inline-flex items-center gap-1 h-5 px-2 rounded-full bg-bg-hover text-text-secondary text-[11px] whitespace-nowrap"
-        >
-          <span className="text-text-tertiary">{chip.propertyName}</span>
-          <span>{chip.operatorLabel}</span>
-          {chip.valueLabel && <span className="font-medium text-text-primary">{chip.valueLabel}</span>}
-          <button
-            type="button"
-            onClick={() => onRemoveLeaf(chip.leaf)}
-            className="text-text-tertiary hover:text-status-red leading-none"
-            title={t('database.removeFilter')}
-          >
-            ×
-          </button>
-        </span>
+      {tokens.map((token, i) => (
+        <TokenView key={i} token={token} onRemoveLeaf={onRemoveLeaf} />
       ))}
       <button
         type="button"
@@ -60,5 +48,50 @@ export function FilterBar({ filter, properties, onOpenEditor, onRemoveLeaf }: Fi
         {t('database.addFilter')}
       </button>
     </div>
+  );
+}
+
+function TokenView({
+  token,
+  onRemoveLeaf,
+}: {
+  token: FilterToken;
+  onRemoveLeaf: (leafId: string) => void;
+}) {
+  const { t } = useTranslation();
+
+  if (token.kind === 'connector') {
+    return (
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-text-tertiary px-0.5 select-none">
+        {token.op === 'and' ? t('database.and') : t('database.or')}
+      </span>
+    );
+  }
+
+  if (token.kind === 'group_open') {
+    return <span className="text-text-tertiary text-sm font-medium select-none">{'('}</span>;
+  }
+
+  if (token.kind === 'group_close') {
+    return <span className="text-text-tertiary text-sm font-medium select-none">{')'}</span>;
+  }
+
+  // chip
+  return (
+    <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full bg-bg-hover text-text-secondary text-[11px] whitespace-nowrap">
+      <span className="text-text-tertiary">{token.propertyName}</span>
+      <span>{t(token.operatorLabelKey)}</span>
+      {token.valueLabel && (
+        <span className="font-medium text-text-primary">{token.valueLabel}</span>
+      )}
+      <button
+        type="button"
+        onClick={() => onRemoveLeaf(token.leaf.id)}
+        className="text-text-tertiary hover:text-status-red leading-none"
+        title={t('database.removeFilter')}
+      >
+        ×
+      </button>
+    </span>
   );
 }
