@@ -29,6 +29,7 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
   const setExpanded = useWorkspaceStore((s) => s.setExpanded);
   const createChildPage = useWorkspaceStore((s) => s.createChildPage);
   const createChildDatabase = useWorkspaceStore((s) => s.createChildDatabase);
+  const createDatabaseRow = useWorkspaceStore((s) => s.createDatabaseRow);
   const renamePageLocally = useWorkspaceStore((s) => s.renamePageLocally);
   const trashPage = useWorkspaceStore((s) => s.trashPage);
   const setFavorite = useWorkspaceStore((s) => s.setFavorite);
@@ -96,6 +97,16 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
       setCurrentPage(child.id);
     } catch (err) {
       console.error('[Folio] new subpage failed', err);
+    }
+  };
+
+  const handleNewRow = async () => {
+    try {
+      const row = await createDatabaseRow(page.id);
+      setExpanded(page.id, true);
+      setCurrentPage(row.id);
+    } catch (err) {
+      console.error('[Folio] new database row failed', err);
     }
   };
 
@@ -261,11 +272,16 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
       {menuOpen && menuRect && (
         <NodeMenu
           anchorRect={menuRect}
+          isDatabase={page.type === 'database'}
           isFavorite={page.favorite}
           onClose={() => setMenuOpen(false)}
           onNewSubpage={() => {
             setMenuOpen(false);
             void handleNewSubpage();
+          }}
+          onNewRow={() => {
+            setMenuOpen(false);
+            void handleNewRow();
           }}
           onNewSubdatabase={() => {
             setMenuOpen(false);
@@ -310,9 +326,11 @@ export const PageTreeNode = memo(PageTreeNodeBase);
 
 interface NodeMenuProps {
   anchorRect: DOMRect;
+  isDatabase: boolean;
   isFavorite: boolean;
   onClose: () => void;
   onNewSubpage: () => void;
+  onNewRow: () => void;
   onNewSubdatabase: () => void;
   onRename: () => void;
   onDuplicate: () => void;
@@ -325,7 +343,7 @@ function NodeMenu(props: NodeMenuProps) {
   const { t } = useTranslation();
   // Reuse the lightweight popover styling. Inline rather than using
   // <Popover> because we want the menu flush to the row, not anchored above.
-  const { anchorRect, onClose, isFavorite, ...handlers } = props;
+  const { anchorRect, onClose, isDatabase, isFavorite, ...handlers } = props;
   // Close on outside click
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -370,8 +388,14 @@ function NodeMenu(props: NodeMenuProps) {
       style={style}
       className="rounded-md border border-border-hairline bg-bg-page shadow-popover py-1 text-[13px]"
     >
-      <MenuItem label={t('sidebar.newSubpage')} onClick={handlers.onNewSubpage} />
-      <MenuItem label={t('sidebar.newSubdatabase')} onClick={handlers.onNewSubdatabase} />
+      {isDatabase ? (
+        <MenuItem label={t('sidebar.newRow')} onClick={handlers.onNewRow} />
+      ) : (
+        <>
+          <MenuItem label={t('sidebar.newSubpage')} onClick={handlers.onNewSubpage} />
+          <MenuItem label={t('sidebar.newSubdatabase')} onClick={handlers.onNewSubdatabase} />
+        </>
+      )}
       <MenuItem label={t('common.rename')} onClick={handlers.onRename} />
       <MenuItem label={t('common.duplicate')} onClick={handlers.onDuplicate} />
       <MenuItem label={t('common.moveTo')} onClick={handlers.onMoveTo} />
