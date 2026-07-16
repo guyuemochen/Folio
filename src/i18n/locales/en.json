@@ -61,7 +61,36 @@
     "create": "Create",
     "newPage": "New page",
     "newDatabase": "New database",
-    "newSubdatabase": "New sub-database"
+    "newSubdatabase": "New sub-database",
+    "newRow": "New row"
+  },
+
+  "workspace": {
+    "manager": "Workspaces",
+    "current": "Current",
+    "switch": "Switch",
+    "new": "New workspace",
+    "newHint": "Choose a folder to store the workspace data.",
+    "folderPrompt": "Choose a folder",
+    "namePrompt": "Workspace name",
+    "defaultName": "My Workspace",
+    "rename": "Rename workspace",
+    "move": "Move workspace",
+    "moveHint": "Choose a new folder for this workspace.",
+    "delete": "Remove workspace",
+    "deleteHint": "Remove from the workspace list. The data files stay on disk.",
+    "deleteWithFiles": "Also delete the data files",
+    "deleteConfirm": "Remove \"{{name}}\"?",
+    "deleteFilesConfirm": "This will permanently delete the workspace data files. This cannot be undone.",
+    "noWorkspaces": "No workspaces yet. Create one to get started.",
+    "switching": "Switching workspace…",
+    "switchFailed": "Failed to switch workspace.",
+    "createFailed": "Failed to create workspace.",
+    "deleteFailed": "Failed to remove workspace.",
+    "renameFailed": "Failed to rename workspace.",
+    "moveFailed": "Failed to move workspace.",
+    "cloudWarning": "Warning: Cloud-synced folders (Dropbox, OneDrive, etc.) can corrupt SQLite databases.",
+    "active": "Active"
   },
 
   "page": {

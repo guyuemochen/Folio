@@ -61,7 +61,36 @@
     "create": "创建",
     "newPage": "新建页面",
     "newDatabase": "新建数据库",
-    "newSubdatabase": "新建子数据库"
+    "newSubdatabase": "新建子数据库",
+    "newRow": "新建行"
+  },
+
+  "workspace": {
+    "manager": "工作区",
+    "current": "当前",
+    "switch": "切换",
+    "new": "新建工作区",
+    "newHint": "选择一个文件夹来存储工作区数据。",
+    "folderPrompt": "选择文件夹",
+    "namePrompt": "工作区名称",
+    "defaultName": "我的工作区",
+    "rename": "重命名工作区",
+    "move": "移动工作区",
+    "moveHint": "为此工作区选择一个新文件夹。",
+    "delete": "移除工作区",
+    "deleteHint": "从工作区列表中移除。数据文件保留在磁盘上。",
+    "deleteWithFiles": "同时删除数据文件",
+    "deleteConfirm": "移除「{{name}}」?",
+    "deleteFilesConfirm": "这将永久删除工作区数据文件，无法撤销。",
+    "noWorkspaces": "还没有工作区。创建一个开始吧。",
+    "switching": "正在切换工作区…",
+    "switchFailed": "切换工作区失败。",
+    "createFailed": "创建工作区失败。",
+    "deleteFailed": "移除工作区失败。",
+    "renameFailed": "重命名工作区失败。",
+    "moveFailed": "移动工作区失败。",
+    "cloudWarning": "警告：云同步文件夹（Dropbox、OneDrive 等）可能导致 SQLite 数据库损坏。",
+    "active": "使用中"
   },
 
   "page": {

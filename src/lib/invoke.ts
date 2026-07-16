@@ -18,6 +18,7 @@ import type {
   PageSummary,
   PageWithDoc,
   PropertyDef,
+  RegisteredWorkspace,
   SearchHit,
   SnapshotSource,
   TrashedPage,
@@ -38,6 +39,26 @@ import type {
 export const api = {
   // --- Workspace ----------------------------------------------------------
   getWorkspace: (): Promise<Workspace> => invoke('get_workspace'),
+
+  // --- Workspace management (multi-workspace) -----------------------------
+  listWorkspaces: (): Promise<RegisteredWorkspace[]> => invoke('list_workspaces'),
+
+  getCurrentWorkspace: (): Promise<RegisteredWorkspace> => invoke('get_current_workspace'),
+
+  createWorkspace: (folderPath: string, name: string): Promise<RegisteredWorkspace> =>
+    invoke('create_workspace', { folderPath, name }),
+
+  renameWorkspace: (workspaceId: string, name: string): Promise<RegisteredWorkspace> =>
+    invoke('rename_workspace', { workspaceId, name }),
+
+  moveWorkspace: (workspaceId: string, newFolder: string): Promise<RegisteredWorkspace> =>
+    invoke('move_workspace', { workspaceId, newFolder }),
+
+  deleteWorkspace: (workspaceId: string, deleteFiles: boolean): Promise<void> =>
+    invoke('delete_workspace', { workspaceId, deleteFiles }),
+
+  switchWorkspace: (workspaceId: string): Promise<RegisteredWorkspace> =>
+    invoke('switch_workspace', { workspaceId }),
 
   // --- Page CRUD ----------------------------------------------------------
   listPages: (parentId: string | null = null): Promise<PageSummary[]> =>
