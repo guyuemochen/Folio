@@ -7,14 +7,13 @@ import { PageTreeNode } from './PageTreeNode';
 /**
  * Sidebar (PRD §5.2.3) — page-tree navigation.
  *
- *   [Workspace Switcher]   (single workspace MVP)
+ *   [Workspace Switcher]   (multi-workspace manager)
  *   Search (Cmd+K)
  *   ─────────
  *   Favorites              (drag to rearrange)
  *   ─────────
  *   Recents                (last 5 viewed)
  *   ─────────
- *   Teamspaces             (label-only MVP)
  *   └─ Page Tree           (recursive, lazy load)
  *   ─────────
  *   Trash
@@ -125,7 +124,9 @@ export function Sidebar() {
       <button
         type="button"
         className="h-11 px-3 flex items-center gap-2 hover:bg-bg-hover transition-colors"
-        onClick={() => fireToast(t('sidebar.moreWorkspacesSoon'))}
+        onClick={() =>
+          window.dispatchEvent(new CustomEvent('folio:open-workspace-switcher'))
+        }
         title={t('sidebar.workspaceSwitcher')}
       >
         <span className="text-[15px]">📝</span>
@@ -199,11 +200,6 @@ export function Sidebar() {
               </div>
             ))
           )}
-        </SidebarSection>
-
-        {/* === Teamspaces === */}
-        <SidebarSection label={t('sidebar.teamspaces')}>
-          <div className="px-2 py-1 text-text-secondary">🏢 {t('sidebar.defaultTeam')}</div>
         </SidebarSection>
 
         {/* === Page tree === */}

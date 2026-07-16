@@ -27,6 +27,9 @@ const AboutModal = lazy(() =>
 const SettingsModal = lazy(() =>
   import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal })),
 );
+const WorkspaceSwitcherModal = lazy(() =>
+  import('./components/WorkspaceSwitcherModal').then((m) => ({ default: m.WorkspaceSwitcherModal })),
+);
 
 /**
  * App shell:
@@ -55,6 +58,7 @@ export default function App() {
   const [historyTarget, setHistoryTarget] = useState<{ pageId: string; title: string } | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false);
 
   // M6 perf: end the cold-start timer once the shell has mounted.
   useEffect(() => {
@@ -88,6 +92,7 @@ export default function App() {
     const onOpenTrash = () => setTrashOpen(true);
     const onOpenAbout = () => setAboutOpen(true);
     const onOpenSettings = () => setSettingsOpen(true);
+    const onOpenWorkspaceSwitcher = () => setWorkspaceSwitcherOpen(true);
     const onOpenHistory = (e: Event) => {
       const detail = (e as CustomEvent<{ pageId: string; title: string }>).detail;
       if (detail) setHistoryTarget(detail);
@@ -116,6 +121,7 @@ export default function App() {
     window.addEventListener('folio:open-trash', onOpenTrash);
     window.addEventListener('folio:open-about', onOpenAbout);
     window.addEventListener('folio:open-settings', onOpenSettings);
+    window.addEventListener('folio:open-workspace-switcher', onOpenWorkspaceSwitcher);
     window.addEventListener('folio:open-history', onOpenHistory);
     window.addEventListener('folio:toast', onToast);
     window.addEventListener('folio:page-trashed', onPageTrashed);
@@ -127,6 +133,7 @@ export default function App() {
       window.removeEventListener('folio:open-trash', onOpenTrash);
       window.removeEventListener('folio:open-about', onOpenAbout);
       window.removeEventListener('folio:open-settings', onOpenSettings);
+      window.removeEventListener('folio:open-workspace-switcher', onOpenWorkspaceSwitcher);
       window.removeEventListener('folio:open-history', onOpenHistory);
       window.removeEventListener('folio:toast', onToast);
       window.removeEventListener('folio:page-trashed', onPageTrashed);
@@ -183,6 +190,11 @@ export default function App() {
       {settingsOpen && (
         <Suspense fallback={null}>
           <SettingsModal onClose={() => setSettingsOpen(false)} />
+        </Suspense>
+      )}
+      {workspaceSwitcherOpen && (
+        <Suspense fallback={null}>
+          <WorkspaceSwitcherModal onClose={() => setWorkspaceSwitcherOpen(false)} />
         </Suspense>
       )}
       {toast && (

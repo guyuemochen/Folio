@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import type { PageSummary, TrashedPage, Workspace } from '../lib/types';
+import type { PageSummary, RegisteredWorkspace, TrashedPage, Workspace } from '../lib/types';
 import { api } from '../lib/invoke';
+import { queryClient } from '../lib/queryClient';
 
 const RECENTS_KEY = 'folio:recents';
 const RECENTS_MAX = 5;
@@ -63,6 +64,10 @@ const ROOT_KEY = '__root__';
  */
 interface WorkspaceState {
   workspace: Workspace | null;
+  /** The active registered workspace (with folder path, from the registry). */
+  currentRegisteredWorkspace: RegisteredWorkspace | null;
+  /** All known workspaces from the registry. */
+  workspaces: RegisteredWorkspace[];
   /** Children of the workspace root (kept for backwards-compat / quick access). */
   rootPages: PageSummary[];
   /** Children cache for the recursive page tree. Key = parent id, or ROOT_KEY. */
@@ -80,6 +85,7 @@ interface WorkspaceState {
 
   // Actions
   loadWorkspace: () => Promise<void>;
+  loadWorkspaces: () => Promise<void>;
   loadRootPages: () => Promise<void>;
   loadChildren: (parentId: string) => Promise<void>;
   setCurrentPage: (pageId: string | null) => void;
@@ -87,6 +93,8 @@ interface WorkspaceState {
   createRootDatabase: (name?: string) => Promise<PageSummary>;
   createChildPage: (parentId: string, title?: string) => Promise<PageSummary>;
   createChildDatabase: (parentId: string, name?: string) => Promise<PageSummary>;
+  /** Add a row to a database (the row IS a page with parentType='database'). */
+  createDatabaseRow: (databaseId: string) => Promise<PageSummary>;
   /** Reparent a page (sidebar drag-to-move). newParentId=null → workspace root. */
   movePage: (
     pageId: string,
@@ -99,6 +107,12 @@ interface WorkspaceState {
   renamePageLocally: (pageId: string, title: string) => void;
   updateIconLocally: (pageId: string, icon: string | null) => void;
   updateCoverLocally: (pageId: string, cover: string | null) => void;
+
+  // Workspace management
+  /** Switch to a different workspace: flush editor → backend swap → reset caches. */
+  switchWorkspace: (workspaceId: string) => Promise<void>;
+  /** Clear all workspace-specific state (called after a successful switch). */
+  resetWorkspace: () => void;
 
   // Favorites
   loadFavorites: () => Promise<void>;
@@ -119,6 +133,7 @@ function summaryFromPage(p: {
   icon: string | null;
   parentId: string | null;
   parentType: 'workspace' | 'page' | 'database';
+  type: 'page' | 'database';
   isTrashed: boolean;
   updatedAt: number;
   favorite?: boolean;
@@ -129,6 +144,7 @@ function summaryFromPage(p: {
     icon: p.icon,
     parentId: p.parentId,
     parentType: p.parentType,
+    type: p.type,
     isTrashed: p.isTrashed,
     updatedAt: p.updatedAt,
     favorite: p.favorite ?? false,
@@ -149,6 +165,8 @@ function purgeFromCache(
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspace: null,
+  currentRegisteredWorkspace: null,
+  workspaces: [],
   rootPages: [],
   childrenCache: {},
   expanded: loadExpanded(),
@@ -159,7 +177,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   loadWorkspace: async () => {
     const ws = await api.getWorkspace();
-    set({ workspace: ws });
+    const regWs = await api.getCurrentWorkspace();
+    set({ workspace: ws, currentRegisteredWorkspace: regWs });
+  },
+
+  loadWorkspaces: async () => {
+    const list = await api.listWorkspaces();
+    set({ workspaces: list });
   },
 
   loadRootPages: async () => {
@@ -233,6 +257,31 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         expanded: new Set([...s.expanded, parentId]),
       };
     });
+    return summary;
+  },
+
+  createDatabaseRow: async (databaseId) => {
+    const row = await api.addDatabaseRow(databaseId);
+    const summary: PageSummary = {
+      id: row.id,
+      title: row.title,
+      icon: row.icon,
+      parentId: row.parentId,
+      parentType: 'database',
+      type: 'page',
+      isTrashed: row.isTrashed,
+      updatedAt: row.updatedAt,
+      favorite: false,
+    };
+    set((s) => {
+      const existing = s.childrenCache[databaseId] ?? [];
+      return {
+        childrenCache: { ...s.childrenCache, [databaseId]: [...existing, summary] },
+        expanded: new Set([...s.expanded, databaseId]),
+      };
+    });
+    // Bust the table view's row cache so the new row appears immediately.
+    queryClient.invalidateQueries({ queryKey: ['database-rows', databaseId] });
     return summary;
   },
 
@@ -325,6 +374,58 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // No-op here — kept for API symmetry in case future sidebars render covers.
   },
 
+  // === Workspace management ===============================================
+
+  resetWorkspace: () => {
+    set({
+      workspace: null,
+      currentRegisteredWorkspace: null,
+      rootPages: [],
+      childrenCache: {},
+      currentPageId: null,
+      favorites: [],
+      trashedPages: [],
+      expanded: new Set(),
+      recents: [],
+    });
+    try {
+      localStorage.removeItem(RECENTS_KEY);
+      localStorage.removeItem(EXPANDED_KEY);
+    } catch {
+      // ignore
+    }
+    // Clear ALL TanStack Query caches so stale data from the old workspace
+    // never bleeds into the new one.
+    queryClient.clear();
+  },
+
+  switchWorkspace: async (workspaceId) => {
+    // 1. Tell the editor to flush any pending debounced save BEFORE the
+    //    backend swaps the connection. The editor listens for this event
+    //    and awaits its save before we proceed.
+    window.dispatchEvent(new CustomEvent('folio:workspace-switching'));
+
+    // Give the editor listener a microtask to start its flush.
+    // The actual save + backend swap are serialized by the Mutex on the
+    // Rust side, so even if the flush is still in-flight when switchWorkspace
+    // runs, the switch command will wait for the lock.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // 2. Backend swap (opens new DB, swaps under lock, emits event).
+    await api.switchWorkspace(workspaceId);
+
+    // 3. Clear all caches + workspace-scoped state.
+    get().resetWorkspace();
+
+    // 4. Reload everything for the new workspace.
+    await Promise.all([
+      get().loadWorkspace(),
+      get().loadRootPages(),
+      get().loadFavorites(),
+      get().loadWorkspaces(),
+    ]);
+  },
+
   // === Favorites ===========================================================
   loadFavorites: async () => {
     const favs = await api.listFavorites();
@@ -365,12 +466,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       favorites: s.favorites.filter((p) => p.id !== pageId),
       currentPageId: s.currentPageId === pageId ? null : s.currentPageId,
     }));
+    // The trashed page may be a database row — bust the rows cache so the
+    // table view removes it immediately.
+    queryClient.invalidateQueries({ queryKey: ['database-rows'] });
     await get().loadTrashedPages();
   },
 
   restorePage: async (pageId) => {
     await api.restorePage(pageId);
     set((s) => ({ trashedPages: s.trashedPages.filter((p) => p.id !== pageId) }));
+    // The restored page may be a database row — bust the rows cache.
+    queryClient.invalidateQueries({ queryKey: ['database-rows'] });
     // Refresh root list — the page may have been restored to workspace root.
     await get().loadRootPages();
   },
@@ -378,6 +484,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   deletePermanently: async (pageId) => {
     await api.deletePagePermanently(pageId);
     set((s) => ({ trashedPages: s.trashedPages.filter((p) => p.id !== pageId) }));
+    // The permanently deleted page may have been a database row.
+    queryClient.invalidateQueries({ queryKey: ['database-rows'] });
   },
 
   emptyTrash: async () => {
