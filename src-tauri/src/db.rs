@@ -90,6 +90,80 @@ pub fn create_page(
     fetch_page(conn, &id)
 }
 
+/// Move a page to a new parent by rewriting its `parent_id` / `parent_type`.
+///
+/// `new_parent_id = None` moves the page to the workspace root
+/// (`parent_type = 'workspace'`). Cycle-safe: walks the new parent's ancestor
+/// chain and rejects any move that would make a page a descendant of itself.
+/// No ordering column exists on `page` (siblings sort by title ASC), so the
+/// moved page is simply appended to the new parent's child set.
+pub fn move_page(
+    conn: &rusqlite::Connection,
+    page_id: &str,
+    new_parent_id: Option<&str>,
+    new_parent_type: &str,
+) -> Result<Page> {
+    // Source page must exist and not be trashed.
+    let src_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM page WHERE id = ?1 AND is_trashed = 0",
+        params![page_id],
+        |r| r.get(0),
+    )?;
+    if src_count == 0 {
+        return Err(Error::NotFound(format!("page {page_id}")));
+    }
+
+    if let Some(npid) = new_parent_id {
+        if npid == page_id {
+            return Err(Error::Other("cannot move a page into itself".to_string()));
+        }
+        // Target parent must exist and not be trashed.
+        let parent_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM page WHERE id = ?1 AND is_trashed = 0",
+            params![npid],
+            |r| r.get(0),
+        )?;
+        if parent_count == 0 {
+            return Err(Error::NotFound(format!("target parent {npid}")));
+        }
+        // Walk up from the new parent; if we ever reach `page_id`, the move
+        // would create a cycle (page moved under its own descendant).
+        let mut cur = npid.to_string();
+        loop {
+            let ancestor: Option<String> = conn
+                .query_row(
+                    "SELECT parent_id FROM page WHERE id = ?1",
+                    params![&cur],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .ok()
+                .flatten();
+            match ancestor {
+                Some(a) => {
+                    if a == page_id {
+                        return Err(Error::Other(
+                            "cannot move a page into its own descendant".to_string(),
+                        ));
+                    }
+                    cur = a;
+                }
+                None => break,
+            }
+        }
+    }
+
+    let now = chrono::Utc::now().timestamp_millis();
+    let (pid_sql, ptype_norm) = match new_parent_id {
+        Some(pid) => (Some(pid.to_string()), new_parent_type.to_string()),
+        None => (None, "workspace".to_string()),
+    };
+    conn.execute(
+        "UPDATE page SET parent_id = ?1, parent_type = ?2, updated_at = ?3 WHERE id = ?4",
+        params![pid_sql, ptype_norm, now, page_id],
+    )?;
+    fetch_page(conn, page_id)
+}
+
 /// Fetch a single page by id. Returns NotFound if missing.
 pub fn fetch_page(conn: &rusqlite::Connection, page_id: &str) -> Result<Page> {
     let page = conn.query_row(

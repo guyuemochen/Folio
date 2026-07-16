@@ -32,11 +32,15 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
   const renamePageLocally = useWorkspaceStore((s) => s.renamePageLocally);
   const trashPage = useWorkspaceStore((s) => s.trashPage);
   const setFavorite = useWorkspaceStore((s) => s.setFavorite);
+  const movePage = useWorkspaceStore((s) => s.movePage);
 
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(page.title);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuRect, setMenuRect] = useState<DOMRect | null>(null);
+  // Drop-target highlight (nested reparent) + dragged-row dim.
+  const [isDropTarget, setIsDropTarget] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const children = childrenCache ?? [];
@@ -145,13 +149,44 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
         className={[
           'group relative flex items-center gap-1 pr-1 py-[3px] rounded-md cursor-pointer text-[13px]',
           'transition-colors duration-100 select-none',
-          active ? 'bg-bg-active font-semibold' : 'hover:bg-bg-hover',
+          isDragging ? 'opacity-40 ' : '',
+          isDropTarget
+            ? 'bg-accent/15 ring-1 ring-inset ring-accent'
+            : active
+              ? 'bg-bg-active font-semibold'
+              : 'hover:bg-bg-hover',
         ].join(' ')}
         style={{ paddingLeft: 6 + level * 16 }}
         draggable={!isEditing}
         onDragStart={(e) => {
           e.dataTransfer.effectAllowed = 'move';
           e.dataTransfer.setData('text/folio-page', page.id);
+          setIsDragging(true);
+        }}
+        onDragEnd={() => setIsDragging(false)}
+        onDragOver={(e) => {
+          // Only react to an in-progress folio-page drag; ignore file drags etc.
+          if (!e.dataTransfer.types.includes('text/folio-page')) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          if (!isDropTarget) setIsDropTarget(true);
+        }}
+        onDragLeave={() => {
+          if (isDropTarget) setIsDropTarget(false);
+        }}
+        onDrop={(e) => {
+          // Stop propagation so the Sidebar root-drop handler doesn't also fire
+          // (which would re-move the page to the workspace root).
+          e.stopPropagation();
+          setIsDropTarget(false);
+          const dragId = e.dataTransfer.getData('text/folio-page');
+          if (!dragId || dragId === page.id) return;
+          movePage(dragId, page.id, 'page').catch((err) => {
+            console.error('[Folio] move page failed', err);
+            window.dispatchEvent(
+              new CustomEvent('folio:toast', { detail: t('sidebar.moveFailed') }),
+            );
+          });
         }}
         onClick={() => !isEditing && setCurrentPage(page.id)}
         onDoubleClick={() => {
@@ -203,20 +238,6 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
 
         {page.favorite && !isEditing && (
           <span className="text-[10px] text-status-amber" title={t('sidebar.favorite')}>⭐</span>
-        )}
-
-        {!isEditing && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              openMenu((e.currentTarget as HTMLElement).getBoundingClientRect());
-            }}
-            className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-text-primary px-1"
-            aria-label={t('sidebar.moreActions')}
-          >
-            ⋯
-          </button>
         )}
       </div>
 

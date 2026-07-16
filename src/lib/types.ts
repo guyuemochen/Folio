@@ -60,6 +60,15 @@ export interface UpdatePageMetaInput {
   cover?: string | null;
 }
 
+/** Input for `move_page` (sidebar drag-to-reparent). */
+export interface MovePageInput {
+  pageId: string;
+  /** null moves the page to the workspace root. */
+  newParentId: string | null;
+  /** 'workspace' | 'page'. Defaults to 'workspace' when newParentId is null. */
+  newParentType?: 'workspace' | 'page';
+}
+
 /**
  * Minimal TipTap doc shape we care about. TipTap's own JSON type lives in
  * @tiptap/core; here we just need a permissive shape for storage round-trip.

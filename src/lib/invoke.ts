@@ -12,6 +12,7 @@ import type {
   DatabaseWithSchema,
   ExportFormat,
   ImportResult,
+  MovePageInput,
   Page,
   PageSnapshot,
   PageSummary,
@@ -63,6 +64,9 @@ export const api = {
 
   deletePagePermanently: (pageId: string): Promise<void> =>
     invoke('delete_page_permanently', { pageId }),
+
+  movePage: (input: MovePageInput): Promise<Page> =>
+    invoke('move_page', { input }),
 
   // --- Database (M3) ------------------------------------------------------
   createDatabase: (input: CreateDatabaseInput): Promise<DatabaseWithSchema> =>

@@ -35,6 +35,7 @@ export function Sidebar() {
   const createRootPage = useWorkspaceStore((s) => s.createRootPage);
   const createRootDatabase = useWorkspaceStore((s) => s.createRootDatabase);
   const reorderFavorites = useWorkspaceStore((s) => s.reorderFavorites);
+  const movePage = useWorkspaceStore((s) => s.movePage);
 
   useEffect(() => {
     Promise.all([loadWorkspace(), loadRootPages(), loadFavorites()]).catch((err) =>
@@ -230,7 +231,24 @@ export function Sidebar() {
               {t('sidebar.noPagesHint')}
             </SidebarEmptyHint>
           ) : (
-            <div className="pr-1">
+            <div
+              className="pr-1"
+              onDragOver={(e) => {
+                if (!e.dataTransfer.types.includes('text/folio-page')) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+              }}
+              onDrop={(e) => {
+                // Drop on the section background (not on a specific node) →
+                // move the dragged page to the workspace root.
+                const dragId = e.dataTransfer.getData('text/folio-page');
+                if (!dragId) return;
+                movePage(dragId, null, 'workspace').catch((err) => {
+                  console.error('[Folio] move page to root failed', err);
+                  fireToast(t('sidebar.moveFailed'));
+                });
+              }}
+            >
               {rootPages.map((p) => (
                 <PageTreeNode key={p.id} page={p} level={0} />
               ))}

@@ -124,6 +124,18 @@ pub struct UpdatePageMetaInput {
     pub cover: Option<Option<String>>,
 }
 
+/// Input for `move_page` (drag-to-reparent in the sidebar tree).
+/// `new_parent_id = None` moves the page to the workspace root.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MovePageInput {
+    pub page_id: String,
+    pub new_parent_id: Option<String>,
+    /// 'workspace' | 'page'. Defaults to 'workspace' when new_parent_id is None,
+    /// otherwise 'page'.
+    pub new_parent_type: Option<String>,
+}
+
 // =============================================================================
 // App state
 // =============================================================================
@@ -233,6 +245,26 @@ fn restore_page(state: State<'_, AppState>, page_id: String) -> Result<()> {
 fn delete_page_permanently(state: State<'_, AppState>, page_id: String) -> Result<()> {
     let db = state.db.lock();
     db::delete_page_permanently(&db, &page_id)
+}
+
+/// Reparent a page (sidebar drag-to-move). Cycle-protected on the Rust side.
+#[tauri::command]
+fn move_page(state: State<'_, AppState>, input: MovePageInput) -> Result<Page> {
+    let db = state.db.lock();
+    let parent_type = input
+        .new_parent_type
+        .as_deref()
+        .unwrap_or(if input.new_parent_id.is_some() {
+            "page"
+        } else {
+            "workspace"
+        });
+    db::move_page(
+        &db,
+        &input.page_id,
+        input.new_parent_id.as_deref(),
+        parent_type,
+    )
 }
 
 // =========================================================================
@@ -1003,6 +1035,7 @@ pub fn run() {
             trash_page,
             restore_page,
             delete_page_permanently,
+            move_page,
             // Trash + Favorites + Snapshots (M3 §5.2.4)
             list_trashed_pages,
             purge_old_trash,

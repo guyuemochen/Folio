@@ -87,6 +87,12 @@ interface WorkspaceState {
   createRootDatabase: (name?: string) => Promise<PageSummary>;
   createChildPage: (parentId: string, title?: string) => Promise<PageSummary>;
   createChildDatabase: (parentId: string, name?: string) => Promise<PageSummary>;
+  /** Reparent a page (sidebar drag-to-move). newParentId=null → workspace root. */
+  movePage: (
+    pageId: string,
+    newParentId: string | null,
+    newParentType: 'workspace' | 'page',
+  ) => Promise<void>;
   toggleExpand: (pageId: string) => void;
   setExpanded: (pageId: string, expanded: boolean) => void;
   removePageLocally: (pageId: string) => void;
@@ -228,6 +234,33 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       };
     });
     return summary;
+  },
+
+  movePage: async (pageId, newParentId, newParentType) => {
+    const page = await api.movePage({ pageId, newParentId, newParentType });
+    const summary = summaryFromPage(page);
+    set((s) => {
+      // The old parent is not known reliably, so purge the moved page from every
+      // cached list (root + all children) then re-insert under the new parent.
+      const nextCache = purgeFromCache(s.childrenCache, pageId);
+      const nextRoot = s.rootPages.filter((p) => p.id !== pageId);
+      if (newParentId === null) {
+        return {
+          rootPages: [...nextRoot, summary],
+          childrenCache: { ...nextCache, [ROOT_KEY]: [...nextRoot, summary] },
+          expanded: s.expanded,
+        };
+      }
+      return {
+        rootPages: nextRoot,
+        childrenCache: {
+          ...nextCache,
+          [newParentId]: [...(nextCache[newParentId] ?? []), summary],
+        },
+        // Auto-expand the new parent so the moved page is immediately visible.
+        expanded: new Set([...s.expanded, newParentId]),
+      };
+    });
   },
 
   toggleExpand: (pageId) =>
