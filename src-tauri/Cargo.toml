@@ -37,3 +37,6 @@ url = "2"
 [features]
 # this feature is used for production builds or when `devUrl` points to the filesystem
 custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+tempfile = "3"

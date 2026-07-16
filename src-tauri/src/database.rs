@@ -431,18 +431,20 @@ pub fn fetch_database_row(
     page_id: &str,
 ) -> Result<DatabaseRow> {
     let summary = conn.query_row(
-        "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at, favorite \
+        "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at, favorite, type \
          FROM page WHERE id = ?1",
         params![page_id],
         |row| {
             let is_trashed: i64 = row.get(5)?;
             let favorite: i64 = row.get(7)?;
+            let page_type: String = row.get(8).unwrap_or_else(|_| "page".to_string());
             Ok(PageSummary {
                 id: row.get(0)?,
                 title: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
                 icon: row.get(2)?,
                 parent_id: row.get(3)?,
                 parent_type: row.get(4)?,
+                r#type: page_type,
                 is_trashed: is_trashed != 0,
                 updated_at: row.get(6)?,
                 favorite: favorite != 0,
