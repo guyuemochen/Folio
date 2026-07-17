@@ -315,7 +315,31 @@
     "formatCurrency": "$1,234",
     "sortAscending": "Sort ascending",
     "sortDescending": "Sort descending",
-    "dragToReorder": "Drag to reorder"
+    "dragToReorder": "Drag to reorder",
+    "newView": "+ New view",
+    "viewNameLabel": "View",
+    "viewNamePlaceholder": "View name",
+    "createView": "Create view",
+    "pickViewType": "Pick a type",
+    "renameView": "Rename",
+    "duplicateView": "Duplicate view",
+    "deleteView": "Delete view",
+    "deleteViewConfirm": "Delete this view? Its filter and layout settings will be lost.",
+    "cannotDeleteDefaultView": "Default view cannot be deleted",
+    "setDefaultView": "Set as default",
+    "defaultBadge": "default",
+    "atLeastOneView": "At least one view is required.",
+    "viewTypeComingSoon": "{{type}} view is coming soon",
+    "viewTypeComingSoonHint": "This view type is not yet implemented. Your filter and layout settings are still saved and will apply when the renderer lands.",
+    "viewTypePreviewTag": "Preview",
+    "viewType": {
+      "table": "Table",
+      "board": "Board",
+      "calendar": "Calendar",
+      "timeline": "Timeline",
+      "gallery": "Gallery",
+      "list": "List"
+    }
   },
 
   "editor": {
