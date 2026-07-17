@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS database_view (
     "group"           TEXT,               -- JSON (quoted: group is a SQL keyword)
     hidden_properties TEXT,               -- JSON
     column_widths     TEXT,               -- JSON
+    manual_order      TEXT,               -- JSON array of row ids (manual drag-reorder, per-view)
     is_default        INTEGER NOT NULL DEFAULT 0,
     created_at        INTEGER NOT NULL
 );
@@ -230,6 +231,9 @@ fn apply_migrations(conn: &rusqlite::Connection) -> Result<()> {
     // checks without a join. The `favorites` table remains the source of
     // truth for ordering; this column is a denormalized boolean mirror.
     add_column_if_missing(conn, "page", "favorite", "INTEGER NOT NULL DEFAULT 0")?;
+    // Add `manual_order` to `database_view` for per-view manual row ordering
+    // (drag-to-reorder). JSON array of row ids; NULL = use default order.
+    add_column_if_missing(conn, "database_view", "manual_order", "TEXT")?;
     Ok(())
 }
 

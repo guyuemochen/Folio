@@ -114,6 +114,7 @@ export function DatabaseView({
         group: embeddedView?.group ?? null,
         hiddenProperties: embeddedView?.hiddenProperties ?? null,
         columnWidths: embeddedView?.columnWidths ?? null,
+        manualOrder: embeddedView?.manualOrder ?? null,
         isDefault: false,
         createdAt: 0,
       };
@@ -128,8 +129,15 @@ export function DatabaseView({
   const [group, setGroup] = useState<GroupConfig | null>(null);
   const [hidden, setHidden] = useState<string[]>([]);
   const [widths, setWidths] = useState<Record<string, number>>({});
+  const [manualOrder, setManualOrder] = useState<string[] | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [filterEditorOpen, setFilterEditorOpen] = useState(false);
+  // --- Manual row drag-reorder state ---------------------------------------
+  // `dragRowId` tracks the row whose handle is being dragged (ref so the
+  // dragstart/drop handlers read the latest value without re-rendering).
+  // `dragOverId` drives the drop indicator on the row currently hovered.
+  const dragRowId = useRef<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   // Hydrate local config when the active view changes.
   useEffect(() => {
@@ -139,6 +147,7 @@ export function DatabaseView({
     setGroup(activeView.group ?? null);
     setHidden(activeView.hiddenProperties ?? []);
     setWidths(activeView.columnWidths ?? {});
+    setManualOrder(activeView.manualOrder ?? null);
     setCollapsedGroups(new Set(activeView.group?.collapsedGroups ?? []));
   }, [activeView?.id, embeddedView]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -167,6 +176,7 @@ export function DatabaseView({
         group: ('group' in patch ? patch.group : activeView.group) ?? null,
         hiddenProperties: ('hiddenProperties' in patch ? patch.hiddenProperties : activeView.hiddenProperties) ?? [],
         columnWidths: ('columnWidths' in patch ? patch.columnWidths : activeView.columnWidths) ?? {},
+        manualOrder: ('manualOrder' in patch ? patch.manualOrder : activeView.manualOrder) ?? null,
       };
       // collapsedGroups live inside `group` — preserve them when patch updates group.
       if ('group' in patch && patch.group) {
@@ -231,10 +241,18 @@ export function DatabaseView({
   const groupProp = group ? allProps.find((p) => p.id === group.propertyId) : undefined;
 
   const filteredRows = useMemo(() => applyFilter(rows ?? [], filter), [rows, filter]);
-  const sortedRows = useMemo(() => applySorts(filteredRows, sorts), [filteredRows, sorts]);
+  // Display order precedence: explicit property sorts win; otherwise the
+  // manual drag order; otherwise the raw query order (created_at). Drag-
+  // to-reorder is only enabled when no sort is active, so the two never
+  // compete for the same rows.
+  const displayedRows = useMemo(() => {
+    if (sorts.length > 0) return applySorts(filteredRows, sorts);
+    if (manualOrder && manualOrder.length > 0) return applyManualOrder(filteredRows, manualOrder);
+    return filteredRows;
+  }, [filteredRows, sorts, manualOrder]);
   const groupedRows = useMemo(
-    () => (groupProp ? groupBy(filteredRows, groupProp) : []),
-    [filteredRows, groupProp],
+    () => (groupProp ? groupBy(displayedRows, groupProp) : []),
+    [displayedRows, groupProp],
   );
 
   if (!schema) {
@@ -357,7 +375,7 @@ export function DatabaseView({
   // --- Selection handlers --------------------------------------------------
   const onRowClick = (e: React.MouseEvent, rowId: string) => {
     if (e.shiftKey && lastSelectedId) {
-      const ids = sortedRows.map((r) => r.id);
+      const ids = displayedRows.map((r) => r.id);
       const a = ids.indexOf(lastSelectedId);
       const b = ids.indexOf(rowId);
       if (a !== -1 && b !== -1) {
@@ -425,11 +443,80 @@ export function DatabaseView({
     }
   };
 
+  // --- Manual row drag-reorder --------------------------------------------
+  // Dragging rows by their handle is only meaningful when the order isn't
+  // being dictated by an explicit property sort. When a sort is active the
+  // handle is hidden (the sort arrows in the header explain why).
+  const dragEnabled = sorts.length === 0;
+
+  const handleRowDragStart = (rowId: string, e: React.DragEvent) => {
+    dragRowId.current = rowId;
+    e.dataTransfer.effectAllowed = 'move';
+    // Stash the id in the transfer so drop targets can recognise this as a
+    // row drag even if the dragRowId ref is briefly stale (also makes the
+    // drag "real" for browsers that cancel drags with no payload).
+    e.dataTransfer.setData('application/x-folio-db-row', rowId);
+  };
+
+  const handleRowDragOver = (e: React.DragEvent, rowId: string) => {
+    // Only rows act as drop targets for our own row drags. Checking the MIME
+    // type (written in dragstart) is robust regardless of the ref state, so
+    // the browser always shows a "move" cursor instead of the forbidden one.
+    if (!e.dataTransfer.types.includes('application/x-folio-db-row')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragRowId.current !== rowId) setDragOverId(rowId);
+  };
+
+  const handleRowDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    // Stop the event bubbling to the group <section>'s onDrop, otherwise a
+    // row-on-row drop would also trigger a cross-group move.
+    e.stopPropagation();
+    const src = dragRowId.current;
+    dragRowId.current = null;
+    setDragOverId(null);
+    if (!src || src === targetId) return;
+    // In grouped mode, row-on-row drop only reorders within the same group.
+    // Cross-group moves go through the group-section drop (which changes the
+    // row's group property) — otherwise groupBy would re-bucket by property
+    // and the reorder would land in a confusing spot.
+    if (groupProp) {
+      const srcRow = filteredRows.find((r) => r.id === src);
+      const tgtRow = filteredRows.find((r) => r.id === targetId);
+      if (srcRow && tgtRow && rowGroupKey(srcRow, groupProp) !== rowGroupKey(tgtRow, groupProp)) return;
+    }
+    // Reorder off the currently displayed flat order so the result is
+    // correct in both flat and grouped modes (manualOrder is global; the
+    // per-group order falls out of groupBy preserving input order).
+    const ids = displayedRows.map((r) => r.id);
+    const from = ids.indexOf(src);
+    const to = ids.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    ids.splice(from, 1);
+    ids.splice(to, 0, src);
+    // Prune ids that are no longer live (deleted / filtered out) so the
+    // persisted array doesn't accumulate stale entries.
+    const live = new Set(filteredRows.map((r) => r.id));
+    const next = ids.filter((id) => live.has(id));
+    setManualOrder(next);
+    persistView({ manualOrder: next });
+  };
+
+  const handleRowDragEnd = () => {
+    dragRowId.current = null;
+    setDragOverId(null);
+  };
+
   // --- Drag across groups --------------------------------------------------
   const handleDropOnGroup = async (groupValue: string) => {
-    if (!groupProp || selectedRowIds.size === 0) return;
+    if (!groupProp) return;
+    // Prefer the row being dragged by its handle; fall back to the current
+    // multi-selection so the pre-existing select-then-drop flow still works.
+    const rowIds = dragRowId.current ? [dragRowId.current] : [...selectedRowIds];
+    if (rowIds.length === 0) return;
     await Promise.all(
-      [...selectedRowIds].map((id) => {
+      rowIds.map((id) => {
         const value =
           groupProp.type === 'multi_select'
             ? toggleMultiSelectValue(rows?.find((r) => r.id === id)?.properties[groupProp.id], groupValue)
@@ -437,6 +524,8 @@ export function DatabaseView({
         return api.updateCell({ pageId: id, propertyId: groupProp.id, value });
       }),
     );
+    dragRowId.current = null;
+    setDragOverId(null);
     refetchRows();
   };
 
@@ -459,6 +548,17 @@ export function DatabaseView({
     setGroupMenuOpen(false);
   };
 
+  // Bundled drag-reorder handlers passed down to FlatBody / GroupedTables /
+  // RowLine so the call sites stay compact.
+  const drag: RowDragProps = {
+    enabled: dragEnabled,
+    overId: dragOverId,
+    onStart: handleRowDragStart,
+    onOver: handleRowDragOver,
+    onDrop: handleRowDrop,
+    onEnd: handleRowDragEnd,
+  };
+
   // ========================================================================
   // Render
   // ========================================================================
@@ -477,7 +577,7 @@ export function DatabaseView({
           </span>
         </div>
         <span className="text-[11px] text-text-tertiary">
-          {t('database.rowCount', { count: sortedRows.length })}
+          {t('database.rowCount', { count: displayedRows.length })}
         </span>
         <div className="ml-auto flex items-center gap-1">
           {/* Sort/group/filter quick buttons */}
@@ -597,7 +697,6 @@ export function DatabaseView({
             handleEditProperty={handleEditProperty}
             handleDeleteProperty={handleDeleteProperty}
             handleDuplicateProperty={handleDuplicateProperty}
-            handleAddProperty={handleAddProperty}
             openFilterForColumn={openFilterForColumn}
             toggleHide={toggleHide}
             startResize={startResize}
@@ -611,9 +710,10 @@ export function DatabaseView({
             databaseId={databaseId}
             onDropOnGroup={handleDropOnGroup}
             onAfterCellCommit={refetchRows}
+            drag={drag}
           />
         ) : (
-          <table aria-label={schema.title || t('database.table')} className="w-full border-collapse text-[13px]">
+          <table aria-label={schema.title || t('database.table')} className="w-full border-collapse text-[13px] table-fixed">
             <TableHeaderRow
               visibleProps={visibleProps}
               widths={widths}
@@ -626,14 +726,13 @@ export function DatabaseView({
               handleEditProperty={handleEditProperty}
               handleDeleteProperty={handleDeleteProperty}
               handleDuplicateProperty={handleDuplicateProperty}
-              handleAddProperty={handleAddProperty}
               openFilterForColumn={openFilterForColumn}
               toggleHide={toggleHide}
               startResize={startResize}
             />
             <tbody>
               <FlatBody
-                rows={sortedRows}
+                rows={displayedRows}
                 visibleProps={visibleProps}
                 selectedRowIds={selectedRowIds}
                 onRowClick={onRowClick}
@@ -643,11 +742,41 @@ export function DatabaseView({
                 databaseId={databaseId}
                 onAfterCellCommit={refetchRows}
                 scrollRef={tableScrollRef}
+                drag={drag}
               />
             </tbody>
           </table>
         )}
       </div>
+
+      {/* Add property — standalone button OUTSIDE the scroll container so
+          manually widening columns can never push it off-screen. */}
+      <div className="px-3 py-1.5 border-b border-border-hairline bg-bg-section/40">
+        <button
+          type="button"
+          onClick={(e) =>
+            setMenuOpenFor({
+              new: true,
+              anchorRect: e.currentTarget.getBoundingClientRect(),
+            })
+          }
+          className="inline-flex items-center gap-1 text-[13px] text-text-tertiary hover:text-text-primary"
+          title={t('database.addProperty')}
+        >
+          <span className="text-base leading-none">+</span>
+          {t('database.addProperty')}
+        </button>
+      </div>
+
+      {/* New-property menu — rendered once at the view level (not per-table,
+          so grouped view no longer stacks N copies of the popover). */}
+      {menuOpenFor && 'new' in menuOpenFor && (
+        <PropertyMenu
+          anchorRect={menuOpenFor.anchorRect}
+          onClose={() => setMenuOpenFor(null)}
+          onSubmit={handleAddProperty}
+        />
+      )}
 
       {/* Filter editor modal */}
       {filterEditorOpen && (
@@ -709,12 +838,6 @@ interface HeaderProps {
   ) => void;
   handleDeleteProperty: (propId: string) => void;
   handleDuplicateProperty: (propId: string) => void;
-  handleAddProperty: (input: {
-    name: string;
-    type: PropertyDef['type'];
-    options?: PropertyDef['options'];
-    numberFormat?: string;
-  }) => void;
   openFilterForColumn: (propId: string) => void;
   toggleHide: (propId: string) => void;
   startResize: (
@@ -725,6 +848,7 @@ interface HeaderProps {
       updater: (prev: Record<string, number>) => Record<string, number>,
     ) => void,
     onDone: (next: Record<string, number>) => void,
+    maxWidth?: number,
   ) => void;
 }
 
@@ -746,15 +870,16 @@ function TableHeaderRow({
   handleEditProperty,
   handleDeleteProperty,
   handleDuplicateProperty,
-  handleAddProperty,
   openFilterForColumn,
   toggleHide,
   startResize,
 }: HeaderProps) {
-  const { t } = useTranslation();
   return (
     <thead>
       <tr className="bg-bg-section border-b border-border-hairline">
+        {/* Spacer header for the drag-handle column (matches RowLine's
+            leading w-7 cell). aria-hidden so screen readers skip it. */}
+        <th className="w-7 border-b border-border-hairline" aria-hidden />
         {visibleProps.map((prop) => {
           const w = widths[prop.id] ?? DEFAULT_COL_WIDTH;
           const sort = sorts.find((s) => s.propertyId === prop.id);
@@ -785,9 +910,23 @@ function TableHeaderRow({
               {/* Resize handle */}
               <div
                 className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-accent/40"
-                onMouseDown={(e) => startResize(e, prop.id, w, setWidths, (next) =>
-                  persistView({ columnWidths: next }),
-                )}
+                onMouseDown={(e) => {
+                  // Cap the column width so it can't exceed the visible table
+                  // area. Reserve the non-resizable columns — the w-7 (28px)
+                  // drag-handle spacer and the w-16 (64px) trailing row-action
+                  // column — so widening a property can never push the ↗/×
+                  // buttons off-screen.
+                  const scrollContainer = e.currentTarget.closest('.overflow-auto') as HTMLElement | null;
+                  const containerW = scrollContainer?.clientWidth ?? 0;
+                  const otherColsW = visibleProps
+                    .filter((p) => p.id !== prop.id)
+                    .reduce((sum, p) => sum + (widths[p.id] ?? DEFAULT_COL_WIDTH), 0);
+                  const maxW = containerW > 0
+                    ? Math.max(MIN_COL_WIDTH, containerW - 28 - 64 - otherColsW)
+                    : undefined;
+                  startResize(e, prop.id, w, setWidths, (next) =>
+                    persistView({ columnWidths: next }), maxW);
+                }}
                 onClick={(e) => e.stopPropagation()}
               />
               {menuOpenFor && 'col' in menuOpenFor && menuOpenFor.col === prop.id && (
@@ -806,31 +945,13 @@ function TableHeaderRow({
             </th>
           );
         })}
-        <th
-          style={{ width: 48, minWidth: 48 }}
-          className="relative px-2 py-2 border-b border-border-hairline"
-        >
-          <button
-            type="button"
-            onClick={(e) =>
-              setMenuOpenFor({
-                new: true,
-                anchorRect: e.currentTarget.getBoundingClientRect(),
-              })
-            }
-            className="text-text-tertiary hover:text-text-primary text-lg leading-none px-2"
-            title={t('database.addProperty')}
-          >
-            +
-          </button>
-          {menuOpenFor && 'new' in menuOpenFor && (
-            <PropertyMenu
-              anchorRect={menuOpenFor.anchorRect}
-              onClose={() => setMenuOpenFor(null)}
-              onSubmit={handleAddProperty}
-            />
-          )}
-        </th>
+        {/* Trailing column — intentionally has NO explicit width so it acts as
+            the table's slack absorber: in table-fixed + w-full, leftover
+            horizontal space goes here instead of being distributed across the
+            property columns (which would make them drift when one is resized).
+            min-w-16 guarantees the ↗/× buttons always fit; the resize cap
+            reserves this 64px so widening a column can't squeeze it smaller. */}
+        <th aria-hidden className="min-w-16 border-b border-border-hairline" />
       </tr>
     </thead>
   );
@@ -852,6 +973,21 @@ interface BodyProps {
 }
 
 /**
+ * Bundled drag-to-reorder handlers shared by the flat and grouped bodies.
+ * `enabled` is false when a property sort is active (order is sort-driven,
+ * so manual reorder is disabled); the handle column still reserves space.
+ */
+interface RowDragProps {
+  enabled: boolean;
+  /** Row id currently hovered during a drag (for the drop indicator), or null. */
+  overId: string | null;
+  onStart: (rowId: string, e: React.DragEvent) => void;
+  onOver: (e: React.DragEvent, rowId: string) => void;
+  onDrop: (e: React.DragEvent, rowId: string) => void;
+  onEnd: () => void;
+}
+
+/**
  * M6 perf: FlatBody uses TanStack Virtual with the "padding rows" pattern.
  * Off-screen row ranges collapse into a single `<tr>` spacer with the
  * appropriate height, so the scrollbar reflects the full row count while
@@ -870,7 +1006,12 @@ function FlatBody({
   databaseId,
   onAfterCellCommit,
   scrollRef,
-}: BodyProps & { rows: DatabaseRow[]; scrollRef: RefObject<HTMLDivElement | null> }) {
+  drag,
+}: BodyProps & {
+  rows: DatabaseRow[];
+  scrollRef: RefObject<HTMLDivElement | null>;
+  drag: RowDragProps;
+}) {
   const { t } = useTranslation();
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -882,7 +1023,8 @@ function FlatBody({
   if (rows.length === 0) {
     return (
       <tr>
-        <td colSpan={visibleProps.length + 1} className="px-3 py-16 text-center text-[13px] text-text-tertiary">
+        {/* +2 = drag-handle column + row-action column */}
+        <td colSpan={visibleProps.length + 2} className="px-3 py-16 text-center text-[13px] text-text-tertiary">
           {t('database.emptyRows')}
         </td>
       </tr>
@@ -895,7 +1037,7 @@ function FlatBody({
   const lastEnd = items.length > 0 ? items[items.length - 1]!.end : 0;
   const padTop = firstStart;
   const padBottom = Math.max(0, totalSize - lastEnd);
-  const colSpan = visibleProps.length + 1;
+  const colSpan = visibleProps.length + 2;
 
   return (
     <>
@@ -919,6 +1061,7 @@ function FlatBody({
             onOpenRow={onOpenRow}
             databaseId={databaseId}
             onAfterCellCommit={onAfterCellCommit}
+            drag={drag}
           />
         );
       })}
@@ -945,7 +1088,6 @@ function GroupedTables({
   handleEditProperty,
   handleDeleteProperty,
   handleDuplicateProperty,
-  handleAddProperty,
   openFilterForColumn,
   toggleHide,
   startResize,
@@ -959,6 +1101,7 @@ function GroupedTables({
   databaseId,
   onDropOnGroup,
   onAfterCellCommit,
+  drag,
 }: HeaderProps & {
   groups: { key: string; label: string; color: string; rows: DatabaseRow[] }[];
   groupProp: PropertyDef;
@@ -972,6 +1115,7 @@ function GroupedTables({
   databaseId: string;
   onDropOnGroup: (groupValue: string) => void;
   onAfterCellCommit: () => void;
+  drag: RowDragProps;
 }) {
   return (
     <div className="p-3 space-y-3">
@@ -1020,7 +1164,6 @@ function GroupedTables({
                   handleEditProperty={handleEditProperty}
                   handleDeleteProperty={handleDeleteProperty}
                   handleDuplicateProperty={handleDuplicateProperty}
-                  handleAddProperty={handleAddProperty}
                   openFilterForColumn={openFilterForColumn}
                   toggleHide={toggleHide}
                   startResize={startResize}
@@ -1039,6 +1182,7 @@ function GroupedTables({
                       databaseId={databaseId}
                       onAfterCellCommit={onAfterCellCommit}
                       groupColor={g.color}
+                      drag={drag}
                     />
                   ))}
                 </tbody>
@@ -1062,10 +1206,17 @@ function RowLine({
   databaseId,
   onAfterCellCommit,
   groupColor,
-}: Omit<BodyProps, 'selectedRowIds'> & { row: DatabaseRow; selected: boolean; groupColor?: string }) {
+  drag,
+}: Omit<BodyProps, 'selectedRowIds'> & {
+  row: DatabaseRow;
+  selected: boolean;
+  groupColor?: string;
+  drag: RowDragProps;
+}) {
   const { t } = useTranslation();
   const removePageLocally = useWorkspaceStore((s) => s.removePageLocally);
   const grouped = Boolean(groupColor);
+  const isDropTarget = drag.enabled && drag.overId === row.id;
   return (
     <tr
       className={[
@@ -1079,14 +1230,41 @@ function RowLine({
           : grouped
             ? 'bg-bg-section/25'
             : 'hover:bg-bg-hover/60',
+        // Drop indicator: a 2px accent line at the top of the hovered row.
+        // Inset box-shadow avoids the layout shift a real border would cause.
+        isDropTarget ? '[box-shadow:inset_0_2px_0_var(--color-accent)]' : '',
       ].join(' ')}
       onClick={(e) => onRowClick(e, row.id)}
       onContextMenu={(e) => onRowContextMenu(e, row.id)}
+      onDragOver={(e) => drag.onOver(e, row.id)}
+      onDrop={(e) => drag.onDrop(e, row.id)}
     >
+      {/* Drag handle column. Always present so column count (and thus the
+          FlatBody colSpan) stays constant; the handle only renders when
+          manual reorder is enabled (no active sort). A <span> (not <button>)
+          is used so the element's native drag behaviour isn't intercepted —
+          matches the Sidebar favorites drag handle. */}
+      <td className="w-7 text-center select-none" onClick={(e) => e.stopPropagation()}>
+        {drag.enabled && (
+          <span
+            role="button"
+            tabIndex={0}
+            draggable
+            onDragStart={(e) => drag.onStart(row.id, e)}
+            onDragEnd={drag.onEnd}
+            onClick={(e) => e.stopPropagation()}
+            className="inline-block opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-text-tertiary hover:text-text-secondary px-1 text-xs leading-none transition-opacity"
+            title={t('database.dragToReorder')}
+            aria-label={t('database.dragToReorder')}
+          >
+            ⋮⋮
+          </span>
+        )}
+      </td>
       {visibleProps.map((prop, i) => (
         <td
           key={prop.id}
-          className="relative px-3 py-1 align-top"
+          className="relative px-3 py-1 align-top overflow-hidden"
           onClick={(e) => {
             // Title cell is editable in place now — opening the page is done
             // via the dedicated ↗ button at the end of the row. We still
@@ -1113,7 +1291,7 @@ function RowLine({
           />
         </td>
       ))}
-      <td className="px-2 text-center whitespace-nowrap">
+      <td className="min-w-16 px-2 text-center whitespace-nowrap">
         {/* Open page — dedicated button so the title cell stays editable
             in place. Hover-revealed alongside the delete button. */}
         <button
@@ -1343,6 +1521,42 @@ function applySorts(rows: DatabaseRow[], sorts: SortEntry[]): DatabaseRow[] {
   return out;
 }
 
+/**
+ * Apply a per-view manual row order (the result of drag-to-reorder). Rows
+ * whose id appears in `order` are emitted in that relative sequence; any
+ * rows not listed (e.g. newly added since the last reorder, or rows whose
+ * id predates a re-parent) keep their incoming relative order, appended
+ * after the ordered ones. Ids in `order` that no longer exist are ignored.
+ */
+function applyManualOrder(rows: DatabaseRow[], order: string[]): DatabaseRow[] {
+  if (order.length === 0) return rows;
+  const rank = new Map<string, number>();
+  order.forEach((id, i) => rank.set(id, i));
+  const ordered: DatabaseRow[] = [];
+  const rest: DatabaseRow[] = [];
+  for (const r of rows) {
+    if (rank.has(r.id)) ordered.push(r);
+    else rest.push(r);
+  }
+  ordered.sort((a, b) => (rank.get(a.id)! - rank.get(b.id)!));
+  return [...ordered, ...rest];
+}
+
+/**
+ * Stable per-row group key for the same-group drag guard. Mirrors the
+ * bucketing logic in `groupBy`: select/status → the scalar string,
+ * multi_select → sorted values joined by a NUL separator (so two rows share
+ * a key only when their tag sets match exactly).
+ */
+function rowGroupKey(row: DatabaseRow, prop: PropertyDef): string {
+  const raw = row.properties[prop.id];
+  if (prop.type === 'multi_select') {
+    const vals: string[] = Array.isArray(raw) ? (raw as string[]) : [];
+    return [...vals].sort().join('\u0000');
+  }
+  return typeof raw === 'string' ? raw : '';
+}
+
 function compareValues(a: unknown, b: unknown): number {
   if (a == null && b == null) return 0;
   if (a == null) return -1;
@@ -1427,13 +1641,15 @@ function startResize(
   startW: number,
   setWidths: (updater: (prev: Record<string, number>) => Record<string, number>) => void,
   onDone: (next: Record<string, number>) => void,
+  maxWidth?: number,
 ) {
   e.preventDefault();
   const startX = e.clientX;
   let nextMap: Record<string, number> = {};
   const onMove = (ev: MouseEvent) => {
     const dx = ev.clientX - startX;
-    const w = Math.max(MIN_COL_WIDTH, startW + dx);
+    let w = Math.max(MIN_COL_WIDTH, startW + dx);
+    if (maxWidth !== undefined) w = Math.min(w, maxWidth);
     setWidths((prev) => {
       nextMap = { ...prev, [propId]: w };
       return nextMap;

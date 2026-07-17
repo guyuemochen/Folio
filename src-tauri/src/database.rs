@@ -71,6 +71,10 @@ pub struct ViewConfig {
     /// JSON-encoded column widths: { propertyId: pixels }.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub column_widths: Option<serde_json::Value>,
+    /// JSON-encoded manual row order: [pageId] (drag-to-reorder, per-view).
+    /// Only consulted when no explicit `sort` is active.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manual_order: Option<serde_json::Value>,
     pub is_default: bool,
     pub created_at: i64,
 }
@@ -174,6 +178,9 @@ pub struct UpdateViewInput {
     pub hidden_properties: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "deserialize_some")]
     pub column_widths: Option<serde_json::Value>,
+    /// JSON array of row ids for manual ordering. `null` clears it.
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub manual_order: Option<serde_json::Value>,
 }
 
 /// Serde helper: wrap the deserialized value in `Some(...)` so that an
@@ -424,18 +431,20 @@ pub fn fetch_database_row(
     page_id: &str,
 ) -> Result<DatabaseRow> {
     let summary = conn.query_row(
-        "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at, favorite \
+        "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at, favorite, type \
          FROM page WHERE id = ?1",
         params![page_id],
         |row| {
             let is_trashed: i64 = row.get(5)?;
             let favorite: i64 = row.get(7)?;
+            let page_type: String = row.get(8).unwrap_or_else(|_| "page".to_string());
             Ok(PageSummary {
                 id: row.get(0)?,
                 title: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
                 icon: row.get(2)?,
                 parent_id: row.get(3)?,
                 parent_type: row.get(4)?,
+                r#type: page_type,
                 is_trashed: is_trashed != 0,
                 updated_at: row.get(6)?,
                 favorite: favorite != 0,
@@ -557,7 +566,7 @@ pub fn list_views(
 ) -> Result<Vec<ViewConfig>> {
     let mut stmt = conn.prepare(
         "SELECT id, database_id, name, type, filter, sort, \"group\", \
-                hidden_properties, column_widths, is_default, created_at \
+                hidden_properties, column_widths, manual_order, is_default, created_at \
          FROM database_view WHERE database_id = ?1 ORDER BY created_at ASC",
     )?;
     let rows = stmt.query_map(params![database_id], map_view)?;
@@ -570,7 +579,8 @@ fn map_view(row: &rusqlite::Row<'_>) -> rusqlite::Result<ViewConfig> {
     let group: Option<String> = row.get(6)?;
     let hidden: Option<String> = row.get(7)?;
     let widths: Option<String> = row.get(8)?;
-    let is_default: i64 = row.get(9)?;
+    let manual_order: Option<String> = row.get(9)?;
+    let is_default: i64 = row.get(10)?;
     Ok(ViewConfig {
         id: row.get(0)?,
         database_id: row.get(1)?,
@@ -581,8 +591,9 @@ fn map_view(row: &rusqlite::Row<'_>) -> rusqlite::Result<ViewConfig> {
         group: group.and_then(|s| serde_json::from_str(&s).ok()),
         hidden_properties: hidden.and_then(|s| serde_json::from_str(&s).ok()),
         column_widths: widths.and_then(|s| serde_json::from_str(&s).ok()),
+        manual_order: manual_order.and_then(|s| serde_json::from_str(&s).ok()),
         is_default: is_default != 0,
-        created_at: row.get(10)?,
+        created_at: row.get(11)?,
     })
 }
 
@@ -643,6 +654,13 @@ pub fn update_view(
         let json = serde_json::to_string(widths).unwrap_or_else(|_| "{}".to_string());
         conn.execute(
             "UPDATE database_view SET column_widths = ?1 WHERE id = ?2",
+            params![json, view_id],
+        )?;
+    }
+    if let Some(manual_order) = input.manual_order.as_ref() {
+        let json = serde_json::to_string(manual_order).unwrap_or_else(|_| "null".to_string());
+        conn.execute(
+            "UPDATE database_view SET manual_order = ?1 WHERE id = ?2",
             params![json, view_id],
         )?;
     }

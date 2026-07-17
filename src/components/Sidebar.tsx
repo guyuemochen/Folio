@@ -7,14 +7,13 @@ import { PageTreeNode } from './PageTreeNode';
 /**
  * Sidebar (PRD §5.2.3) — page-tree navigation.
  *
- *   [Workspace Switcher]   (single workspace MVP)
+ *   [Workspace Switcher]   (multi-workspace manager)
  *   Search (Cmd+K)
  *   ─────────
  *   Favorites              (drag to rearrange)
  *   ─────────
  *   Recents                (last 5 viewed)
  *   ─────────
- *   Teamspaces             (label-only MVP)
  *   └─ Page Tree           (recursive, lazy load)
  *   ─────────
  *   Trash
@@ -35,6 +34,8 @@ export function Sidebar() {
   const createRootPage = useWorkspaceStore((s) => s.createRootPage);
   const createRootDatabase = useWorkspaceStore((s) => s.createRootDatabase);
   const reorderFavorites = useWorkspaceStore((s) => s.reorderFavorites);
+  const setFavorite = useWorkspaceStore((s) => s.setFavorite);
+  const movePage = useWorkspaceStore((s) => s.movePage);
 
   useEffect(() => {
     Promise.all([loadWorkspace(), loadRootPages(), loadFavorites()]).catch((err) =>
@@ -96,6 +97,41 @@ export function Sidebar() {
     [],
   );
 
+  // Accept an external page drag (text/folio-page, set by PageTreeNode) dropped
+  // onto the Favorites section to add it to favorites. This is distinct from the
+  // drag-rearrange above: a favorite's own dragStart sets dragFavId but does NOT
+  // set text/folio-page, so reorder drags are correctly ignored here.
+  const [isFavDropTarget, setIsFavDropTarget] = useState(false);
+  const handleFavSectionDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (!e.dataTransfer.types.includes('text/folio-page')) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (!isFavDropTarget) setIsFavDropTarget(true);
+    },
+    [isFavDropTarget],
+  );
+  const handleFavSectionDragLeave = useCallback((e: React.DragEvent) => {
+    // Only clear when the pointer leaves the container entirely, not when it
+    // crosses into a child element.
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setIsFavDropTarget(false);
+  }, []);
+  const handleFavSectionDrop = useCallback(
+    (e: React.DragEvent) => {
+      setIsFavDropTarget(false);
+      const dragId = e.dataTransfer.getData('text/folio-page');
+      if (!dragId) return;
+      // No-op if already favorited (avoids a redundant IPC + reload).
+      if (favorites.some((f) => f.id === dragId)) return;
+      setFavorite(dragId, true).catch((err) => {
+        console.error('[Folio] add to favorites failed', err);
+        fireToast(t('sidebar.favoriteFailed'));
+      });
+    },
+    [favorites, setFavorite, fireToast, t],
+  );
+
   // Create menu (New page / New database) anchored to the "+" button in the
   // Pages section header.
   const [createMenuRect, setCreateMenuRect] = useState<DOMRect | null>(null);
@@ -124,7 +160,9 @@ export function Sidebar() {
       <button
         type="button"
         className="h-11 px-3 flex items-center gap-2 hover:bg-bg-hover transition-colors"
-        onClick={() => fireToast(t('sidebar.moreWorkspacesSoon'))}
+        onClick={() =>
+          window.dispatchEvent(new CustomEvent('folio:open-workspace-switcher'))
+        }
         title={t('sidebar.workspaceSwitcher')}
       >
         <span className="text-[15px]">📝</span>
@@ -152,31 +190,41 @@ export function Sidebar() {
       <div className="flex-1 overflow-y-auto">
         {/* === Favorites === */}
         <SidebarSection label={t('sidebar.favorites')}>
-          {favorites.length === 0 ? (
-            <SidebarEmptyHint>{t('sidebar.favoritesEmpty')}</SidebarEmptyHint>
-          ) : (
-            favorites.map((p) => (
-              <div
-                key={p.id}
-                draggable
-                onDragStart={() => handleFavDragStart(p.id)}
-                onDragOver={(e) => handleFavDragOver(e, p.id)}
-                onDrop={() => handleFavDrop(p.id)}
-                onClick={() => setCurrentPage(p.id)}
-                className={[
-                  'group flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer',
-                  'transition-colors',
-                  p.id === currentPageId ? 'bg-bg-active font-semibold' : 'hover:bg-bg-hover',
-                ].join(' ')}
-              >
-                <span className="text-sm flex-shrink-0">{p.icon ?? '📄'}</span>
-                <span className="flex-1 min-w-0 truncate">{p.title || t('common.untitled')}</span>
-                <span className="text-[10px] opacity-0 group-hover:opacity-100 text-text-tertiary">
-                  ⋮⋮
-                </span>
-              </div>
-            ))
-          )}
+          <div
+            onDragOver={handleFavSectionDragOver}
+            onDragLeave={handleFavSectionDragLeave}
+            onDrop={handleFavSectionDrop}
+            className={[
+              'rounded-md transition-colors',
+              isFavDropTarget ? 'bg-accent/10 ring-1 ring-inset ring-accent/40' : '',
+            ].join(' ')}
+          >
+            {favorites.length === 0 ? (
+              <SidebarEmptyHint>{t('sidebar.favoritesEmpty')}</SidebarEmptyHint>
+            ) : (
+              favorites.map((p) => (
+                <div
+                  key={p.id}
+                  draggable
+                  onDragStart={() => handleFavDragStart(p.id)}
+                  onDragOver={(e) => handleFavDragOver(e, p.id)}
+                  onDrop={() => handleFavDrop(p.id)}
+                  onClick={() => setCurrentPage(p.id)}
+                  className={[
+                    'group flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer',
+                    'transition-colors',
+                    p.id === currentPageId ? 'bg-bg-active font-semibold' : 'hover:bg-bg-hover',
+                  ].join(' ')}
+                >
+                  <span className="text-sm flex-shrink-0">{p.icon ?? '📄'}</span>
+                  <span className="flex-1 min-w-0 truncate">{p.title || t('common.untitled')}</span>
+                  <span className="text-[10px] opacity-0 group-hover:opacity-100 text-text-tertiary">
+                    ⋮⋮
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
         </SidebarSection>
 
         {/* === Recents === */}
@@ -198,11 +246,6 @@ export function Sidebar() {
               </div>
             ))
           )}
-        </SidebarSection>
-
-        {/* === Teamspaces === */}
-        <SidebarSection label={t('sidebar.teamspaces')}>
-          <div className="px-2 py-1 text-text-secondary">🏢 {t('sidebar.defaultTeam')}</div>
         </SidebarSection>
 
         {/* === Page tree === */}
@@ -230,7 +273,24 @@ export function Sidebar() {
               {t('sidebar.noPagesHint')}
             </SidebarEmptyHint>
           ) : (
-            <div className="pr-1">
+            <div
+              className="pr-1"
+              onDragOver={(e) => {
+                if (!e.dataTransfer.types.includes('text/folio-page')) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+              }}
+              onDrop={(e) => {
+                // Drop on the section background (not on a specific node) →
+                // move the dragged page to the workspace root.
+                const dragId = e.dataTransfer.getData('text/folio-page');
+                if (!dragId) return;
+                movePage(dragId, null, 'workspace').catch((err) => {
+                  console.error('[Folio] move page to root failed', err);
+                  fireToast(t('sidebar.moveFailed'));
+                });
+              }}
+            >
               {rootPages.map((p) => (
                 <PageTreeNode key={p.id} page={p} level={0} />
               ))}

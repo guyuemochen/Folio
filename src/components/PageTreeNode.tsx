@@ -29,14 +29,19 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
   const setExpanded = useWorkspaceStore((s) => s.setExpanded);
   const createChildPage = useWorkspaceStore((s) => s.createChildPage);
   const createChildDatabase = useWorkspaceStore((s) => s.createChildDatabase);
+  const createDatabaseRow = useWorkspaceStore((s) => s.createDatabaseRow);
   const renamePageLocally = useWorkspaceStore((s) => s.renamePageLocally);
   const trashPage = useWorkspaceStore((s) => s.trashPage);
   const setFavorite = useWorkspaceStore((s) => s.setFavorite);
+  const movePage = useWorkspaceStore((s) => s.movePage);
 
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(page.title);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuRect, setMenuRect] = useState<DOMRect | null>(null);
+  // Drop-target highlight (nested reparent) + dragged-row dim.
+  const [isDropTarget, setIsDropTarget] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const children = childrenCache ?? [];
@@ -95,6 +100,16 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
     }
   };
 
+  const handleNewRow = async () => {
+    try {
+      const row = await createDatabaseRow(page.id);
+      setExpanded(page.id, true);
+      setCurrentPage(row.id);
+    } catch (err) {
+      console.error('[Folio] new database row failed', err);
+    }
+  };
+
   const handleNewSubdatabase = async () => {
     try {
       const child = await createChildDatabase(page.id, 'Untitled database');
@@ -145,13 +160,44 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
         className={[
           'group relative flex items-center gap-1 pr-1 py-[3px] rounded-md cursor-pointer text-[13px]',
           'transition-colors duration-100 select-none',
-          active ? 'bg-bg-active font-semibold' : 'hover:bg-bg-hover',
+          isDragging ? 'opacity-40 ' : '',
+          isDropTarget
+            ? 'bg-accent/15 ring-1 ring-inset ring-accent'
+            : active
+              ? 'bg-bg-active font-semibold'
+              : 'hover:bg-bg-hover',
         ].join(' ')}
         style={{ paddingLeft: 6 + level * 16 }}
         draggable={!isEditing}
         onDragStart={(e) => {
           e.dataTransfer.effectAllowed = 'move';
           e.dataTransfer.setData('text/folio-page', page.id);
+          setIsDragging(true);
+        }}
+        onDragEnd={() => setIsDragging(false)}
+        onDragOver={(e) => {
+          // Only react to an in-progress folio-page drag; ignore file drags etc.
+          if (!e.dataTransfer.types.includes('text/folio-page')) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          if (!isDropTarget) setIsDropTarget(true);
+        }}
+        onDragLeave={() => {
+          if (isDropTarget) setIsDropTarget(false);
+        }}
+        onDrop={(e) => {
+          // Stop propagation so the Sidebar root-drop handler doesn't also fire
+          // (which would re-move the page to the workspace root).
+          e.stopPropagation();
+          setIsDropTarget(false);
+          const dragId = e.dataTransfer.getData('text/folio-page');
+          if (!dragId || dragId === page.id) return;
+          movePage(dragId, page.id, 'page').catch((err) => {
+            console.error('[Folio] move page failed', err);
+            window.dispatchEvent(
+              new CustomEvent('folio:toast', { detail: t('sidebar.moveFailed') }),
+            );
+          });
         }}
         onClick={() => !isEditing && setCurrentPage(page.id)}
         onDoubleClick={() => {
@@ -204,20 +250,6 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
         {page.favorite && !isEditing && (
           <span className="text-[10px] text-status-amber" title={t('sidebar.favorite')}>⭐</span>
         )}
-
-        {!isEditing && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              openMenu((e.currentTarget as HTMLElement).getBoundingClientRect());
-            }}
-            className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-text-primary px-1"
-            aria-label={t('sidebar.moreActions')}
-          >
-            ⋯
-          </button>
-        )}
       </div>
 
       {/* Children */}
@@ -240,11 +272,16 @@ function PageTreeNodeBase({ page, level }: PageTreeNodeProps) {
       {menuOpen && menuRect && (
         <NodeMenu
           anchorRect={menuRect}
+          isDatabase={page.type === 'database'}
           isFavorite={page.favorite}
           onClose={() => setMenuOpen(false)}
           onNewSubpage={() => {
             setMenuOpen(false);
             void handleNewSubpage();
+          }}
+          onNewRow={() => {
+            setMenuOpen(false);
+            void handleNewRow();
           }}
           onNewSubdatabase={() => {
             setMenuOpen(false);
@@ -289,9 +326,11 @@ export const PageTreeNode = memo(PageTreeNodeBase);
 
 interface NodeMenuProps {
   anchorRect: DOMRect;
+  isDatabase: boolean;
   isFavorite: boolean;
   onClose: () => void;
   onNewSubpage: () => void;
+  onNewRow: () => void;
   onNewSubdatabase: () => void;
   onRename: () => void;
   onDuplicate: () => void;
@@ -304,7 +343,7 @@ function NodeMenu(props: NodeMenuProps) {
   const { t } = useTranslation();
   // Reuse the lightweight popover styling. Inline rather than using
   // <Popover> because we want the menu flush to the row, not anchored above.
-  const { anchorRect, onClose, isFavorite, ...handlers } = props;
+  const { anchorRect, onClose, isDatabase, isFavorite, ...handlers } = props;
   // Close on outside click
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -349,8 +388,14 @@ function NodeMenu(props: NodeMenuProps) {
       style={style}
       className="rounded-md border border-border-hairline bg-bg-page shadow-popover py-1 text-[13px]"
     >
-      <MenuItem label={t('sidebar.newSubpage')} onClick={handlers.onNewSubpage} />
-      <MenuItem label={t('sidebar.newSubdatabase')} onClick={handlers.onNewSubdatabase} />
+      {isDatabase ? (
+        <MenuItem label={t('sidebar.newRow')} onClick={handlers.onNewRow} />
+      ) : (
+        <>
+          <MenuItem label={t('sidebar.newSubpage')} onClick={handlers.onNewSubpage} />
+          <MenuItem label={t('sidebar.newSubdatabase')} onClick={handlers.onNewSubdatabase} />
+        </>
+      )}
       <MenuItem label={t('common.rename')} onClick={handlers.onRename} />
       <MenuItem label={t('common.duplicate')} onClick={handlers.onDuplicate} />
       <MenuItem label={t('common.moveTo')} onClick={handlers.onMoveTo} />

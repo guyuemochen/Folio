@@ -1,6 +1,6 @@
 [package]
 name = "folio"
-version = "0.2.0"
+version = "0.2.2"
 description = "Folio — local-first Notion-like desktop note app"
 authors = ["Folio"]
 edition = "2021"
@@ -37,3 +37,6 @@ url = "2"
 [features]
 # this feature is used for production builds or when `devUrl` points to the filesystem
 custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+tempfile = "3"

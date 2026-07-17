@@ -350,6 +350,33 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
     };
   }, []);
 
+  // Flush unsaved doc changes when the user switches workspaces. The
+  // workspaceStore.switchWorkspace flow dispatches this event and waits for
+  // the save to land before calling the backend switch command (which swaps
+  // the SQLite connection under a Mutex — the save and the swap are naturally
+  // serialized).
+  useEffect(() => {
+    const onWorkspaceSwitching = async () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      const doc = pendingDocRef.current;
+      if (doc && doc !== lastSavedDocRef.current) {
+        const targetPageId = pageIdRef.current;
+        try {
+          await api.updatePageDoc(targetPageId, doc);
+          lastSavedDocRef.current = doc;
+          pendingDocRef.current = null;
+        } catch (err) {
+          console.error('[Folio] failed to flush on workspace switch', targetPageId, err);
+        }
+      }
+    };
+    window.addEventListener('folio:workspace-switching', onWorkspaceSwitching);
+    return () => window.removeEventListener('folio:workspace-switching', onWorkspaceSwitching);
+  }, []);
+
   // Listen for folio:open-slash emitted by Mod-/ when there's no slash plugin
   // capturing it (e.g. when fired from outside the editor DOM).
   useEffect(() => {

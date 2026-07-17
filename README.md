@@ -8,7 +8,7 @@
 
 ## Why
 
-`Folio` is a local-first alternative to Notion. All data lives on your machine in a single SQLite file. No account, no cloud, no telemetry. See [`docs/research/00-overview.md`](./docs/research/00-overview.md) for the full product rationale and [`docs/prd/01-mvp-prd.md`](./docs/prd/01-mvp-prd.md) for the MVP spec.
+`Folio` is a local-first alternative to Notion. All data lives on your machine in a single SQLite file. No account, no cloud, no telemetry.
 
 ## Stack
 
@@ -28,8 +28,7 @@
 ```
 Folio/
 ├── docs/
-│   ├── research/         # 4 research docs (Notion + competitors + stack)
-│   └── prd/              # MVP PRD (with decisions baked in)
+│   └── troubleshooting.md  # Engineering troubleshooting notes (non-obvious bugs + fixes)
 ├── src/                  # Frontend (React + TipTap)
 │   ├── editor/           # TipTap editor components
 │   ├── styles/           # globals.css with all design tokens

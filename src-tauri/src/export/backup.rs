@@ -11,6 +11,10 @@
 //! the live files. Because the DB connection is held by `AppState`, the
 //! restore writes the files and signals the frontend to restart — the app
 //! reopens the restored DB on next launch.
+//!
+//! The `workspace_dir` parameter is the active workspace's folder path — the
+//! directory containing `data.db`, `attachments/`, and `media/`. This ensures
+//! each workspace's backup only includes that workspace's assets.
 
 use std::io::{Cursor, Write};
 use std::path::Path;
@@ -22,11 +26,11 @@ const BACKUP_VERSION: u32 = 1;
 
 /// Create a backup. Returns a base64-encoded zip string.
 ///
-/// `db_path` is the live `data.db` file path; `app_data_dir` is the root
-/// containing `attachments/` and `media/`.
-pub fn create_backup(conn: &Connection, app_data_dir: &Path) -> Result<String> {
+/// `workspace_dir` is the active workspace's folder containing `data.db`,
+/// `attachments/`, and `media/`.
+pub fn create_backup(conn: &Connection, workspace_dir: &Path) -> Result<String> {
     // VACUUM INTO a temp file for a clean, defragmented copy.
-    let temp_db = app_data_dir.join(format!(".folio-backup-{}.db", uuid::Uuid::new_v4()));
+    let temp_db = workspace_dir.join(format!(".folio-backup-{}.db", uuid::Uuid::new_v4()));
     let vacuum_sql = format!("VACUUM INTO '{}'", temp_db.display().to_string().replace('\'', "''"));
     conn.execute_batch(&vacuum_sql)?;
 
@@ -56,10 +60,10 @@ pub fn create_backup(conn: &Connection, app_data_dir: &Path) -> Result<String> {
         zip.write_all(&db_bytes)?;
 
         // attachments/ (if it exists)
-        add_dir_to_zip(&mut zip, &app_data_dir.join("attachments"), "attachments", opts)?;
+        add_dir_to_zip(&mut zip, &workspace_dir.join("attachments"), "attachments", opts)?;
 
         // media/ (if it exists)
-        add_dir_to_zip(&mut zip, &app_data_dir.join("media"), "media", opts)?;
+        add_dir_to_zip(&mut zip, &workspace_dir.join("media"), "media", opts)?;
 
         zip.finish()
             .map_err(|e| crate::Error::Other(format!("zip finish: {e}")))?;
@@ -72,11 +76,11 @@ pub fn create_backup(conn: &Connection, app_data_dir: &Path) -> Result<String> {
     Ok(b64)
 }
 
-/// Restore a backup. Writes the files to `app_data_dir`; the caller should
+/// Restore a backup. Writes the files to `workspace_dir`; the caller should
 /// signal the frontend to restart so the DB connection reopens on the new file.
 ///
 /// Returns `true` if a restart is needed (files were overwritten).
-pub fn restore_backup(app_data_dir: &Path, backup_b64: &str) -> Result<bool> {
+pub fn restore_backup(workspace_dir: &Path, backup_b64: &str) -> Result<bool> {
     let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, backup_b64)
         .map_err(|e| crate::Error::Other(format!("base64 decode: {e}")))?;
     let cursor = Cursor::new(bytes);
@@ -99,7 +103,7 @@ pub fn restore_backup(app_data_dir: &Path, backup_b64: &str) -> Result<bool> {
         )));
     }
 
-    // Extract everything to app_data_dir.
+    // Extract everything to the workspace folder.
     for i in 0..archive.len() {
         let mut entry = archive
             .by_index(i)
@@ -108,7 +112,7 @@ pub fn restore_backup(app_data_dir: &Path, backup_b64: &str) -> Result<bool> {
         if name == "manifest.json" || name.starts_with('/') || name.contains("..") {
             continue;
         }
-        let out_path = app_data_dir.join(&name);
+        let out_path = workspace_dir.join(&name);
         if entry.is_dir() {
             std::fs::create_dir_all(&out_path)?;
         } else {

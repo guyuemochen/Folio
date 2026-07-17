@@ -123,7 +123,7 @@ export function BlockDragHandle({ editor, containerRef }: BlockDragHandleProps) 
   }, [editor, containerRef]);
 
   // === Drag start / drag over / drop ====================================
-  const handleClick = (e: React.MouseEvent) => {
+  const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     if (handle.blockPos < 0) return;
     setMenuRect(e.currentTarget.getBoundingClientRect());
@@ -314,7 +314,7 @@ export function BlockDragHandle({ editor, containerRef }: BlockDragHandleProps) 
           style={{ top: handle.top }}
           title={t('editor.dragHandleTooltip')}
           contentEditable={false}
-          onMouseDown={handleClick}
+          onContextMenu={handleContextMenu}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
           draggable

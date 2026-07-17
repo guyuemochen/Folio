@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { api } from '../lib/invoke';
@@ -94,12 +94,16 @@ export function PageView({ pageId }: { pageId: string }) {
     }
   }, [pageData?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
+  // Re-measure the title textarea whenever its content changes OR it moves
+  // between the inline (no cover) and overlay (cover) mount points — otherwise
+  // the remounted textarea would keep its default 1-row height. Layout effect
+  // so the new height is applied before paint (no 1-frame flash).
+  useLayoutEffect(() => {
     const el = titleRef.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
-  }, [titleDraft]);
+  }, [titleDraft, pageData?.cover]);
 
   // Top-bar opacity transition.
   useEffect(() => {
@@ -247,6 +251,39 @@ export function PageView({ pageId }: { pageId: string }) {
         ? t('page.databaseRow')
         : t('page.subpage');
 
+  /**
+   * Title field. When `onCover` it is overlaid on the cover banner (white text
+   * + drop shadow for legibility over any gradient/photo); otherwise it is the
+   * normal inline title sitting below the top bar.
+   */
+  const renderTitle = (onCover: boolean) => (
+    <textarea
+      ref={titleRef}
+      rows={1}
+      value={titleDraft}
+      onChange={(e) => setTitleDraft(e.target.value)}
+      onBlur={persistTitle}
+      onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+          e.preventDefault();
+          // Blur fires onBlur={persistTitle}; don't call it explicitly
+          // here too, or it runs twice (double IPC + double patch).
+          (e.target as HTMLTextAreaElement).blur();
+        }
+      }}
+      placeholder={isDatabase ? t('page.untitledDatabase') : t('page.untitled')}
+      className={[
+        'w-full bg-transparent outline-none resize-none mb-1',
+        onCover ? 'text-white placeholder:text-white/60' : 'text-h1 placeholder:text-text-tertiary/60',
+      ].join(' ')}
+      style={
+        onCover
+          ? { fontSize: 40, fontWeight: 600, lineHeight: 1.2, textShadow: '0 1px 3px rgba(0,0,0,0.45)' }
+          : { fontSize: 40, fontWeight: 600, lineHeight: 1.2 }
+      }
+    />
+  );
+
   return (
     <main ref={scrollRef} className="flex-1 overflow-y-auto relative">
       {/* === Top bar (PRD §5.2.2: 44px, transparent → opaque on scroll) === */}
@@ -268,28 +305,50 @@ export function PageView({ pageId }: { pageId: string }) {
         />
       </div>
 
-      {/* === Cover (PRD §5.2.2) === */}
+      {/* === Cover hero (PRD §5.2.2): icon + title overlay the cover === */}
       {pageData.cover && (
         <div
-          className="group w-full h-[180px] relative"
+          className="group relative w-full min-h-[220px] flex items-end overflow-hidden"
           style={{ background: resolveCoverStyle(pageData.cover) }}
         >
-          {/* Action buttons appear on hover (Notion-style) */}
-          <div className="absolute bottom-3 right-6 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {/* Bottom scrim guarantees the overlaid title stays legible over any
+              gradient or photo. */}
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent" />
+          {/* Hover actions sit top-right so they never collide with the title. */}
+          <div className="absolute top-3 right-6 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
               type="button"
               onClick={() => setCoverPickerOpen(true)}
-              className="px-2 py-1 text-[11px] rounded bg-bg-page/80 hover:bg-bg-page text-text-secondary"
+              className="px-2 py-1 text-[11px] rounded bg-black/40 hover:bg-black/60 text-white/90 backdrop-blur-sm"
             >
               {t('page.changeCover')}
             </button>
             <button
               type="button"
               onClick={() => setCover(null)}
-              className="px-2 py-1 text-[11px] rounded bg-bg-page/80 hover:bg-bg-page text-text-secondary"
+              className="px-2 py-1 text-[11px] rounded bg-black/40 hover:bg-black/60 text-white/90 backdrop-blur-sm"
             >
               {t('page.removeCover')}
             </button>
+          </div>
+          {/* Overlaid icon + title, aligned to the content column below. */}
+          <div
+            className={[
+              'relative z-[1] mx-auto w-full px-10 pb-6 transition-all',
+              fullWidth ? 'max-w-page-full' : 'max-w-page',
+            ].join(' ')}
+          >
+            <div className="mb-1 flex items-end gap-2">
+              <button
+                type="button"
+                onClick={(e) => setIconPickerAnchor((e.currentTarget as HTMLElement).getBoundingClientRect())}
+                className="w-10 h-10 text-[40px] leading-none flex items-center justify-center hover:bg-black/25 rounded transition-colors"
+                aria-label={t('page.changeIcon')}
+              >
+                {pageData.icon ?? (isDatabase ? '🗃️' : '📄')}
+              </button>
+            </div>
+            {renderTitle(true)}
           </div>
         </div>
       )}
@@ -300,51 +359,36 @@ export function PageView({ pageId }: { pageId: string }) {
           fullWidth ? 'max-w-page-full' : 'max-w-page',
         ].join(' ')}
       >
-        {/* === Icon (40px) + picker === */}
-        <div className="mb-1 flex items-end gap-2">
-          <button
-            type="button"
-            onClick={(e) => setIconPickerAnchor((e.currentTarget as HTMLElement).getBoundingClientRect())}
-            className="w-10 h-10 text-[40px] leading-none flex items-center justify-center hover:bg-bg-hover rounded transition-colors"
-            aria-label={t('page.changeIcon')}
-          >
-            {pageData.icon ?? (isDatabase ? '🗃️' : '📄')}
-          </button>
-        </div>
-
-        {/* === "+ Add cover" hint (Notion-style: only when no cover set,
-                         subtle so it doesn't dominate the page) === */}
+        {/* === Icon + title: shown inline only when there is no cover.
+              When a cover exists they overlay the cover hero above. === */}
         {!pageData.cover && (
-          <div className="mb-2 -mt-1">
-            <button
-              type="button"
-              onClick={() => setCoverPickerOpen(true)}
-              className="text-[12px] text-text-tertiary/60 hover:text-text-secondary transition-colors"
-            >
-              {t('page.addCover')}
-            </button>
-          </div>
-        )}
+          <>
+            <div className="mb-1 flex items-end gap-2">
+              <button
+                type="button"
+                onClick={(e) => setIconPickerAnchor((e.currentTarget as HTMLElement).getBoundingClientRect())}
+                className="w-10 h-10 text-[40px] leading-none flex items-center justify-center hover:bg-bg-hover rounded transition-colors"
+                aria-label={t('page.changeIcon')}
+              >
+                {pageData.icon ?? (isDatabase ? '🗃️' : '📄')}
+              </button>
+            </div>
 
-        {/* === Title === */}
-        <textarea
-          ref={titleRef}
-          rows={1}
-          value={titleDraft}
-          onChange={(e) => setTitleDraft(e.target.value)}
-          onBlur={persistTitle}
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-              e.preventDefault();
-              // Blur fires onBlur={persistTitle}; don't call it explicitly
-              // here too, or it runs twice (double IPC + double patch).
-              (e.target as HTMLTextAreaElement).blur();
-            }
-          }}
-          placeholder={isDatabase ? t('page.untitledDatabase') : t('page.untitled')}
-          className="w-full text-h1 bg-transparent outline-none resize-none placeholder:text-text-tertiary/60 mb-1"
-          style={{ fontSize: 40, fontWeight: 600, lineHeight: 1.2 }}
-        />
+            {/* === "+ Add cover" hint (Notion-style: only when no cover set,
+                              subtle so it doesn't dominate the page) === */}
+            <div className="mb-2 -mt-1">
+              <button
+                type="button"
+                onClick={() => setCoverPickerOpen(true)}
+                className="text-[12px] text-text-tertiary/60 hover:text-text-secondary transition-colors"
+              >
+                {t('page.addCover')}
+              </button>
+            </div>
+
+            {renderTitle(false)}
+          </>
+        )}
 
         {/* === Width toggle === */}
         <div className="text-[12px] text-text-tertiary/80 mb-4 mt-1 flex items-center gap-3">

@@ -10,12 +10,30 @@ export interface Workspace {
   name: string;
 }
 
+/**
+ * A registered workspace in the multi-workspace registry.
+ * Mirrors `RegisteredWorkspace` in `src-tauri/src/registry.rs`.
+ * Each workspace maps to a folder on disk containing a `data.db` file.
+ */
+export interface RegisteredWorkspace {
+  id: string;
+  name: string;
+  /** Absolute path to the folder containing the workspace's data.db. */
+  folderPath: string;
+  /** SQLite filename inside the folder (almost always 'data.db'). */
+  dbFilename: string;
+  createdAt: number;
+  lastOpened: number;
+}
+
 export interface PageSummary {
   id: string;
   title: string;
   icon: string | null;
   parentId: string | null;
   parentType: 'workspace' | 'page' | 'database';
+  /** The page's own type: a regular page or a database. */
+  type: 'page' | 'database';
   isTrashed: boolean;
   updatedAt: number;
   favorite: boolean;
@@ -58,6 +76,15 @@ export interface UpdatePageMetaInput {
   icon?: string | null;
   /** null to clear the cover. */
   cover?: string | null;
+}
+
+/** Input for `move_page` (sidebar drag-to-reparent). */
+export interface MovePageInput {
+  pageId: string;
+  /** null moves the page to the workspace root. */
+  newParentId: string | null;
+  /** 'workspace' | 'page'. Defaults to 'workspace' when newParentId is null. */
+  newParentType?: 'workspace' | 'page';
 }
 
 /**
@@ -166,6 +193,9 @@ export interface ViewConfig {
   group?: GroupConfig | null;
   hiddenProperties?: string[] | null;
   columnWidths?: Record<string, number> | null;
+  /** Manual row order (drag-to-reorder). Array of row page ids. Only
+   * consulted when no explicit `sort` is active. */
+  manualOrder?: string[] | null;
   isDefault: boolean;
   createdAt: number;
 }
@@ -183,6 +213,7 @@ export interface DatabaseRow {
   icon: string | null;
   parentId: string | null;
   parentType: string;
+  type: 'page' | 'database';
   isTrashed: boolean;
   updatedAt: number;
   properties: Record<string, unknown>;
@@ -274,6 +305,7 @@ export interface UpdateViewInput {
   group?: GroupConfig | null;
   hiddenProperties?: string[] | null;
   columnWidths?: Record<string, number> | null;
+  manualOrder?: string[] | null;
 }
 
 // ============================================================================
@@ -325,6 +357,7 @@ export interface LocalViewConfig {
   group?: GroupConfig | null;
   hiddenProperties?: string[] | null;
   columnWidths?: Record<string, number> | null;
+  manualOrder?: string[] | null;
 }
 
 /**

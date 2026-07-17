@@ -90,6 +90,80 @@ pub fn create_page(
     fetch_page(conn, &id)
 }
 
+/// Move a page to a new parent by rewriting its `parent_id` / `parent_type`.
+///
+/// `new_parent_id = None` moves the page to the workspace root
+/// (`parent_type = 'workspace'`). Cycle-safe: walks the new parent's ancestor
+/// chain and rejects any move that would make a page a descendant of itself.
+/// No ordering column exists on `page` (siblings sort by title ASC), so the
+/// moved page is simply appended to the new parent's child set.
+pub fn move_page(
+    conn: &rusqlite::Connection,
+    page_id: &str,
+    new_parent_id: Option<&str>,
+    new_parent_type: &str,
+) -> Result<Page> {
+    // Source page must exist and not be trashed.
+    let src_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM page WHERE id = ?1 AND is_trashed = 0",
+        params![page_id],
+        |r| r.get(0),
+    )?;
+    if src_count == 0 {
+        return Err(Error::NotFound(format!("page {page_id}")));
+    }
+
+    if let Some(npid) = new_parent_id {
+        if npid == page_id {
+            return Err(Error::Other("cannot move a page into itself".to_string()));
+        }
+        // Target parent must exist and not be trashed.
+        let parent_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM page WHERE id = ?1 AND is_trashed = 0",
+            params![npid],
+            |r| r.get(0),
+        )?;
+        if parent_count == 0 {
+            return Err(Error::NotFound(format!("target parent {npid}")));
+        }
+        // Walk up from the new parent; if we ever reach `page_id`, the move
+        // would create a cycle (page moved under its own descendant).
+        let mut cur = npid.to_string();
+        loop {
+            let ancestor: Option<String> = conn
+                .query_row(
+                    "SELECT parent_id FROM page WHERE id = ?1",
+                    params![&cur],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .ok()
+                .flatten();
+            match ancestor {
+                Some(a) => {
+                    if a == page_id {
+                        return Err(Error::Other(
+                            "cannot move a page into its own descendant".to_string(),
+                        ));
+                    }
+                    cur = a;
+                }
+                None => break,
+            }
+        }
+    }
+
+    let now = chrono::Utc::now().timestamp_millis();
+    let (pid_sql, ptype_norm) = match new_parent_id {
+        Some(pid) => (Some(pid.to_string()), new_parent_type.to_string()),
+        None => (None, "workspace".to_string()),
+    };
+    conn.execute(
+        "UPDATE page SET parent_id = ?1, parent_type = ?2, updated_at = ?3 WHERE id = ?4",
+        params![pid_sql, ptype_norm, now, page_id],
+    )?;
+    fetch_page(conn, page_id)
+}
+
 /// Fetch a single page by id. Returns NotFound if missing.
 pub fn fetch_page(conn: &rusqlite::Connection, page_id: &str) -> Result<Page> {
     let page = conn.query_row(
@@ -310,7 +384,7 @@ pub fn list_pages(
     let rows: Vec<PageSummary> = match parent_id {
         Some(pid) => {
             let mut stmt = conn.prepare_cached(
-                "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at, favorite \
+                "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at, favorite, type \
                  FROM page \
                  WHERE parent_id = ?1 AND is_trashed = 0 \
                  ORDER BY title ASC",
@@ -320,7 +394,7 @@ pub fn list_pages(
         }
         None => {
             let mut stmt = conn.prepare_cached(
-                "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at, favorite \
+                "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at, favorite, type \
                  FROM page \
                  WHERE parent_id IS NULL AND parent_type = 'workspace' AND is_trashed = 0 \
                  ORDER BY title ASC",
@@ -429,12 +503,15 @@ fn map_page_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<PageSummary> {
     // Column 7 (when present) is the favorite flag joined from `page.favorite`.
     // Older callers that don't select it fall back to false via get_or(false).
     let favorite_int: i64 = row.get(7).unwrap_or(0);
+    // Column 8 (when present) is the page type ('page' or 'database').
+    let page_type: String = row.get(8).unwrap_or_else(|_| "page".to_string());
     Ok(PageSummary {
         id: row.get(0)?,
         title: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
         icon: row.get(2)?,
         parent_id: row.get(3)?,
         parent_type: row.get(4)?,
+        r#type: page_type,
         is_trashed: is_trashed_int != 0,
         updated_at: row.get(6)?,
         favorite: favorite_int != 0,
@@ -572,7 +649,7 @@ pub fn set_favorite(
 pub fn list_favorites(conn: &rusqlite::Connection) -> Result<Vec<PageSummary>> {
     let mut stmt = conn.prepare_cached(
         "SELECT p.id, p.title, p.icon, p.parent_id, p.parent_type, p.is_trashed, \
-                p.updated_at, p.favorite \
+                p.updated_at, p.favorite, p.type \
          FROM favorites f \
          JOIN page p ON p.id = f.page_id \
          WHERE p.is_trashed = 0 \
