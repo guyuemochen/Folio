@@ -43,6 +43,7 @@
   /* === Borders ============================================================== */
   --color-border-hairline: rgba(0, 0, 0, 0.08);
   --color-border-strong: rgba(0, 0, 0, 0.16);
+  --color-border-control: rgba(0, 0, 0, 0.28);
   --color-divider: rgba(55, 53, 47, 0.09);
 
   /* === Focus ring =========================================================== */
@@ -95,6 +96,7 @@
 
   --color-border-hairline: rgba(255, 255, 255, 0.08);
   --color-border-strong: rgba(255, 255, 255, 0.16);
+  --color-border-control: rgba(255, 255, 255, 0.22);
   --color-divider: rgba(255, 255, 255, 0.09);
 
   /* accent / status / focus / shadow — dark-ground overrides (M7 a11y §10.4) */

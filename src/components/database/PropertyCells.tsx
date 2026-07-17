@@ -142,7 +142,7 @@ const TitleCell = memo(function TitleCell({ value, property, onChange }: SimpleC
         focusedRef.current = false;
         flushCommit(draft);
       }}
-      className="w-full bg-transparent outline-none text-sm text-text-primary placeholder:text-text-tertiary"
+      className="w-full min-w-0 bg-transparent outline-none text-sm text-text-primary placeholder:text-text-tertiary"
     />
   );
 });
@@ -213,13 +213,44 @@ const CheckboxCell = memo(function CheckboxCell({ value, property, onChange }: S
   const { t } = useTranslation();
   const checked = value === true;
   return (
-    <input
-      type="checkbox"
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
       aria-label={property?.name ?? t('database.typeCheckbox')}
-      checked={checked}
-      onChange={(e) => onChange(e.target.checked)}
-      className="w-4 h-4 accent-accent"
-    />
+      // stopPropagation so toggling the box doesn't also trigger row selection
+      // (the parent <tr> has an onClick for click/shift/ctrl multi-select).
+      onClick={(e) => {
+        e.stopPropagation();
+        onChange(!checked);
+      }}
+      className={[
+        'inline-flex items-center justify-center flex-shrink-0',
+        'w-4 h-4 rounded-[4px] border transition-colors duration-150',
+        checked
+          ? 'bg-accent border-accent'
+          : 'bg-bg-page border-border-control hover:border-accent hover:bg-bg-hover',
+      ].join(' ')}
+    >
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        strokeWidth={2.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        // stroke-bg-page adapts to the theme: white check on the blue box in
+        // light mode, dark-navy check on the light-blue box in dark mode — both
+        // clear WCAG AA contrast against the accent fill.
+        className={[
+          'w-[10px] h-[10px] stroke-bg-page origin-center',
+          'transition-transform duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)]',
+          checked ? 'scale-100 opacity-100' : 'scale-50 opacity-0',
+        ].join(' ')}
+        aria-hidden="true"
+      >
+        <path d="M3.5 8.5 L6.5 11.5 L12.5 4.5" />
+      </svg>
+    </button>
   );
 });
 

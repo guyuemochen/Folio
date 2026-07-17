@@ -52,6 +52,7 @@
     "moveToTrash": "移至回收站",
     "moveToSoon": "移动到 — 即将推出",
     "moveFailed": "无法移动页面（可能是目标页面是它的子页面）。",
+    "favoriteFailed": "无法将页面添加到收藏。",
     "addToFavorites": "添加到收藏",
     "removeFromFavorites": "从收藏移除",
     "moreActions": "更多操作",

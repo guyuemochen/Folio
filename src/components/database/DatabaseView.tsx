@@ -697,7 +697,6 @@ export function DatabaseView({
             handleEditProperty={handleEditProperty}
             handleDeleteProperty={handleDeleteProperty}
             handleDuplicateProperty={handleDuplicateProperty}
-            handleAddProperty={handleAddProperty}
             openFilterForColumn={openFilterForColumn}
             toggleHide={toggleHide}
             startResize={startResize}
@@ -727,7 +726,6 @@ export function DatabaseView({
               handleEditProperty={handleEditProperty}
               handleDeleteProperty={handleDeleteProperty}
               handleDuplicateProperty={handleDuplicateProperty}
-              handleAddProperty={handleAddProperty}
               openFilterForColumn={openFilterForColumn}
               toggleHide={toggleHide}
               startResize={startResize}
@@ -750,6 +748,35 @@ export function DatabaseView({
           </table>
         )}
       </div>
+
+      {/* Add property — standalone button OUTSIDE the scroll container so
+          manually widening columns can never push it off-screen. */}
+      <div className="px-3 py-1.5 border-b border-border-hairline bg-bg-section/40">
+        <button
+          type="button"
+          onClick={(e) =>
+            setMenuOpenFor({
+              new: true,
+              anchorRect: e.currentTarget.getBoundingClientRect(),
+            })
+          }
+          className="inline-flex items-center gap-1 text-[13px] text-text-tertiary hover:text-text-primary"
+          title={t('database.addProperty')}
+        >
+          <span className="text-base leading-none">+</span>
+          {t('database.addProperty')}
+        </button>
+      </div>
+
+      {/* New-property menu — rendered once at the view level (not per-table,
+          so grouped view no longer stacks N copies of the popover). */}
+      {menuOpenFor && 'new' in menuOpenFor && (
+        <PropertyMenu
+          anchorRect={menuOpenFor.anchorRect}
+          onClose={() => setMenuOpenFor(null)}
+          onSubmit={handleAddProperty}
+        />
+      )}
 
       {/* Filter editor modal */}
       {filterEditorOpen && (
@@ -811,12 +838,6 @@ interface HeaderProps {
   ) => void;
   handleDeleteProperty: (propId: string) => void;
   handleDuplicateProperty: (propId: string) => void;
-  handleAddProperty: (input: {
-    name: string;
-    type: PropertyDef['type'];
-    options?: PropertyDef['options'];
-    numberFormat?: string;
-  }) => void;
   openFilterForColumn: (propId: string) => void;
   toggleHide: (propId: string) => void;
   startResize: (
@@ -849,12 +870,10 @@ function TableHeaderRow({
   handleEditProperty,
   handleDeleteProperty,
   handleDuplicateProperty,
-  handleAddProperty,
   openFilterForColumn,
   toggleHide,
   startResize,
 }: HeaderProps) {
-  const { t } = useTranslation();
   return (
     <thead>
       <tr className="bg-bg-section border-b border-border-hairline">
@@ -893,15 +912,17 @@ function TableHeaderRow({
                 className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-accent/40"
                 onMouseDown={(e) => {
                   // Cap the column width so it can't exceed the visible table
-                  // area, leaving at least 48px for the "+" add-column column
-                  // and respecting other columns' current widths.
+                  // area. Reserve the non-resizable columns — the w-7 (28px)
+                  // drag-handle spacer and the w-16 (64px) trailing row-action
+                  // column — so widening a property can never push the ↗/×
+                  // buttons off-screen.
                   const scrollContainer = e.currentTarget.closest('.overflow-auto') as HTMLElement | null;
                   const containerW = scrollContainer?.clientWidth ?? 0;
                   const otherColsW = visibleProps
                     .filter((p) => p.id !== prop.id)
                     .reduce((sum, p) => sum + (widths[p.id] ?? DEFAULT_COL_WIDTH), 0);
                   const maxW = containerW > 0
-                    ? Math.max(MIN_COL_WIDTH, containerW - 48 - otherColsW)
+                    ? Math.max(MIN_COL_WIDTH, containerW - 28 - 64 - otherColsW)
                     : undefined;
                   startResize(e, prop.id, w, setWidths, (next) =>
                     persistView({ columnWidths: next }), maxW);
@@ -924,30 +945,13 @@ function TableHeaderRow({
             </th>
           );
         })}
-        <th
-          className="relative px-2 py-2 border-b border-border-hairline"
-        >
-          <button
-            type="button"
-            onClick={(e) =>
-              setMenuOpenFor({
-                new: true,
-                anchorRect: e.currentTarget.getBoundingClientRect(),
-              })
-            }
-            className="text-text-tertiary hover:text-text-primary text-lg leading-none px-2"
-            title={t('database.addProperty')}
-          >
-            +
-          </button>
-          {menuOpenFor && 'new' in menuOpenFor && (
-            <PropertyMenu
-              anchorRect={menuOpenFor.anchorRect}
-              onClose={() => setMenuOpenFor(null)}
-              onSubmit={handleAddProperty}
-            />
-          )}
-        </th>
+        {/* Trailing column — intentionally has NO explicit width so it acts as
+            the table's slack absorber: in table-fixed + w-full, leftover
+            horizontal space goes here instead of being distributed across the
+            property columns (which would make them drift when one is resized).
+            min-w-16 guarantees the ↗/× buttons always fit; the resize cap
+            reserves this 64px so widening a column can't squeeze it smaller. */}
+        <th aria-hidden className="min-w-16 border-b border-border-hairline" />
       </tr>
     </thead>
   );
@@ -1084,7 +1088,6 @@ function GroupedTables({
   handleEditProperty,
   handleDeleteProperty,
   handleDuplicateProperty,
-  handleAddProperty,
   openFilterForColumn,
   toggleHide,
   startResize,
@@ -1161,7 +1164,6 @@ function GroupedTables({
                   handleEditProperty={handleEditProperty}
                   handleDeleteProperty={handleDeleteProperty}
                   handleDuplicateProperty={handleDuplicateProperty}
-                  handleAddProperty={handleAddProperty}
                   openFilterForColumn={openFilterForColumn}
                   toggleHide={toggleHide}
                   startResize={startResize}
@@ -1262,7 +1264,7 @@ function RowLine({
       {visibleProps.map((prop, i) => (
         <td
           key={prop.id}
-          className="relative px-3 py-1 align-top"
+          className="relative px-3 py-1 align-top overflow-hidden"
           onClick={(e) => {
             // Title cell is editable in place now — opening the page is done
             // via the dedicated ↗ button at the end of the row. We still
@@ -1289,7 +1291,7 @@ function RowLine({
           />
         </td>
       ))}
-      <td className="px-2 text-center whitespace-nowrap">
+      <td className="min-w-16 px-2 text-center whitespace-nowrap">
         {/* Open page — dedicated button so the title cell stays editable
             in place. Hover-revealed alongside the delete button. */}
         <button

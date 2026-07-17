@@ -52,6 +52,7 @@
     "moveToTrash": "Move to Trash",
     "moveToSoon": "Move to — coming soon",
     "moveFailed": "Couldn't move the page (the target may be one of its descendants).",
+    "favoriteFailed": "Couldn't add the page to Favorites.",
     "addToFavorites": "Add to Favorites",
     "removeFromFavorites": "Remove from Favorites",
     "moreActions": "More actions",

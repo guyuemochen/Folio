@@ -173,7 +173,7 @@ export function WorkspaceSwitcherModal({ onClose }: WorkspaceSwitcherModalProps)
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {sortedWorkspaces.length === 0 && !switching ? (
             <div className="px-4 py-8 text-center text-text-secondary text-[13px]">
               {t('workspace.noWorkspaces')}
@@ -203,7 +203,7 @@ export function WorkspaceSwitcherModal({ onClose }: WorkspaceSwitcherModalProps)
                             if (e.key === 'Enter') handleCommitRename(ws);
                             if (e.key === 'Escape') setEditingId(null);
                           }}
-                          className="w-full px-1.5 py-0.5 text-[13px] rounded border border-accent-primary bg-bg-page text-text-primary outline-none"
+                          className="w-full px-1.5 py-0.5 text-[13px] rounded border border-accent bg-bg-page text-text-primary outline-none"
                         />
                       ) : (
                         <button
@@ -222,7 +222,7 @@ export function WorkspaceSwitcherModal({ onClose }: WorkspaceSwitcherModalProps)
                               {ws.name}
                             </span>
                             {isActive && (
-                              <span className="text-[10px] text-accent-primary flex-shrink-0">
+                              <span className="text-[10px] text-accent flex-shrink-0">
                                 {t('workspace.active')}
                               </span>
                             )}
@@ -279,7 +279,7 @@ export function WorkspaceSwitcherModal({ onClose }: WorkspaceSwitcherModalProps)
             type="button"
             onClick={handleCreate}
             disabled={switching}
-            className="px-3 py-1.5 text-[13px] font-medium text-bg-page bg-accent-primary rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity"
+            className="px-3 py-1.5 text-[13px] font-medium text-bg-page bg-accent rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity"
           >
             + {t('workspace.new')}
           </button>
@@ -333,7 +333,7 @@ function DeleteConfirmDialog({ ws, onConfirm, onCancel }: DeleteConfirmProps) {
             type="checkbox"
             checked={deleteFiles}
             onChange={(e) => setDeleteFiles(e.target.checked)}
-            className="accent-accent-primary"
+            className="accent-accent"
           />
           {t('workspace.deleteWithFiles')}
         </label>
@@ -357,7 +357,7 @@ function DeleteConfirmDialog({ ws, onConfirm, onCancel }: DeleteConfirmProps) {
               'px-3 py-1.5 text-[13px] font-medium rounded-md',
               deleteFiles
                 ? 'bg-status-red text-white hover:opacity-90'
-                : 'bg-accent-primary text-bg-page hover:opacity-90',
+                : 'bg-accent text-bg-page hover:opacity-90',
             ].join(' ')}
           >
             {t('common.remove')}
