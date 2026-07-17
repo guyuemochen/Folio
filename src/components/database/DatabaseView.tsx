@@ -25,7 +25,7 @@ import { PropertyMenu } from './PropertyMenu';
 import { FilterBar } from './FilterBar';
 import { FilterEditor } from './FilterEditor';
 import { ViewTabs } from './ViewTabs';
-import { ViewTypePlaceholder } from './ViewTypePlaceholder';
+import { NonTableViewRenderer } from './viewRenderers';
 import { applyFilter, normalizeFilter } from './filterEngine';
 
 /**
@@ -729,12 +729,20 @@ export function DatabaseView({
       </div>
 
       {/* Phase 1 multi-tab: when the active view is anything other than
-          `table`, render a placeholder and skip the table / filter-bar /
-          column-add UIs below. The placeholder preserves the view's filter
-          and layout settings on the backend so the renderer (when it lands)
-          opens with the right config. */}
-      {!isTableView && activeView && (
-        <ViewTypePlaceholder view={activeView} />
+          `table`, hand off to the registered non-table renderer (board /
+          gallery / calendar / list / timeline). The renderer owns its own
+          filter/sort application and layout; DatabaseView just supplies
+          the data + mutators. Unregistered types fall back to the
+          ViewTypePlaceholder via NonTableViewRenderer. */}
+      {!isTableView && activeView && schema && (
+        <NonTableViewRenderer
+          view={activeView}
+          schema={schema}
+          rows={rows ?? []}
+          onCellChange={handleCellChange}
+          onOpenRow={setCurrentPage}
+          onAddRow={handleAddRowBlank}
+        />
       )}
 
       {/* Hidden columns indicator — only meaningful for the table layout. */}
