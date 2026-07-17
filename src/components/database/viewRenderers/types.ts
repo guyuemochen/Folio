@@ -44,6 +44,15 @@ export interface ViewRendererProps {
   onOpenRow: (pageId: string) => void;
   /** Add a new blank row to the database. */
   onAddRow: () => void;
+
+  // --- Optional view-layout mutators -------------------------------------
+  /** Change which property drives a grouped layout. Only meaningful for
+   *  renderers that group (currently `board`). `null` clears the explicit
+   *  override so the renderer falls back to its convention-based default.
+   *
+   *  Optional because not every renderer needs it; renderers that do should
+   *  degrade gracefully when it is absent (e.g. hide the inline picker). */
+  onChangeGroupProperty?: (propertyId: string | null) => void;
 }
 
 export type ViewRenderer = ComponentType<ViewRendererProps>;

@@ -26,6 +26,7 @@ import { FilterBar } from './FilterBar';
 import { FilterEditor } from './FilterEditor';
 import { ViewTabs } from './ViewTabs';
 import { NonTableViewRenderer } from './viewRenderers';
+import { GroupMenu } from './GroupMenu';
 import { applyFilter, normalizeFilter } from './filterEngine';
 
 /**
@@ -66,7 +67,6 @@ interface DatabaseViewProps {
 
 const DEFAULT_COL_WIDTH = 200;
 const MIN_COL_WIDTH = 80;
-const COL_GROUPABLE: PropertyDef['type'][] = ['select', 'multi_select', 'status'];
 /**
  * M6 perf: estimated row height for TanStack Virtual. Matches PRD §5.3.3
  * (min body row height = 40px). Virtualization keeps 1000+ row tables
@@ -296,7 +296,7 @@ export function DatabaseView({
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; rowId: string } | null>(null);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
-  const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+  const [groupMenuAnchor, setGroupMenuAnchor] = useState<DOMRect | null>(null);
 
   // --- Derived data (MUST be computed before any early return so the hook
   //     order stays stable across renders — React Rules of Hooks) ----------
@@ -609,7 +609,7 @@ export function DatabaseView({
     const next = propId ? { propertyId: propId, collapsedGroups: [...collapsedGroups] } : null;
     setGroup(next);
     persistView({ group: next });
-    setGroupMenuOpen(false);
+    setGroupMenuAnchor(null);
   };
 
   // Bundled drag-reorder handlers passed down to FlatBody / GroupedTables /
@@ -671,24 +671,24 @@ export function DatabaseView({
           >
             ▽ {t('database.filter')}
           </button>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setGroupMenuOpen((v) => !v)}
-              className="px-2 py-1 text-[12px] rounded text-text-secondary hover:bg-bg-hover transition-colors"
-              title={t('database.group')}
-            >
-              {group ? `◐ ${t('database.groupActive')}` : `◐ ${t('database.group')}`}
-            </button>
-            {groupMenuOpen && (
-              <GroupMenu
-                properties={allProps}
-                currentId={group?.propertyId ?? null}
-                onPick={setGroupProperty}
-                onClose={() => setGroupMenuOpen(false)}
-              />
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={(e) => setGroupMenuAnchor(e.currentTarget.getBoundingClientRect())}
+            className="px-2 py-1 text-[12px] rounded text-text-secondary hover:bg-bg-hover transition-colors"
+            title={t('database.group')}
+          >
+            {group ? `◐ ${t('database.groupActive')}` : `◐ ${t('database.group')}`}
+          </button>
+          {groupMenuAnchor && (
+            <GroupMenu
+              anchorRect={groupMenuAnchor}
+              properties={allProps}
+              currentId={group?.propertyId ?? null}
+              placement="bottom-end"
+              onPick={setGroupProperty}
+              onClose={() => setGroupMenuAnchor(null)}
+            />
+          )}
           <button
             type="button"
             onClick={handleExportCsv}
@@ -742,6 +742,7 @@ export function DatabaseView({
           onCellChange={handleCellChange}
           onOpenRow={setCurrentPage}
           onAddRow={handleAddRowBlank}
+          onChangeGroupProperty={setGroupProperty}
         />
       )}
 
@@ -1535,50 +1536,6 @@ function NewRowMenu({
             <span>{tpl.icon ?? '📝'}</span>
             <span className="flex-1 truncate">{tpl.name}</span>
             {tpl.isDefault && <span className="text-[10px] text-text-tertiary">{t('database.default')}</span>}
-          </button>
-        ))}
-      </div>
-    </>
-  );
-}
-
-function GroupMenu({
-  properties,
-  currentId,
-  onPick,
-  onClose,
-}: {
-  properties: PropertyDef[];
-  currentId: string | null;
-  onPick: (id: string | null) => void;
-  onClose: () => void;
-}) {
-  const { t } = useTranslation();
-  const groupable = properties.filter((p) => COL_GROUPABLE.includes(p.type));
-  return (
-    <>
-      <div className="fixed inset-0 z-[1050]" onClick={onClose} />
-      <div
-        data-popover-root
-        className="absolute right-0 top-full mt-1 z-[1051] w-56 rounded-md border border-border-hairline bg-bg-page shadow-popover py-1 text-sm"
-      >
-        <button
-          type="button"
-          onClick={() => onPick(null)}
-          className="w-full text-left px-3 py-1.5 hover:bg-bg-hover"
-        >
-          {t('database.noGrouping')}
-        </button>
-        {groupable.length > 0 && <div className="my-1 border-t border-border-hairline" />}
-        {groupable.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => onPick(p.id)}
-            className="w-full text-left px-3 py-1.5 hover:bg-bg-hover flex items-center justify-between"
-          >
-            <span>{p.name}</span>
-            {currentId === p.id && <span className="text-accent">✓</span>}
           </button>
         ))}
       </div>

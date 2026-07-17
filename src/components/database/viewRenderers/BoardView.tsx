@@ -7,6 +7,7 @@ import type {
   SelectOption,
   ViewConfig,
 } from '../../../lib/types';
+import { COL_GROUPABLE, GroupMenu } from '../GroupMenu';
 import { pickFirstPropertyByType, useVisibleRows } from './shared';
 import type { ViewRendererProps } from './types';
 
@@ -358,21 +359,80 @@ function ColumnBody({
 }
 
 // ---------------------------------------------------------------------------
-// BoardHeader — top bar with count and + New
+// BoardHeader — top bar with the inline "Group by" picker, count, and + New
 // ---------------------------------------------------------------------------
 
 interface BoardHeaderProps {
   count: number;
+  /** Current group property (may be null when grouping is cleared AND no
+   *  status/select fallback exists on the schema). */
+  groupProp: PropertyDef | null;
+  /** All schema properties — the picker filters to groupable types. */
+  properties: PropertyDef[];
+  /** Persist a new group-property choice. When undefined the picker is
+   *  hidden (e.g. in tests without a parent DatabaseView). */
+  onChangeGroupProperty?: (id: string | null) => void;
   onAddRow: () => void;
 }
 
-function BoardHeader({ count, onAddRow }: BoardHeaderProps) {
+function BoardHeader({
+  count,
+  groupProp,
+  properties,
+  onChangeGroupProperty,
+  onAddRow,
+}: BoardHeaderProps) {
+  // Anchor rect for the portaled GroupMenu. Captured on click so the menu
+  // positions itself relative to the actual trigger button, regardless of
+  // the trigger's place in the layout (and regardless of any
+  // `overflow-hidden` ancestor that would clip an inline-positioned menu).
+  const [pickerAnchor, setPickerAnchor] = useState<DOMRect | null>(null);
+
+  // Only show the inline picker when (a) the parent wired the callback AND
+  // (b) the schema has at least one groupable property to choose from.
+  // Without either, the button would be dead UI, so we hide it.
+  const groupableExists = properties.some((p) => COL_GROUPABLE.includes(p.type));
+  const canPick = !!onChangeGroupProperty && groupableExists;
+
   return (
     <div className="h-9 flex-shrink-0 flex items-center justify-between px-3 border-b border-border-hairline">
-      <span className="text-xs text-text-secondary">
-        {count} {count === 1 ? 'card' : 'cards'}
-        {/* TODO i18n: database.boardCardCount_one / _other */}
-      </span>
+      <div className="flex items-center gap-2 min-w-0">
+        {canPick && (
+          <button
+            type="button"
+            onClick={(e) => setPickerAnchor(e.currentTarget.getBoundingClientRect())}
+            title="Change grouping property" /* TODO i18n: database.boardChangeGroup */
+            aria-haspopup="menu"
+            aria-expanded={pickerAnchor !== null}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-text-secondary hover:bg-bg-hover transition-colors"
+          >
+            <span className="text-text-tertiary">
+              Group by{/* TODO i18n: database.boardGroupBy */}
+            </span>
+            <span className="font-medium text-text-primary truncate max-w-[160px]">
+              {groupProp?.name ?? '—'}
+            </span>
+            <span className="text-text-tertiary text-[10px]" aria-hidden>▾</span>
+          </button>
+        )}
+        {pickerAnchor && onChangeGroupProperty && (
+          <GroupMenu
+            anchorRect={pickerAnchor}
+            properties={properties}
+            currentId={groupProp?.id ?? null}
+            placement="bottom-start"
+            onPick={(id) => {
+              onChangeGroupProperty(id);
+              setPickerAnchor(null);
+            }}
+            onClose={() => setPickerAnchor(null)}
+          />
+        )}
+        <span className="text-xs text-text-secondary">
+          {count} {count === 1 ? 'card' : 'cards'}
+          {/* TODO i18n: database.boardCardCount_one / _other */}
+        </span>
+      </div>
       <button
         type="button"
         onClick={onAddRow}
@@ -395,6 +455,7 @@ export function BoardView({
   onCellChange,
   onOpenRow,
   onAddRow,
+  onChangeGroupProperty,
 }: ViewRendererProps) {
   const visibleRows = useVisibleRows(rows, view);
 
@@ -488,17 +549,49 @@ export function BoardView({
 
   // ---- Empty state: no groupable property --------------------------------
   if (!groupProp || !partition) {
+    // Distinguish "no groupable property on the schema yet" from "groupable
+    // properties exist but grouping is cleared / not chosen". The latter can
+    // be fixed in-place via the header picker; the former asks the user to
+    // add a Select/Status property first (best done from the table view).
+    const groupableExists = schema.properties.some((p) =>
+      COL_GROUPABLE.includes(p.type),
+    );
     return (
-      <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-        <div className="text-sm font-medium text-text-primary mb-1">
-          {/* TODO i18n: database.boardNeedsGroupProperty */}
-          Board view needs a Select or Status property
+      <>
+        <BoardHeader
+          count={0}
+          groupProp={null}
+          properties={schema.properties}
+          onChangeGroupProperty={onChangeGroupProperty}
+          onAddRow={onAddRow}
+        />
+        <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+          {groupableExists ? (
+            <>
+              <div className="text-sm font-medium text-text-primary mb-1">
+                {/* TODO i18n: database.boardPickGroupProperty */}
+                Pick a property to group by
+              </div>
+              <div className="text-xs text-text-tertiary max-w-sm">
+                {/* TODO i18n: database.boardPickGroupPropertyHint */}
+                Use “Group by” in the toolbar above to choose which Select,
+                Status, or Multi-select column drives this board.
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-sm font-medium text-text-primary mb-1">
+                {/* TODO i18n: database.boardNeedsGroupProperty */}
+                Board view needs a Select or Status property
+              </div>
+              <div className="text-xs text-text-tertiary max-w-sm">
+                {/* TODO i18n: database.boardNeedsGroupPropertyHint */}
+                Add a Select or Status property to this database to group cards into columns.
+              </div>
+            </>
+          )}
         </div>
-        <div className="text-xs text-text-tertiary max-w-sm">
-          {/* TODO i18n: database.boardNeedsGroupPropertyHint */}
-          Add a Select or Status property to this database to group cards into columns.
-        </div>
-      </div>
+      </>
     );
   }
 
@@ -506,7 +599,13 @@ export function BoardView({
   if (visibleRows.length === 0) {
     return (
       <>
-        <BoardHeader count={0} onAddRow={onAddRow} />
+        <BoardHeader
+          count={0}
+          groupProp={groupProp}
+          properties={schema.properties}
+          onChangeGroupProperty={onChangeGroupProperty}
+          onAddRow={onAddRow}
+        />
         <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
           <div className="text-sm text-text-secondary mb-3">
             {/* TODO i18n: database.boardNoCards */}
@@ -526,7 +625,13 @@ export function BoardView({
 
   return (
     <>
-      <BoardHeader count={visibleRows.length} onAddRow={onAddRow} />
+      <BoardHeader
+        count={visibleRows.length}
+        groupProp={groupProp}
+        properties={schema.properties}
+        onChangeGroupProperty={onChangeGroupProperty}
+        onAddRow={onAddRow}
+      />
 
       <div className="flex gap-3 p-3 overflow-x-auto">
         {partition.optionColumns.map(({ option, rows: columnRows }) => {
