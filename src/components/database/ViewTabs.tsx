@@ -171,6 +171,7 @@ const TYPE_ICON: Record<ViewConfig['type'], string> = {
   timeline: '⏱',
   gallery: '🖼',
   list: '📝',
+  dashboard: '🎛',
 };
 
 interface TabButtonProps {
@@ -293,7 +294,7 @@ interface CreateViewPickerProps {
 
 function CreateViewPicker({ anchorRect, onClose, onPick }: CreateViewPickerProps) {
   const { t } = useTranslation();
-  const types: ViewConfig['type'][] = ['table', 'board', 'calendar', 'timeline', 'gallery', 'list'];
+  const types: ViewConfig['type'][] = ['table', 'board', 'calendar', 'timeline', 'gallery', 'list', 'dashboard'];
   return (
     <Popover anchorRect={anchorRect} onClose={onClose} width={280} placement="bottom-start" ariaLabel={t('database.newView')}>
       <div className="py-2">

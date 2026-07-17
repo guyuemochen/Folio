@@ -11,6 +11,7 @@ import type { ViewConfig } from '../../../lib/types';
 import { ViewTypePlaceholder } from '../ViewTypePlaceholder';
 import type { ViewRenderer, ViewRendererProps } from './types';
 import { BoardView } from './BoardView';
+import { DashboardView } from './DashboardView';
 import { GalleryView } from './GalleryView';
 import { CalendarView } from './CalendarView';
 import { ListView } from './ListView';
@@ -18,6 +19,7 @@ import { TimelineView } from './TimelineView';
 
 export const VIEW_RENDERERS: Partial<Record<ViewConfig['type'], ViewRenderer>> = {
   board: BoardView,
+  dashboard: DashboardView,
   gallery: GalleryView,
   calendar: CalendarView,
   list: ListView,

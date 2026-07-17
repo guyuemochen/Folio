@@ -53,6 +53,11 @@ export interface ViewRendererProps {
    *  Optional because not every renderer needs it; renderers that do should
    *  degrade gracefully when it is absent (e.g. hide the inline picker). */
   onChangeGroupProperty?: (propertyId: string | null) => void;
+
+  /** Replace the dashboard's full config (components + grid layout). The
+   *  renderer passes the next desired state atomically; the parent persists
+   *  it through the standard update_view pipeline. Dashboard-only. */
+  onChangeDashboard?: (next: import('../../../lib/types').DashboardConfig | null) => void;
 }
 
 export type ViewRenderer = ComponentType<ViewRendererProps>;

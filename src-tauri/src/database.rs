@@ -75,6 +75,10 @@ pub struct ViewConfig {
     /// Only consulted when no explicit `sort` is active.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manual_order: Option<serde_json::Value>,
+    /// JSON-encoded dashboard config: { components: [...], layout: [...] }.
+    /// Only consulted by dashboard views.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dashboard: Option<serde_json::Value>,
     pub is_default: bool,
     pub created_at: i64,
 }
@@ -181,6 +185,9 @@ pub struct UpdateViewInput {
     /// JSON array of row ids for manual ordering. `null` clears it.
     #[serde(default, deserialize_with = "deserialize_some")]
     pub manual_order: Option<serde_json::Value>,
+    /// JSON dashboard config ({ components, layout }). `null` clears it.
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub dashboard: Option<serde_json::Value>,
 }
 
 /// Serde helper: wrap the deserialized value in `Some(...)` so that an
@@ -566,7 +573,7 @@ pub fn list_views(
 ) -> Result<Vec<ViewConfig>> {
     let mut stmt = conn.prepare(
         "SELECT id, database_id, name, type, filter, sort, \"group\", \
-                hidden_properties, column_widths, manual_order, is_default, created_at \
+                hidden_properties, column_widths, manual_order, dashboard, is_default, created_at \
          FROM database_view WHERE database_id = ?1 ORDER BY created_at ASC",
     )?;
     let rows = stmt.query_map(params![database_id], map_view)?;
@@ -580,7 +587,8 @@ fn map_view(row: &rusqlite::Row<'_>) -> rusqlite::Result<ViewConfig> {
     let hidden: Option<String> = row.get(7)?;
     let widths: Option<String> = row.get(8)?;
     let manual_order: Option<String> = row.get(9)?;
-    let is_default: i64 = row.get(10)?;
+    let dashboard: Option<String> = row.get(10)?;
+    let is_default: i64 = row.get(11)?;
     Ok(ViewConfig {
         id: row.get(0)?,
         database_id: row.get(1)?,
@@ -592,8 +600,9 @@ fn map_view(row: &rusqlite::Row<'_>) -> rusqlite::Result<ViewConfig> {
         hidden_properties: hidden.and_then(|s| serde_json::from_str(&s).ok()),
         column_widths: widths.and_then(|s| serde_json::from_str(&s).ok()),
         manual_order: manual_order.and_then(|s| serde_json::from_str(&s).ok()),
+        dashboard: dashboard.and_then(|s| serde_json::from_str(&s).ok()),
         is_default: is_default != 0,
-        created_at: row.get(11)?,
+        created_at: row.get(12)?,
     })
 }
 
@@ -661,6 +670,13 @@ pub fn update_view(
         let json = serde_json::to_string(manual_order).unwrap_or_else(|_| "null".to_string());
         conn.execute(
             "UPDATE database_view SET manual_order = ?1 WHERE id = ?2",
+            params![json, view_id],
+        )?;
+    }
+    if let Some(dashboard) = input.dashboard.as_ref() {
+        let json = serde_json::to_string(dashboard).unwrap_or_else(|_| "null".to_string());
+        conn.execute(
+            "UPDATE database_view SET dashboard = ?1 WHERE id = ?2",
             params![json, view_id],
         )?;
     }

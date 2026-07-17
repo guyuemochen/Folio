@@ -81,6 +81,8 @@ function applySorts(rows: DatabaseRow[], sorts: SortEntry[]): DatabaseRow[] {
   return out;
 }
 
+export { applySorts };
+
 function compareValues(a: unknown, b: unknown): number {
   if (a == null && b == null) return 0;
   if (a == null) return 1; // nulls sort last regardless of direction

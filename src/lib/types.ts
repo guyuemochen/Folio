@@ -183,19 +183,77 @@ export interface GroupConfig {
   collapsedGroups?: string[];
 }
 
+// ============================================================================
+// Dashboard view (widget grid)
+// ----------------------------------------------------------------------------
+// A dashboard view renders a user-configurable grid of widgets over the
+// database's rows. MVP ships two widget kinds: a "stat" big-number card and
+// a "recent rows" table. The grid layout (positions + sizes) and the widget
+// configs both live in `view.dashboard`, persisted via the standard
+// update_view pipeline (no new SQL tables).
+//
+// Layout follows react-grid-layout's `{ i, x, y, w, h }` shape 1:1 so the
+// renderer can pass it straight through to <ReactGridLayout layout={...}>.
+// ============================================================================
+
+/** One grid cell's geometry. `i` matches the corresponding DashboardComponent.id. */
+export interface DashboardLayoutItem {
+  i: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  minW?: number;
+  maxW?: number;
+  minH?: number;
+  maxH?: number;
+}
+
+/** Discriminated union of widget configs. `id` is the join key with layout. */
+export type DashboardComponent =
+  | {
+      id: string;
+      type: 'stat';
+      /** Card title shown in the widget header. */
+      title: string;
+      /** Optional filter; when null the stat counts every row in the view. */
+      filter?: FilterNode | null;
+      /** Optional label below the big number, e.g. "rows" or "open issues".
+       *  Defaults to a localized "rows" in the renderer. */
+      unitLabel?: string;
+    }
+  | {
+      id: string;
+      type: 'recent_rows';
+      title: string;
+      filter?: FilterNode | null;
+      sort?: SortEntry[] | null;
+      /** How many rows to display. Defaults to 10. */
+      limit?: number;
+    };
+
+export interface DashboardConfig {
+  components: DashboardComponent[];
+  /** One entry per component id, in react-grid-layout's format. Items not
+   *  present here fall back to auto-placement by RGL. */
+  layout: DashboardLayoutItem[];
+}
+
 export interface ViewConfig {
   id: string;
   databaseId: string;
   name: string;
-  type: 'table' | 'board' | 'calendar' | 'timeline' | 'gallery' | 'list';
+  type: 'table' | 'board' | 'calendar' | 'timeline' | 'gallery' | 'list' | 'dashboard';
   filter?: FilterNode | null;
   sort?: SortEntry[] | null;
   group?: GroupConfig | null;
   hiddenProperties?: string[] | null;
   columnWidths?: Record<string, number> | null;
   /** Manual row order (drag-to-reorder). Array of row page ids. Only
-   * consulted when no explicit `sort` is active. */
+   *  consulted when no explicit `sort` is active. */
   manualOrder?: string[] | null;
+  /** Dashboard view only: widget components + their grid layout. */
+  dashboard?: DashboardConfig | null;
   isDefault: boolean;
   createdAt: number;
 }
@@ -295,7 +353,7 @@ export interface UpdateCellInput {
 export interface CreateViewInput {
   databaseId: string;
   name: string;
-  type?: 'table' | 'board' | 'calendar' | 'timeline' | 'gallery' | 'list';
+  type?: 'table' | 'board' | 'calendar' | 'timeline' | 'gallery' | 'list' | 'dashboard';
 }
 
 export interface UpdateViewInput {
@@ -306,6 +364,7 @@ export interface UpdateViewInput {
   hiddenProperties?: string[] | null;
   columnWidths?: Record<string, number> | null;
   manualOrder?: string[] | null;
+  dashboard?: DashboardConfig | null;
 }
 
 // ============================================================================
@@ -358,6 +417,7 @@ export interface LocalViewConfig {
   hiddenProperties?: string[] | null;
   columnWidths?: Record<string, number> | null;
   manualOrder?: string[] | null;
+  dashboard?: DashboardConfig | null;
 }
 
 /**

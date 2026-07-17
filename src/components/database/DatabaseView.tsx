@@ -743,6 +743,7 @@ export function DatabaseView({
           onOpenRow={setCurrentPage}
           onAddRow={handleAddRowBlank}
           onChangeGroupProperty={setGroupProperty}
+          onChangeDashboard={(next) => persistView({ dashboard: next })}
         />
       )}
 

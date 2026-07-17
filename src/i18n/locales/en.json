@@ -338,7 +338,23 @@
       "calendar": "Calendar",
       "timeline": "Timeline",
       "gallery": "Gallery",
-      "list": "List"
+      "list": "List",
+      "dashboard": "Dashboard"
+    },
+    "dashboard": {
+      "addWidget": "Add widget",
+      "empty": "This dashboard has no widgets yet.",
+      "emptyHint": "Click \"Add widget\" to drop a stat card or a recent-rows table onto the grid.",
+      "stat": "Stat",
+      "statDescription": "Show a big-number count of matching rows.",
+      "recentRows": "Recent rows",
+      "recentRowsDescription": "Show the most recently updated rows in a compact list.",
+      "statUnitRows_one": "row",
+      "statUnitRows_other": "rows",
+      "removeWidget": "Remove widget",
+      "untitledStat": "Total rows",
+      "untitledRecentRows": "Recent rows",
+      "noRows": "No rows match."
     }
   },
 
