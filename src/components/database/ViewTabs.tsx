@@ -73,7 +73,14 @@ export function ViewTabs({ databaseId, views, activeViewId, onSelect, onAfterMut
 
   const handleDelete = async (viewId: string) => {
     setMenuFor(null);
-    if (views.length <= 1) return; // never let the last view be deleted
+    const target = views.find((v) => v.id === viewId);
+    // Defensive: the menu already disables delete in these cases, but guard
+    // anyway so a stale closure or external caller can't bypass the rule.
+    // - Default view is the canonical "entry" view for the database and is
+    //   preserved across tab churn (matches Notion's locked default view).
+    // - The last remaining view can never be deleted (would leave the db
+    //   with no renderer at all).
+    if (!target || target.isDefault || views.length <= 1) return;
     if (!window.confirm(t('database.deleteViewConfirm'))) return;
     try {
       await deleteView(viewId);
@@ -128,19 +135,27 @@ export function ViewTabs({ databaseId, views, activeViewId, onSelect, onAfterMut
         />
       )}
 
-      {menuFor && (
-        <TabContextMenu
-          anchorRect={menuFor.anchorRect}
-          canDelete={views.length > 1}
-          onClose={() => setMenuFor(null)}
-          onRename={() => {
-            setRenamingId(menuFor.viewId);
-            setMenuFor(null);
-          }}
-          onDuplicate={() => handleDuplicate(menuFor.viewId)}
-          onDelete={() => handleDelete(menuFor.viewId)}
-        />
-      )}
+      {menuFor && (() => {
+        const target = views.find((v) => v.id === menuFor.viewId);
+        // Determine why delete is blocked (if at all). The default view is
+        // always preserved; the last remaining view can't be deleted either.
+        let deleteBlockReason: string | null = null;
+        if (target?.isDefault) deleteBlockReason = t('database.cannotDeleteDefaultView');
+        else if (views.length <= 1) deleteBlockReason = t('database.atLeastOneView');
+        return (
+          <TabContextMenu
+            anchorRect={menuFor.anchorRect}
+            deleteBlockReason={deleteBlockReason}
+            onClose={() => setMenuFor(null)}
+            onRename={() => {
+              setRenamingId(menuFor.viewId);
+              setMenuFor(null);
+            }}
+            onDuplicate={() => handleDuplicate(menuFor.viewId)}
+            onDelete={() => handleDelete(menuFor.viewId)}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -322,7 +337,9 @@ function CreateViewPicker({ anchorRect, onClose, onPick }: CreateViewPickerProps
 
 interface TabContextMenuProps {
   anchorRect: DOMRect;
-  canDelete: boolean;
+  /** When non-null, delete is disabled and this string is shown in place of
+   * "Delete view" explaining why (e.g. "Default view cannot be deleted"). */
+  deleteBlockReason: string | null;
   onClose: () => void;
   onRename: () => void;
   onDuplicate: () => void;
@@ -331,20 +348,21 @@ interface TabContextMenuProps {
 
 function TabContextMenu({
   anchorRect,
-  canDelete,
+  deleteBlockReason,
   onClose,
   onRename,
   onDuplicate,
   onDelete,
 }: TabContextMenuProps) {
   const { t } = useTranslation();
+  const canDelete = deleteBlockReason === null;
   return (
     <Popover anchorRect={anchorRect} onClose={onClose} width={200} placement="bottom-start">
       <div className="py-1">
         <MenuItem label={t('database.renameView')} onClick={onRename} />
         <MenuItem label={t('database.duplicateView')} onClick={onDuplicate} />
         <MenuItem
-          label={canDelete ? t('database.deleteView') : t('database.atLeastOneView')}
+          label={canDelete ? t('database.deleteView') : deleteBlockReason!}
           onClick={canDelete ? onDelete : onClose}
           danger={canDelete}
           disabled={!canDelete}

@@ -325,6 +325,7 @@
     "duplicateView": "Duplicate view",
     "deleteView": "Delete view",
     "deleteViewConfirm": "Delete this view? Its filter and layout settings will be lost.",
+    "cannotDeleteDefaultView": "Default view cannot be deleted",
     "setDefaultView": "Set as default",
     "defaultBadge": "default",
     "atLeastOneView": "At least one view is required.",

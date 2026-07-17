@@ -325,6 +325,7 @@
     "duplicateView": "复制视图",
     "deleteView": "删除视图",
     "deleteViewConfirm": "删除此视图?其筛选与布局设置将丢失。",
+    "cannotDeleteDefaultView": "默认视图不得删除",
     "setDefaultView": "设为默认",
     "defaultBadge": "默认",
     "atLeastOneView": "至少保留一个视图。",
