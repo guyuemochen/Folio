@@ -1,8 +1,13 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { api } from '../../lib/invoke';
+import {
+  clearActiveViewId,
+  getActiveViewId,
+  setActiveViewId as persistActiveViewId,
+} from '../../lib/dbActiveView';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import type {
   DatabaseRow,
@@ -19,6 +24,8 @@ import { PropertyCell } from './PropertyCells';
 import { PropertyMenu } from './PropertyMenu';
 import { FilterBar } from './FilterBar';
 import { FilterEditor } from './FilterEditor';
+import { ViewTabs } from './ViewTabs';
+import { ViewTypePlaceholder } from './ViewTypePlaceholder';
 import { applyFilter, normalizeFilter } from './filterEngine';
 
 /**
@@ -102,6 +109,17 @@ export function DatabaseView({
   // LocalViewConfig so downstream code (which expects a ViewConfig-shaped
   // object) keeps working. The id/name are placeholders; persistence goes
   // through onEmbeddedViewChange instead of api.updateView.
+  //
+  // Standalone mode (Phase 1 multi-tab): the active tab id is owned by this
+  // component and persisted to localStorage per-database (dbActiveView.ts).
+  // We initialise it lazily from localStorage so the user reopens the db on
+  // the last tab they were on. If the stored id no longer exists (e.g. the
+  // view was deleted on another device) the memo below falls through to the
+  // default view, then to views[0].
+  const [activeViewId, setActiveViewIdState] = useState<string | null>(() =>
+    isEmbedded ? null : getActiveViewId(databaseId),
+  );
+
   const activeView: ViewConfig | undefined = useMemo(() => {
     if (isEmbedded) {
       return {
@@ -120,9 +138,55 @@ export function DatabaseView({
       };
     }
     if (!schema) return undefined;
+    // External `viewId` prop wins (reserved for future URL-deep-linking),
+    // then the user's last-selected tab, then the db default, then [0].
     if (viewId) return schema.views.find((v) => v.id === viewId);
+    if (activeViewId) {
+      const found = schema.views.find((v) => v.id === activeViewId);
+      if (found) return found;
+    }
     return schema.views.find((v) => v.isDefault) ?? schema.views[0];
-  }, [schema, viewId, isEmbedded, embeddedView, databaseId]);
+  }, [schema, viewId, isEmbedded, embeddedView, databaseId, activeViewId]);
+
+  // Wrap setState so we also persist to localStorage whenever the active
+  // tab changes (selection, create, duplicate). Clearing (delete-fallback)
+  // goes through `clearActiveViewId` instead.
+  const setActiveViewId = useCallback((id: string) => {
+    setActiveViewIdState(id);
+    if (!isEmbedded) persistActiveViewId(databaseId, id);
+  }, [databaseId, isEmbedded]);
+
+  // Phase 1 multi-tab: only the `table` view type has a renderer today.
+  // Other types (board / calendar / timeline / gallery / list) land in
+  // subsequent feature branches — until then we render a placeholder and
+  // skip the table / column-add / filter-bar UI below.
+  const isTableView = activeView?.type === 'table';
+
+  // --- Multi-tab bookkeeping (Phase 1) -------------------------------------
+  // `handleSelectView` is invoked by <ViewTabs> when the user clicks a tab.
+  // `handleViewMutation` is fired after create/duplicate/delete so we can
+  // keep the active tab in sync (jump to a freshly created view, or fall
+  // back to the default when the active one is deleted).
+  const handleSelectView = useCallback(
+    (viewId: string) => setActiveViewId(viewId),
+    [setActiveViewId],
+  );
+
+  const handleViewMutation = useCallback(
+    (mutation: { kind: 'create' | 'duplicate'; view: ViewConfig } | { kind: 'delete'; viewId: string }) => {
+      if (mutation.kind === 'create' || mutation.kind === 'duplicate') {
+        setActiveViewId(mutation.view.id);
+      } else if (mutation.kind === 'delete') {
+        // If we just deleted the active tab, drop the stored preference so
+        // the memo's fallback chain (default → views[0]) picks the next one.
+        if (activeViewId === mutation.viewId) {
+          setActiveViewIdState(null);
+          if (!isEmbedded) clearActiveViewId(databaseId);
+        }
+      }
+    },
+    [activeViewId, databaseId, isEmbedded, setActiveViewId],
+  );
 
   const [filter, setFilter] = useState<FilterNode | null>(null);
   const [sorts, setSorts] = useState<SortEntry[]>([]);
@@ -564,18 +628,36 @@ export function DatabaseView({
   // ========================================================================
   return (
     <div className="border border-border-hairline rounded-md overflow-hidden bg-bg-page">
-      {/* View tabs / actions bar */}
+      {/* Multi-tab strip — only in standalone mode. Embedded
+          LinkedDatabaseBlock keeps its single-view UX (switched via the
+          block's own dropdown), so we don't render tabs there. */}
+      {!isEmbedded && schema && (
+        <ViewTabs
+          databaseId={databaseId}
+          views={schema.views}
+          activeViewId={activeView?.id ?? null}
+          onSelect={handleSelectView}
+          onAfterMutate={handleViewMutation}
+        />
+      )}
+
+      {/* Actions bar */}
       <div className="flex items-center gap-3 px-3 py-1.5 border-b border-border-hairline">
         {linked && (
           <span className="inline-flex items-center gap-1 text-[11px] text-accent bg-bg-active px-1.5 py-0.5 rounded">
             {t('database.linked')}
           </span>
         )}
-        <div className="flex items-center gap-1.5 text-[13px]">
-          <span className="font-medium text-text-primary">
-            {activeView?.name ?? t('database.table')}
-          </span>
-        </div>
+        {/* View name — only show inline in embedded mode. In standalone the
+            name is already displayed on the active tab, so showing it again
+            here would be redundant. */}
+        {isEmbedded && (
+          <div className="flex items-center gap-1.5 text-[13px]">
+            <span className="font-medium text-text-primary">
+              {activeView?.name ?? t('database.table')}
+            </span>
+          </div>
+        )}
         <span className="text-[11px] text-text-tertiary">
           {t('database.rowCount', { count: displayedRows.length })}
         </span>
@@ -646,8 +728,17 @@ export function DatabaseView({
         </div>
       </div>
 
-      {/* Hidden columns indicator */}
-      {hidden.length > 0 && (
+      {/* Phase 1 multi-tab: when the active view is anything other than
+          `table`, render a placeholder and skip the table / filter-bar /
+          column-add UIs below. The placeholder preserves the view's filter
+          and layout settings on the backend so the renderer (when it lands)
+          opens with the right config. */}
+      {!isTableView && activeView && (
+        <ViewTypePlaceholder view={activeView} />
+      )}
+
+      {/* Hidden columns indicator — only meaningful for the table layout. */}
+      {isTableView && hidden.length > 0 && (
         <div className="px-3 py-1 text-[11px] text-text-tertiary border-b border-border-hairline bg-bg-section/50">
           {t('database.hiddenColumns', {
             hidden: hidden.length,
@@ -665,18 +756,18 @@ export function DatabaseView({
         </div>
       )}
 
-      {/* Filter bar */}
-      <FilterBar
-        filter={filter}
-        properties={allProps}
-        onOpenEditor={() => setFilterEditorOpen(true)}
-        onRemoveLeaf={handleRemoveFilterLeaf}
-      />
+      {/* Filter bar — table only. */}
+      {isTableView && (
+        <FilterBar
+          filter={filter}
+          properties={allProps}
+          onOpenEditor={() => setFilterEditorOpen(true)}
+          onRemoveLeaf={handleRemoveFilterLeaf}
+        />
+      )}
 
-      {/* Table */}
-      {/* M6 perf: bounded vertical scroll so TanStack Virtual can window the
-          body rows (PRD §10.1: 1000 rows render < 500ms). Horizontal scroll
-          still works via `overflow-auto`. */}
+      {/* Table — only rendered for the `table` view type. */}
+      {isTableView && (
       <div ref={tableScrollRef} className="overflow-auto max-h-[70vh] border-b border-border-hairline">
         {groupProp ? (
           // Feishu-style grouped view: each group is an INDEPENDENT table
@@ -748,25 +839,29 @@ export function DatabaseView({
           </table>
         )}
       </div>
+      )}
 
       {/* Add property — standalone button OUTSIDE the scroll container so
-          manually widening columns can never push it off-screen. */}
-      <div className="px-3 py-1.5 border-b border-border-hairline bg-bg-section/40">
-        <button
-          type="button"
-          onClick={(e) =>
-            setMenuOpenFor({
-              new: true,
-              anchorRect: e.currentTarget.getBoundingClientRect(),
-            })
-          }
-          className="inline-flex items-center gap-1 text-[13px] text-text-tertiary hover:text-text-primary"
-          title={t('database.addProperty')}
-        >
-          <span className="text-base leading-none">+</span>
-          {t('database.addProperty')}
-        </button>
-      </div>
+          manually widening columns can never push it off-screen. Table-only:
+          non-table views don't expose property-column editing. */}
+      {isTableView && (
+        <div className="px-3 py-1.5 border-b border-border-hairline bg-bg-section/40">
+          <button
+            type="button"
+            onClick={(e) =>
+              setMenuOpenFor({
+                new: true,
+                anchorRect: e.currentTarget.getBoundingClientRect(),
+              })
+            }
+            className="inline-flex items-center gap-1 text-[13px] text-text-tertiary hover:text-text-primary"
+            title={t('database.addProperty')}
+          >
+            <span className="text-base leading-none">+</span>
+            {t('database.addProperty')}
+          </button>
+        </div>
+      )}
 
       {/* New-property menu — rendered once at the view level (not per-table,
           so grouped view no longer stacks N copies of the popover). */}
