@@ -68,6 +68,98 @@
 
 ---
 
+## #2 RGL v2 仪表盘 widget 无法拖动 / 调整大小（`process is not defined`）
+
+**影响功能**：数据库 Dashboard 视图的 widget 拖动排序、resize、删除按钮（实际是整个 react-draggable 事件链）。
+**首次发现**：接入 Dashboard 视图（`feat/database-dashboard` 或后续修复）时。
+
+### 现象
+
+Dashboard 视图里的 widget 能正常添加、渲染，但**点击 widget header 拖动 / 拖动右下角 resize handle 都没有任何反应**——widget 不跟随鼠标移动，layout 也不更新。
+
+在独立 HTML 测试页（用 esm.sh CDN 加载同一个 RGL v2.2.3 + React 19）里能正常拖动；只有走 Folio 自己的 Vite dev server（进而也是 Tauri webview 加载的代码）时不工作。
+
+### 根因
+
+**`react-draggable`（RGL 的拖拽核心依赖）的 `log()` 函数无条件访问 `process.env.DRAGGABLE_DEBUG`，但 Vite dev server 在浏览器/webview 运行时不提供 `process` 全局。**
+
+源码（`react-draggable/build/cjs/Draggable.js`）：
+```js
+// lib/utils/log.ts
+function log(...args) {
+  if (process.env.DRAGGABLE_DEBUG) console.log(...args);  // ← 此行抛 ReferenceError
+}
+```
+
+`DraggableCore.handleDragStart` 在 `onMouseDown` 的第一行就调用 `log(...)`：
+
+```
+mousedown
+  → DraggableCore.onMouseDown
+    → DraggableCore.handleDragStart
+      → log("DraggableCore: handleDragStart: %j", ...)   ← ReferenceError: process is not defined
+      ↓ 异常抛出，handleDragStart 中断
+      × onStart 永远不调用
+      × document 上的 mousemove/mouseup 监听器永远不注册
+      × 拖拽永远不启动
+```
+
+任何后续的 `dataTransfer` / `preventDefault` / handle selector / nodeRef 调试都无效，因为整个事件链在第一步就被异常中断。React 把异常 swallow 到 console（只在 dev tools 里可见），用户视觉上看到的就是「按下没反应」。
+
+Vite 默认不向 client 注入 Node 风格的 `process` 全局；很多 npm 包假设它在浏览器里也存在，但通常被 Vite 的 `define` 或者 polyfill 处理掉了。`react-draggable` 的这个引用没被任何 Folio 已有的 define 命中，所以漏到了运行时。
+
+> 为什么 rgl-test.html 能用：esm.sh 在 CDN 侧已经把 `process.env.DRAGGABLE_DEBUG` 编译成了字面量；Folio 自己的 Vite 没有这层处理。
+
+### 修复
+
+在 `vite.config.ts` 的 `define` 里把这一处访问编译为字面量 `false`，让运行时代码根本不接触 `process`：
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  // ...
+  define: {
+    // Vite serves raw ESM to the browser/webview; it does NOT provide a
+    // `process` global. react-draggable (used by react-grid-layout) reads
+    // `process.env.DRAGGABLE_DEBUG` at the top of its `log()` helper, and
+    // `log()` is called on every `handleDragStart`. Without this define the
+    // read throws `ReferenceError: process is not defined` inside the
+    // mousedown handler — which silently aborts the drag before it ever
+    // starts.
+    'process.env.DRAGGABLE_DEBUG': JSON.stringify(false),
+  },
+  // ...
+});
+```
+
+`define` 是 Vite 的编译时字面量替换，比运行时 polyfill（`window.process = { env: {} }`）更精确——只替换这一处，不会污染其他模块对 `process` 的预期。
+
+> 关闭前已确认：Folio 全代码库没有任何地方依赖 `process` 全局（除了 `vite.config.ts` 自身的 `process.env.TAURI_DEV_HOST` 等构建期变量，那是 Node 环境读的，与 client 无关）。此 define 不会影响其他模块。
+>
+> 同时修了 `WidgetFrame` 的 drag handle 位置问题：原来 RGL 的 `.folio-dashboard-drag-handle` 是一个透明 absolute overlay 覆盖在 widget 视觉外框上方 20px 留白处，用户视觉上看到的「widget header」并不在 handle 选择器范围内——即便 `process` 修好了，用户也找不到能拖的地方。改成把 `folio-dashboard-drag-handle` 直接加在 `WidgetFrame` 的 header div 上，让可见的 header 本身就是 handle。
+
+### 验证
+
+1. **必须完全重启 `pnpm tauri dev`（或 `pnpm dev`）**——`vite.config.ts` 的改动不会被 Vite HMR 热更新，Vite 会在配置变更时尝试重启，但浏览器里旧 bundle 仍是旧 define；强刷一次页面（Ctrl+Shift+R）确保拿到新 bundle。
+2. 打开任意数据库，切到 Dashboard 视图。
+3. 按下 widget 标题栏（不是 × 按钮），向右/向下拖动：widget 应跟随鼠标移动，松开后位置持久化。
+4. 拖动 widget 右下角的 resize handle：widget 尺寸应跟随变化。
+5. 点击 widget header 右侧的 ×：widget 被删除，layout 重新紧凑排列。
+
+### 影响范围 / 附带修复
+
+- **本次目标**：Dashboard widget 拖动 + resize + 删除全部恢复。
+- **附带修复**：drag handle UX——从「透明 overlay 在 widget 上方留白」改成「widget header 本身就是 handle」，用户视觉上能直接识别可拖区域。
+- **未波及**：表格行拖动（HTML5 drag，不经过 react-draggable）、侧边栏拖动（同上），这些走另一条事件链，不受 `process.env.DRAGGABLE_DEBUG` 影响。
+
+### 教训
+
+- 「按下没反应」+「在 dev console 里有 `ReferenceError`」= 第一信号去看 dev console，而不是继续猜 CSS / 选择器 / React 版本兼容。React 在事件回调里抛异常会被 swallow 到 console，UI 上毫无提示。
+- 「在独立最小化 demo 里能用、在项目里不能用」通常是**构建链**差异（Vite define / polyfill / optimizeDeps），而不是业务代码差异。先比对两边的 bundle 处理（CDN 预编译 vs Vite 原始 ESM），再去看代码。
+- 任何依赖访问 `process.env.XXX` 的 npm 包，在 Vite 项目里要么加 `define`、要么用 `vite-plugin-node-polyfills`，**不能假设 Vite 默认会处理**——Vite 的默认是「不 polyfill Node 内建」。
+
+---
+
 ## 模板
 
 新增条目时复制以下结构：
