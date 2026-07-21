@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS database_view (
     hidden_properties TEXT,               -- JSON
     column_widths     TEXT,               -- JSON
     manual_order      TEXT,               -- JSON array of row ids (manual drag-reorder, per-view)
+    dashboard         TEXT,               -- JSON { components: [...], layout: [...] } (dashboard view only)
     is_default        INTEGER NOT NULL DEFAULT 0,
     created_at        INTEGER NOT NULL
 );
@@ -234,6 +235,9 @@ fn apply_migrations(conn: &rusqlite::Connection) -> Result<()> {
     // Add `manual_order` to `database_view` for per-view manual row ordering
     // (drag-to-reorder). JSON array of row ids; NULL = use default order.
     add_column_if_missing(conn, "database_view", "manual_order", "TEXT")?;
+    // Add `dashboard` to `database_view` for dashboard-view widget configs
+    // (component list + grid layout). JSON; NULL for non-dashboard views.
+    add_column_if_missing(conn, "database_view", "dashboard", "TEXT")?;
     Ok(())
 }
 
