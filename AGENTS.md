@@ -216,16 +216,21 @@ v0.1.0
 ```
 
 - 当前处于 `0.x` 阶段，MINOR 位用于新功能，PATCH 位用于修复。
+- **不使用 semver 预发布标识符**（`-beta.N` / `-rc.N` 等）。理由：
+  Windows MSI 的 `ProductVersion` 字段强制 `M.M.B.R` 纯数字格式，含
+  `-beta.N` 的版本号会让 WiX 在打包阶段拒绝出包；同时维护两套版本
+  语义成本高，得不偿失。详见 `docs/troubleshooting.md` #3。
+- 需要快速迭代时直接递增 PATCH（`0.3.0` → `0.3.1` → `0.3.2`）；
+  跨多个 PATCH 的大功能可一次跳到下一个 MINOR（`0.3.x` → `0.4.0`）。
 - 所有 tag **必须以 `v` 开头**：`v0.1.0`，不是 `0.1.0`。
 
-### 6.2 三个发布通道
+### 6.2 两条发布通道
 
-本项目有三条发布通道（由 `.github/workflows/release.yml` 驱动）：
+本项目有两条发布通道（由 `.github/workflows/release.yml` 驱动）：
 
 | 通道 | Tag 格式 | 示例 | 用途 | 目标分支 |
 |------|----------|------|------|----------|
 | **Stable**（稳定） | `v<X.Y.Z>` | `v0.1.0`、`v0.1.1` | 正式发布给所有用户 | `master` |
-| **Beta**（测试） | `v<X.Y.Z>-beta.<N>` | `v0.1.0-beta.1`、`v0.1.0-beta.2` | 发布前的公开测试版 | `dev` 或发版分支 |
 | **Nightly**（每日构建） | `nightly-<YYYY-MM-DD>` | `nightly-2026-07-08` | 自动构建，每日 03:00 UTC 由 cron 触发 | `dev` HEAD |
 
 ### 6.3 Rolling Tags（CI 维护）
@@ -235,7 +240,6 @@ v0.1.0
 | Rolling Tag | 对应通道 | 用途 |
 |-------------|----------|------|
 | `stable-latest` | Stable | Tauri 更新器读取此处的 `latest.json` |
-| `beta-latest` | Beta | 同上 |
 | `nightly-latest` | Nightly | 同上 |
 
 > 这些 Tag 每次 CI 构建都会被覆盖。**绝对不要手动 push 或删除它们**。
@@ -256,30 +260,10 @@ git tag -a v0.1.0 -m "Release v0.1.0 - 首个稳定版"
 git push origin v0.1.0
 ```
 
-#### Beta 预发布
-
-从 `dev`（或发版准备分支）打：
-```bash
-git checkout dev
-git pull origin dev
-git tag -a v0.1.0-beta.3 -m "Beta 3 for v0.1.0"
-git push origin v0.1.0-beta.3
-```
-
 #### Nightly
 
 - **自动**：cron 每天 03:00 UTC 触发，无需手动操作。
 - **手动触发**：在 GitHub Actions 页面用 `workflow_dispatch` 选择 `nightly` 通道，或手动打 `nightly-<日期>` tag。
-
-### 6.5 Pre-release 编号规则
-
-同一版本的多次 Beta 递增序号：
-
-```
-v0.1.0-beta.1   ← 第一轮测试
-v0.1.0-beta.2   ← 修复后第二轮
-v0.1.0          ← 测试通过后，去掉 -beta 后缀发正式版
-```
 
 ---
 
@@ -291,7 +275,6 @@ v0.1.0          ← 测试通过后，去掉 -beta 后缀发正式版
 | 修 Bug（非紧急） | `dev` | `dev`（PR） | 否 |
 | 生产紧急修复 | `master` | `master` + `dev`（两个 PR） | 视情况补 PATCH tag |
 | 正式发版 | — | `dev` → `master`（PR） | `v<X.Y.Z>` |
-| 公开测试版 | `dev` | — | `v<X.Y.Z>-beta.<N>` |
 | 每日构建 | `dev` HEAD | — | 自动（cron） |
 
 ---
@@ -299,7 +282,7 @@ v0.1.0          ← 测试通过后，去掉 -beta 后缀发正式版
 ## 8. 禁止事项
 
 - ❌ 直接 push 到 `master`（必须走 PR）。`dev` 允许直接合并。
-- ❌ 手动操作 `stable-latest` / `beta-latest` / `nightly-latest` 滚动 Tag。
+- ❌ 手动操作 `stable-latest` / `nightly-latest` 滚动 Tag。
 - ❌ 不带 `v` 前缀的版本 Tag（`0.1.0` ❌，`v0.1.0` ✅）。
 - ❌ 在 `master` 上直接开发。
 - ❌ 提交超大二进制文件（用 Git LFS 或放入 release assets）。

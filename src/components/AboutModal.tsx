@@ -25,17 +25,16 @@ type Status =
 
 const CHANNELS: { id: UpdateChannel; labelKey: string; hintKey: string }[] = [
   { id: 'stable', labelKey: 'about.channelStable', hintKey: 'about.channelStableHint' },
-  { id: 'beta', labelKey: 'about.channelBeta', hintKey: 'about.channelBetaHint' },
   { id: 'nightly', labelKey: 'about.channelNightly', hintKey: 'about.channelNightlyHint' },
 ];
 
 /**
  * About dialog (M9) — app metadata, license, and the auto-update surface.
  *
- * Surfaces the three release channels (stable / beta / nightly) and a
- * user-initiated "Check for updates" button (PRD §10.3 whitelist: no
- * background checks, no telemetry). The actual version probing + download
- * happens via the Rust commands in `src/lib/updater.ts`.
+ * Surfaces the two release channels (stable / nightly) and a user-initiated
+ * "Check for updates" button (PRD §10.3 whitelist: no background checks,
+ * no telemetry). The actual version probing + download happens via the
+ * Rust commands in `src/lib/updater.ts`.
  */
 export function AboutModal({ onClose }: AboutModalProps) {
   const { t } = useTranslation();

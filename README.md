@@ -285,10 +285,10 @@ Internationalization (PRD §10.5) and accessibility (PRD §10.4).
   patent grant. You may use, modify, and distribute Folio (including
   commercially) provided you retain the license notice and state changes.
 
-### Auto-update (Q9 — stable / beta / nightly)
+### Auto-update (Q9 — stable / nightly)
 
-- **Three channels**, each backed by a GitHub Releases rolling tag
-  (`stable-latest` / `beta-latest` / `nightly-latest` → `latest.json`).
+- **Two channels**, each backed by a GitHub Releases rolling tag
+  (`stable-latest` / `nightly-latest` → `latest.json`).
 - **Tauri updater** (`@tauri-apps/plugin-updater`) + **minisign** update
   signing — pubkey embedded in `tauri.conf.json`, private key held outside
   the repo. Updates are user-initiated only (PRD §10.3 whitelist).
@@ -302,7 +302,7 @@ Internationalization (PRD §10.5) and accessibility (PRD §10.4).
 - **GitHub Actions** (`.github/workflows/release.yml`) builds Windows /
   macOS (universal) / Linux, signs the updater bundle, publishes to GitHub
   Releases. Code is hosted on **GitLab**, mirrored to GitHub for publishing.
-  Triggers: `v*` tags (stable), `v*-beta*` (beta), `nightly-*` tags + daily
+  Triggers: `v*` tags (stable), `nightly-*` tags + daily
   cron (nightly).
 
 ### Still pending / deferred
@@ -316,7 +316,7 @@ Internationalization (PRD §10.5) and accessibility (PRD §10.4).
 
 ## What's new in 0.2.0
 
-Post-M9 editor polish plus a license change. Shipped as `v0.2.0-beta.1`.
+Post-M9 editor polish plus a license change. Shipped as `v0.2.0`.
 
 ### Tables
 
@@ -347,7 +347,7 @@ terms, with an explicit patent grant. See [`LICENSE`](./LICENSE).
 
 ## What's next
 
-0.2.0 is in beta (`v0.2.0-beta.1`). Remaining before v1.0: updater UI, OS
+Current stable is `0.3.0`. Remaining before v1.0: updater UI, OS
 code-signing (Q11), and P1 bugs from real-world use.
 
 ## License

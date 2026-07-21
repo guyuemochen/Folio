@@ -41,7 +41,6 @@ const LANGUAGE_OPTIONS: { id: LanguagePreference; label: string }[] = [
 
 const CHANNELS: { id: UpdateChannel; labelKey: string; hintKey: string }[] = [
   { id: 'stable', labelKey: 'about.channelStable', hintKey: 'about.channelStableHint' },
-  { id: 'beta', labelKey: 'about.channelBeta', hintKey: 'about.channelBetaHint' },
   { id: 'nightly', labelKey: 'about.channelNightly', hintKey: 'about.channelNightlyHint' },
 ];
 

@@ -160,6 +160,94 @@ export default defineConfig({
 
 ---
 
+## #3 Windows MSI 打包失败：pre-release identifier must be numeric-only
+
+**影响功能**：GitHub Actions 上 `pnpm tauri build`（Windows 矩阵）在 beta 通道下打包失败，整个 release 流水线被阻塞。
+**首次发现**：尝试发 `v0.3.0-beta.1` 时。
+
+### 现象
+
+CI 上 macOS / Linux 矩阵正常，只有 `windows-latest` 矩阵在 WiX 阶段报错退出：
+
+```
+Compiling scraper v0.26.0
+...
+    Finished `release` profile [optimized] target(s) in 7m 26s
+       Built application at: D:\a\Folio\Folio\src-tauri\target\release\folio.exe
+        Info Patching ... with bundle type information: msi
+        Info Verifying wix package
+ Downloading https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip
+        Info validating hash
+        Info extracting WIX
+failed to bundle project: `optional pre-release identifier in app version must be numeric-only and cannot be greater than 65535 for msi target`
+       Error failed to bundle project: `optional pre-release identifier in app version must be numeric-only and cannot be greater than 65535 for msi target`
+[ELIFECYCLE] Command failed with exit code 1.
+```
+
+可执行文件 `folio.exe` 本身编译成功了，错的是把它打成 `.msi` 安装包这一步。本地 `pnpm tauri build`（Windows + beta 版本号）也会复现。
+
+### 根因
+
+**MSI（Windows Installer）的 `ProductVersion` 字段格式被 WiX 强制为 `Major.Minor.Build.Revision`，每段必须是 0–65535 的纯数字，不接受任何 semver 预发布标识符。**
+
+Tauri 在调用 WiX 之前会先校验 `tauri.conf.json` 里的 `version`，把 semver prerelease 投影成 MSI 的 Revision 字段：
+
+| App version | 投影后的 MSI Revision | WiX 校验结果 |
+|---|---|---|
+| `0.3.0` | (无 Revision) | ✅ |
+| `0.3.0-beta.1` | `beta.1` | ❌ 非纯数字 |
+| `0.3.0-1` | `1` | ✅ |
+| `0.3.0-70000` | `70000` | ❌ 超过 65535 |
+
+Folio 当时的版本号 `0.3.0-beta.1` 在 `package.json` / `tauri.conf.json` / `src-tauri/Cargo.toml` 三处同步，必然触发该校验。
+
+### 修复
+
+**不再使用 semver 预发布标识符。** 整个项目从「stable / beta / nightly 三通道」简化为「stable / nightly 两通道」；版本号一律用纯数字 `MAJOR.MINOR.PATCH`，需要快速迭代时直接递增 PATCH（`0.3.0` → `0.3.1` → `0.3.2`），而不是 `-beta.N`。
+
+涉及改动（一次清理到位）：
+
+| 文件 | 变更 |
+|---|---|
+| `package.json` / `src-tauri/tauri.conf.json` / `src-tauri/Cargo.{toml,lock}` | `version: 0.3.0-beta.1` → `0.3.0` |
+| `.github/workflows/release.yml` | 删去 `v*-beta*` tag 触发、workflow_dispatch 的 `beta` 选项、CI 里的 `*-beta*` → `CH=beta` 分支 |
+| `src/lib/updater.ts` | `UpdateChannel` 由 `'stable' \| 'beta' \| 'nightly'` 收成 `'stable' \| 'nightly'`；`getUpdateChannel()` 收窄白名单 |
+| `src/components/AboutModal.tsx` / `SettingsModal.tsx` | `CHANNELS` 数组移除 `beta` 项 |
+| `src-tauri/src/lib.rs` | `UPDATE_ENDPOINTS` 常量移除 `beta-latest` 项；channel doc 注释同步 |
+| `src/i18n/locales/{en,zh-CN}.json` | 删去 `about.channelBeta` / `about.channelBetaHint` 翻译键 |
+| `AGENTS.md` §6 | §6.1 加一条「不使用 semver 预发布标识符」+ 理由；§6.2 表格删 Beta 行；§6.3 Rolling Tags 删 `beta-latest`；§6.4 删「Beta 预发布」整节；§6.5 Pre-release 编号规则整节删除；§7 速查表删「公开测试版」行；§8 禁止事项里删 `beta-latest` |
+| `README.md` | Auto-update 章节由「three channels」改「two channels」；Release pipeline 触发条件删 beta；「What's new in 0.2.0」段从 `v0.2.0-beta.1` 改 `v0.2.0`；删去「0.2.0 is in beta」整段，改成「Current stable is 0.3.0」 |
+
+考虑过的其它选项及为什么没选：
+
+- **改用 NSIS-only，跳过 MSI**（上一轮尝试的方案）：CI 修好了，但 stable 通道也跟着丢 MSI（对偏好 MSI 的企业用户不友好），而且 nightly 通道如果将来真要打 dated 版本号仍可能踩类似的 prerelease 坑。治标不治本。
+- **stable 通道保留 MSI、beta/nightly 用 NSIS（混合）**：跨通道安装器格式不一致，updater 切换通道时需要用户先手动卸载旧安装器类型，UX 差。
+- **改写版本号成 `0.3.0.1` 这种四段数字**：丢 semver 语义、和 npm / cargo 的版本号对不齐，违反三处版本号同步的既定规则。
+
+### 验证
+
+1. **JSON / TOML 合法性**：`node -e "require('./src-tauri/tauri.conf.json'); require('./package.json')"` 应无异常；`cargo check --manifest-path src-tauri/Cargo.toml` 应通过 lock 文件版本解析。
+2. **TypeScript 类型检查**：`pnpm typecheck` 应无 `UpdateChannel` 类型错误（前端两处 `CHANNELS` 数组都收窄了，`'beta'` 字面量已经从代码里彻底消失）。
+3. **CI**：push 一个 `v0.3.0` tag 触发 release.yml；Windows 矩阵应通过，Release assets 里同时有 `*-setup.exe` (NSIS) 和 `*.msi` (WiX)。
+4. **Updater**：在装了 nightly 的机器上把 channel 切到 stable，跑 `checkForUpdate()` 应正常拉到 `stable-latest/latest.json`；之前装了 beta channel 的存量用户会被 `getUpdateChannel()` 静默 fallback 到 stable（localStorage 里的 `'beta'` 不在白名单里）。
+
+### 影响范围 / 附带修复
+
+- **本次目标**：CI Windows 矩阵在所有 tag 形态下都能出包。
+- **附带收益**：版本号语义简化（一处规则、一套语义），updater UI 减少一个干扰选项，CI workflow 少一条分支判断，文档里删去整章 Beta 说明。
+- **未波及**：macOS（`.dmg` / `.app`）、Linux（`.deb` / `.rpm` / `.AppImage`）产出格式不变；updater 公私钥、签名流程、`latest.json` 协议均不变；nightly 通道完全保留（cron + 滚动 tag）。
+- **存量影响**：
+  - GitHub Releases 上残留的 `beta-latest` 滚动 tag / Release 不需要手动清理，CI 不再写它，它会冻结在最后一个 beta 版本；要不要删除是 repo 管理员的选择。
+  - 已经下载并安装了 beta 版本的终端用户，会停留在 `v0.3.0-beta.1`，不会被自动升级到 `v0.3.0`（因为他们 localStorage 里仍是 `'beta'` 通道，而该通道不再有新 `latest.json`）。建议在 release notes 里写一句「如果你之前装了 beta，请在 About / Settings 里把通道切到 Stable」。
+
+### 教训
+
+- 「跨 OS 的某个 target 在某种 version 下挂掉」是版本号语义跨工具链不兼容的典型信号——优先怀疑各打包工具自己的格式约束（MSI `ProductVersion`、`deb` control 字段、macOS `CFBundleVersion` 等），而不是业务配置。
+- 三处版本号同步（`package.json` / `tauri.conf.json` / `Cargo.toml`）的项目尤其要避免「为了某个 bundler 改版本号」——会让同步规则崩盘。正确做法是反过来：**挑一个所有 bundler 都能接受的版本语义**，然后让整个项目对齐。Folio 的选择是「永远纯数字、永不带 prerelease 标识符」。
+- 设计 release channel 时要问一句「这个 channel 的版本号格式是否能被所有目标 bundler 接受」——不能接受就别开。MSI 这条硬约束让 `-beta.N` 在 Windows 上从一开始就是死路。
+
+---
+
 ## 模板
 
 新增条目时复制以下结构：
