@@ -498,8 +498,6 @@
     "updateChannel": "更新通道",
     "channelStable": "稳定版",
     "channelStableHint": "仅正式版 —— 最可靠",
-    "channelBeta": "测试版",
-    "channelBetaHint": "候选发布 —— 提前尝试新功能",
     "channelNightly": "每日构建",
     "channelNightlyHint": "每次构建 —— 最前沿,可能不稳定",
     "channelPrivacy": "仅在你点击按钮时检查更新。无任何后台遥测。",

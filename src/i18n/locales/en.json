@@ -498,8 +498,6 @@
     "updateChannel": "Update channel",
     "channelStable": "Stable",
     "channelStableHint": "Official releases only — most reliable",
-    "channelBeta": "Beta",
-    "channelBetaHint": "Release candidates — try new features early",
     "channelNightly": "Nightly",
     "channelNightlyHint": "Every build — bleeding edge, may be unstable",
     "channelPrivacy": "Updates are checked only when you click the button. No background telemetry.",

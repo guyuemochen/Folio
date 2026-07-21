@@ -1257,7 +1257,7 @@ fn save_binary_file(path: String, content_b64: String) -> Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 // =============================================================================
-// Updater (M9 — release channels: stable / beta / nightly)
+// Updater (M9 — release channels: stable / nightly)
 // =============================================================================
 
 /// Per-channel update manifest URLs (GitHub Releases rolling tags).
@@ -1266,10 +1266,6 @@ const UPDATE_ENDPOINTS: &[(&str, &str)] = &[
     (
         "stable",
         "https://github.com/guyuemochen/folio/releases/download/stable-latest/latest.json",
-    ),
-    (
-        "beta",
-        "https://github.com/guyuemochen/folio/releases/download/beta-latest/latest.json",
     ),
     (
         "nightly",
@@ -1303,7 +1299,7 @@ fn build_channel_updater(
 
 /// Check for an available update on the given release channel.
 ///
-/// `channel` ∈ {"stable","beta","nightly"}; an unknown value falls back to "stable".
+/// `channel` ∈ {"stable","nightly"}; an unknown value falls back to "stable".
 /// Returns `Some(version)` when a newer build is available, `None` when current.
 #[tauri::command]
 async fn check_for_update_with_channel(

@@ -2,9 +2,8 @@ name: release
 
 # M9 — build, sign, and publish Folio installers + the updater manifest.
 #
-# Three release channels share this workflow:
+# Two release channels share this workflow:
 #   stable  : push tag v0.x.x            → rolling tag `stable-latest`
-#   beta    : push tag v0.x.x-beta.N     → rolling tag `beta-latest`
 #   nightly : schedule (daily 03:00 UTC) → rolling tag `nightly-latest`
 #
 # Each channel publishes to ONE rolling GitHub Release (e.g. `stable-latest`):
@@ -29,7 +28,7 @@ name: release
 on:
   push:
     tags:
-      - 'v*'           # stable + beta (v0.1.0, v0.1.1-beta.2)
+      - 'v*'           # stable (v0.1.0, v0.1.1, ...)
       - 'nightly-*'    # explicit nightly tag
   schedule:
     - cron: '0 3 * * *'  # nightly build at 03:00 UTC
@@ -38,7 +37,7 @@ on:
       channel:
         description: 'Release channel'
         type: choice
-        options: ['stable', 'beta', 'nightly']
+        options: ['stable', 'nightly']
         default: 'stable'
 
 # tauri-action creates the rolling GitHub Release + uploads artifacts via the
@@ -95,7 +94,6 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           if [ -z "$CH" ]; then
             if [[ "$TAG" == nightly-* ]] || [ "${{ github.event_name }}" = "schedule" ]; then CH=nightly
-            elif [[ "$TAG" == *-beta* ]]; then CH=beta
             else CH=stable; fi
           fi
           ROLLING="$CH-latest"

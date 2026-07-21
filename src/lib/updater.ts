@@ -4,19 +4,19 @@ import { relaunch } from '@tauri-apps/plugin-process';
 /**
  * Auto-update (M9, PRD §10.3 whitelist: user-initiated checks only).
  *
- * Three release channels — stable / beta / nightly — each backed by its own
+ * Two release channels — stable / nightly — each backed by its own
  * GitHub Releases rolling tag (`<channel>-latest/latest.json`). The channel
  * is a per-user preference persisted in localStorage; the Rust side resolves
  * it to the right endpoint so JS never needs to know URLs.
  */
 
-export type UpdateChannel = 'stable' | 'beta' | 'nightly';
+export type UpdateChannel = 'stable' | 'nightly';
 
 const CHANNEL_KEY = 'folio:update-channel';
 
 export function getUpdateChannel(): UpdateChannel {
   const c = localStorage.getItem(CHANNEL_KEY);
-  return c === 'beta' || c === 'nightly' ? c : 'stable';
+  return c === 'nightly' ? c : 'stable';
 }
 
 export function setUpdateChannel(channel: UpdateChannel): void {
