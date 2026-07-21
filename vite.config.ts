@@ -13,6 +13,17 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  // Vite serves raw ESM to the browser/webview; it does NOT provide a
+  // `process` global. react-draggable (used by react-grid-layout) reads
+  // `process.env.DRAGGABLE_DEBUG` at the top of its `log()` helper, and
+  // `log()` is called on every `handleDragStart`. Without this define the
+  // read throws `ReferenceError: process is not defined` inside the
+  // mousedown handler — which silently aborts the drag before it ever
+  // starts. Replace the access at build time so the runtime never touches
+  // `process`.
+  define: {
+    'process.env.DRAGGABLE_DEBUG': JSON.stringify(false),
+  },
   // Tauri expects a fixed port; if not available, fail fast
   clearScreen: false,
   server: {
