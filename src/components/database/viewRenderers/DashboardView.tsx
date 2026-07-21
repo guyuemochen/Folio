@@ -109,30 +109,30 @@ export function DashboardView({
   // Render
   // ---------------------------------------------------------------------------
 
-  if (config.components.length === 0) {
-    return (
-      <DashboardEmpty
-        canAdd={!!onChangeDashboard}
-        onAddClick={(rect) => setAddAnchor(rect)}
-      />
-    );
-  }
-
   return (
     <>
-      <DashboardToolbar
-        count={visibleRows.length}
-        canAdd={!!onChangeDashboard}
-        onAddClick={(rect) => setAddAnchor(rect)}
-      />
-      <DashboardGrid
-        config={config}
-        components={config.components}
-        rows={visibleRows}
-        onOpenRow={onOpenRow}
-        onLayoutChange={handleLayoutChange}
-        onRemove={onChangeDashboard ? handleRemove : undefined}
-      />
+      {config.components.length === 0 ? (
+        <DashboardEmpty
+          canAdd={!!onChangeDashboard}
+          onAddClick={(rect) => setAddAnchor(rect)}
+        />
+      ) : (
+        <>
+          <DashboardToolbar
+            count={visibleRows.length}
+            canAdd={!!onChangeDashboard}
+            onAddClick={(rect) => setAddAnchor(rect)}
+          />
+          <DashboardGrid
+            config={config}
+            components={config.components}
+            rows={visibleRows}
+            onOpenRow={onOpenRow}
+            onLayoutChange={handleLayoutChange}
+            onRemove={onChangeDashboard ? handleRemove : undefined}
+          />
+        </>
+      )}
 
       {addAnchor && (
         <AddWidgetMenu
@@ -209,28 +209,13 @@ function WidgetHost({
   onOpenRow?: (pageId: string) => void;
   onRemove?: () => void;
 }) {
-  // The drag handle is a thin strip at the top of each cell. RGL uses the
-  // CSS class via `draggableHandle` so only this strip starts a drag —
-  // the rest of the widget stays interactive (buttons, scroll, links).
+  // The drag handle is the widget header itself (marked with the
+  // `folio-dashboard-drag-handle` class inside <WidgetFrame>). RGL matches
+  // it via `dragConfig.handle`, so a click on the visible header starts a
+  // drag — no transparent overlay needed.
   return (
-    <div className="relative h-full">
-      {onRemove && (
-        <div className="folio-dashboard-drag-handle absolute inset-x-0 top-0 h-5 cursor-grab active:cursor-grabbing" aria-hidden />
-      )}
-      <div className="h-full pt-5">
-        {renderWidgetBody(component, rows, onOpenRow)}
-      </div>
-      {onRemove && (
-        <button
-          type="button"
-          onClick={onRemove}
-          aria-label="Remove widget"
-          title="Remove widget"
-          className="absolute top-0.5 right-1 text-text-tertiary hover:text-status-red text-xs leading-none px-1 z-10"
-        >
-          ×
-        </button>
-      )}
+    <div className="h-full">
+      {renderWidgetBody(component, rows, onOpenRow, onRemove)}
     </div>
   );
 }
@@ -239,10 +224,18 @@ function renderWidgetBody(
   component: DashboardComponent,
   rows: DatabaseRow[],
   onOpenRow?: (pageId: string) => void,
+  onRemove?: () => void,
 ) {
   switch (component.type) {
     case 'stat':
-      return <StatWidget title={component.title} filter={component.filter} rows={rows} />;
+      return (
+        <StatWidget
+          title={component.title}
+          filter={component.filter}
+          rows={rows}
+          onRemove={onRemove}
+        />
+      );
     case 'recent_rows':
       return (
         <RecentRowsWidget
@@ -252,6 +245,7 @@ function renderWidgetBody(
           limit={component.limit}
           rows={rows}
           onOpenRow={onOpenRow}
+          onRemove={onRemove}
         />
       );
   }

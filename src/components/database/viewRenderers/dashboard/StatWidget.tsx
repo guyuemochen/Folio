@@ -11,6 +11,8 @@ interface StatWidgetProps {
   filter?: FilterNode | null;
   /** All non-trashed rows of the database. */
   rows: DatabaseRow[];
+  /** Optional × button handler; when omitted the frame hides the button. */
+  onRemove?: () => void;
 }
 
 /**
@@ -21,7 +23,7 @@ interface StatWidgetProps {
  * MVP scope: count only — no breakdown, no sparkline, no comparison. The
  * data flow is the closed-loop demo (rows → filter → number → screen).
  */
-export function StatWidget({ title, filter, rows }: StatWidgetProps) {
+export function StatWidget({ title, filter, rows, onRemove }: StatWidgetProps) {
   const { t } = useTranslation();
   const count = useMemo(
     () => applyFilter(rows, normalizeFilter(filter ?? null)).length,
@@ -30,7 +32,7 @@ export function StatWidget({ title, filter, rows }: StatWidgetProps) {
   const headerTitle = title || t('database.dashboard.untitledStat');
   const unitLabel = t('database.dashboard.statUnitRows', { count });
   return (
-    <WidgetFrame title={headerTitle}>
+    <WidgetFrame title={headerTitle} onRemove={onRemove}>
       <div className="flex flex-col items-center justify-center h-full px-3 py-2">
         <span className="text-3xl font-semibold text-text-primary tabular-nums leading-none">
           {count}

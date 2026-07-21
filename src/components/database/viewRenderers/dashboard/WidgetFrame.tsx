@@ -15,9 +15,14 @@ interface WidgetFrameProps {
  * Visual chrome shared by every dashboard widget: a rounded card with a
  * header strip (title + remove button) and a body slot.
  *
- * Drag and resize handles are provided externally by ReactGridLayout — this
- * component intentionally does not render them, so the same frame works
- * inside and outside the grid (e.g. in a future preview pane).
+ * The header is also the drag handle for ReactGridLayout: the
+ * `folio-dashboard-drag-handle` class is matched by RGL's `dragConfig.handle`
+ * selector so the user can grab the header (the visually obvious place) to
+ * move the widget. The class is inert outside an RGL subtree, so the frame
+ * also works in a preview pane without side effects.
+ *
+ * Resize handles are provided externally by ReactGridLayout at the cell
+ * corners — this component does not render them.
  *
  * The body fills the remaining height so widgets can use `h-full` to size
  * their content (charts, scroll areas) to whatever the user resized to.
@@ -26,7 +31,7 @@ export function WidgetFrame({ title, children, onRemove }: WidgetFrameProps) {
   const { t } = useTranslation();
   return (
     <div className="flex flex-col h-full rounded-md border border-border-hairline bg-bg-page overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border-hairline bg-bg-section/50">
+      <div className="folio-dashboard-drag-handle flex items-center gap-2 px-3 py-1.5 border-b border-border-hairline bg-bg-section/50 cursor-grab active:cursor-grabbing">
         <span className="text-xs font-medium text-text-primary truncate flex-1">
           {title}
         </span>

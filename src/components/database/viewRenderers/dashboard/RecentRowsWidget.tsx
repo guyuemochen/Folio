@@ -18,6 +18,8 @@ interface RecentRowsWidgetProps {
   rows: DatabaseRow[];
   /** Open a row's full page. */
   onOpenRow?: (pageId: string) => void;
+  /** Optional × button handler; when omitted the frame hides the button. */
+  onRemove?: () => void;
 }
 
 /**
@@ -37,6 +39,7 @@ export function RecentRowsWidget({
   limit = 10,
   rows,
   onOpenRow,
+  onRemove,
 }: RecentRowsWidgetProps) {
   const { t } = useTranslation();
   const headerTitle = title || t('database.dashboard.untitledRecentRows');
@@ -53,7 +56,7 @@ export function RecentRowsWidget({
   }, [rows, filter, sort, limit]);
 
   return (
-    <WidgetFrame title={headerTitle}>
+    <WidgetFrame title={headerTitle} onRemove={onRemove}>
       {visible.length === 0 ? (
         <div className="flex items-center justify-center h-full text-xs text-text-tertiary px-3 text-center">
           {t('database.dashboard.noRows')}
