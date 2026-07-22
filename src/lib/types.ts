@@ -209,7 +209,14 @@ export interface DashboardLayoutItem {
   maxH?: number;
 }
 
-/** Discriminated union of widget configs. `id` is the join key with layout. */
+/** Discriminated union of widget configs. `id` is the join key with layout.
+ *
+ *  The union is closed over the `type` discriminator — `stat` and
+ *  `recent_rows` are built-in widgets shipped with Folio; `plugin` delegates
+ *  rendering to an externally-loaded dashboard plugin (see `src/plugins/`).
+ *  Adding a new built-in kind requires (a) a branch in `defaultComponentFor`
+ *  and (b) a matching case in `DashboardView`'s render switch. Plugin widgets
+ *  are open-ended: their `pluginId` references the runtime plugin registry. */
 export type DashboardComponent =
   | {
       id: string;
@@ -230,6 +237,21 @@ export type DashboardComponent =
       sort?: SortEntry[] | null;
       /** How many rows to display. Defaults to 10. */
       limit?: number;
+    }
+  | {
+      id: string;
+      type: 'plugin';
+      /** Foreign key into the runtime plugin registry (`manifest.id`).
+       *  Survives plugin file renames; queried to find the loaded plugin. */
+      pluginId: string;
+      /** Optional card title override; falls back to the plugin manifest's
+       *  `name` when empty/undefined. */
+      title?: string;
+      /** Opaque, plugin-defined configuration. The host NEVER interprets,
+       *  validates, or migrates this value — it stores and passes it back
+       *  verbatim. Plugins must default-handle `undefined` / old shapes.
+       *  Persisted as a JSON value in the view row. */
+      config?: unknown;
     };
 
 export interface DashboardConfig {

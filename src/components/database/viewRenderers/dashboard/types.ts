@@ -12,10 +12,18 @@ import type {
   DashboardLayoutItem,
 } from '../../../../lib/types';
 
-/** All widget kinds the renderer knows how to instantiate. Adding a new
- *  kind requires (a) a branch in `defaultComponentFor` and (b) a matching
- *  case in `DashboardView`'s render switch. */
-export type WidgetKind = DashboardComponent['type'];
+/** Built-in widget kinds only (the closed set this file knows about).
+ *
+ *  NOTE: deliberately NOT derived from `DashboardComponent['type']` anymore.
+ *  The persistence union now also has a `'plugin'` variant, but plugins are
+ *  open-ended (loaded at runtime from disk) so they cannot live in the
+ *  static `WIDGET_KIND_INFO` record or the `defaultComponentFor` switch.
+ *  Plugin widgets take a separate code path:
+ *    - `defaultComponentForPlugin(manifest)` builds their initial config.
+ *    - `AddWidgetMenu` lists them under a separate "Plugins" section.
+ *    - `renderWidgetBody` handles `'plugin'` via `PluginWidgetRenderer`.
+ */
+export type WidgetKind = 'stat' | 'recent_rows';
 
 /** Per-kind metadata for the "Add widget" picker: label, description,
  *  default geometry. Centralised here so the picker and the renderer agree
@@ -112,4 +120,56 @@ export function defaultComponentFor(kind: WidgetKind): {
 /** Helper for tests / storybook: an empty (but valid) dashboard config. */
 export function emptyDashboardConfig(): DashboardConfig {
   return { components: [], layout: [] };
+}
+
+/** Default grid footprint for a plugin widget whose manifest omits
+ *  `defaultLayout`. Picked to fit both compact stat-style and small list-style
+ *  plugins without dominating the dashboard. */
+const PLUGIN_DEFAULT_LAYOUT = { w: 6, h: 6, minW: 2, minH: 2 } as const;
+
+/** Build a fresh plugin component + matching layout item, honouring the
+ *  plugin manifest's `defaultLayout` when present.
+ *
+ *  Structural typing on the manifest input avoids importing the full SDK
+ *  type from `src/plugins/types.ts` (which would pull plugin-runtime concerns
+ *  into this persistence-shape file). Callers pass a loaded
+ *  `FolioPluginManifest`; we read only the shape we need here. */
+export function defaultComponentForPlugin(manifest: {
+  id: string;
+  defaultLayout?: {
+    w: number;
+    h: number;
+    minW?: number;
+    maxW?: number;
+    minH?: number;
+    maxH?: number;
+  };
+}): { component: DashboardComponent; layout: DashboardLayoutItem } {
+  const widgetId = genWidgetId();
+  const dl = manifest.defaultLayout;
+  const w = dl?.w ?? PLUGIN_DEFAULT_LAYOUT.w;
+  const h = dl?.h ?? PLUGIN_DEFAULT_LAYOUT.h;
+  return {
+    component: {
+      id: widgetId,
+      type: 'plugin',
+      pluginId: manifest.id,
+      // Title intentionally left undefined so the renderer falls back to
+      // the manifest's `name`. Users can override via the widget header
+      // (once header editing ships; for now this stays opaque).
+      title: undefined,
+      config: undefined,
+    },
+    layout: {
+      i: widgetId,
+      x: 0,
+      y: Infinity, // RGL convention: place at the bottom of the grid
+      w,
+      h,
+      minW: dl?.minW ?? PLUGIN_DEFAULT_LAYOUT.minW,
+      minH: dl?.minH ?? PLUGIN_DEFAULT_LAYOUT.minH,
+      maxW: dl?.maxW,
+      maxH: dl?.maxH,
+    },
+  };
 }

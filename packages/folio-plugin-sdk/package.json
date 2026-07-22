@@ -1,0 +1,32 @@
+{
+  "name": "@folio/plugin-sdk",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "SDK for authoring Folio dashboard plugins. Provides TypeScript types, a definePlugin helper, and a React bridge that proxies the host's React instance via globalThis.__FOLIO__.",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./types": "./types.ts",
+    "./react": "./react.ts",
+    "./jsx-runtime": "./jsx-runtime.ts",
+    "./define": "./define.ts"
+  },
+  "files": [
+    "index.ts",
+    "types.ts",
+    "react.ts",
+    "jsx-runtime.ts",
+    "define.ts",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
+}
