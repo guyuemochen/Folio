@@ -354,7 +354,43 @@
       "removeWidget": "移除组件",
       "untitledStat": "总行数",
       "untitledRecentRows": "最近行",
-      "noRows": "没有符合条件的行。"
+      "noRows": "没有符合条件的行。",
+      "pluginsButton": "插件"
+    },
+
+    "plugins": {
+      "manager": {
+        "title": "插件管理",
+        "open": "插件",
+        "openFolder": "打开目录",
+        "global": "全局插件",
+        "workspace": "工作区插件",
+        "globalHint": "所有工作区共享。",
+        "workspaceHint": "仅当前工作区可用。同 id 时覆盖全局插件。",
+        "noPlugins": "该范围内没有已安装的插件。",
+        "install": "从文件安装…",
+        "installSuccess": "已安装 \"{{name}}\"。",
+        "installError": "安装失败:{{error}}",
+        "uninstall": "卸载",
+        "uninstallConfirm": "确定从插件目录移除 \"{{name}}\" 吗?使用它的仪表盘组件将变为不可用。",
+        "reload": "重新加载",
+        "enable": "启用",
+        "disable": "禁用",
+        "version": "v{{version}}",
+        "by": "作者:{{author}}",
+        "errorLoad": "加载失败:{{error}}",
+        "permissions": "权限"
+      },
+      "widget": {
+        "builtinSection": "内置",
+        "pluginSection": "插件",
+        "noPlugins": "尚未安装插件 — 打开管理器添加一个。",
+        "unavailableTitle": "插件 \"{{id}}\" 不可用",
+        "unavailableHint": "打开插件管理器安装或启用它。",
+        "errorTitle": "插件崩溃",
+        "errorHint": "{{message}}",
+        "errorReload": "重新加载插件"
+      }
     }
   },
 
