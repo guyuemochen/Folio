@@ -18,9 +18,16 @@ import { StatWidget } from './dashboard/StatWidget';
 import { RecentRowsWidget } from './dashboard/RecentRowsWidget';
 import {
   defaultComponentFor,
+  defaultComponentForPlugin,
   emptyDashboardConfig,
   type WidgetKind,
 } from './dashboard/types';
+import {
+  DashboardPluginContext,
+  PluginWidgetRenderer,
+} from '../../../plugins/PluginWidgetRenderer';
+import { PluginManagerModal } from '../../../plugins/PluginManagerModal';
+import { usePluginRegistry } from '../../../plugins/store';
 
 // React Grid Layout v2 ships its own CSS — imported once here so callers
 // don't have to remember. Vite handles the CSS import as a side effect.
@@ -53,12 +60,14 @@ const GRID_ROW_HEIGHT = 42;
 
 export function DashboardView({
   view,
+  schema,
   rows,
   onOpenRow,
   onChangeDashboard,
 }: ViewRendererProps) {
   const visibleRows = useVisibleRows(rows, view);
   const [addAnchor, setAddAnchor] = useState<DOMRect | null>(null);
+  const [managerOpen, setManagerOpen] = useState(false);
 
   // Config is read from view.dashboard. We never mutate view directly; we
   // build a next-state and hand it to onChangeDashboard.
@@ -76,6 +85,25 @@ export function DashboardView({
 
   function handleAdd(kind: WidgetKind) {
     const { component, layout } = defaultComponentFor(kind);
+    persist({
+      components: [...config.components, component],
+      layout: [...config.layout, layout],
+    });
+    setAddAnchor(null);
+  }
+
+  /** Pick a plugin from the AddWidgetMenu → look up its manifest in the
+   *  registry, build a fresh `{ type: 'plugin', pluginId, … }` widget + grid
+   *  layout (honouring the manifest's `defaultLayout`), persist. */
+  function handleAddPlugin(pluginId: string) {
+    const plugin = usePluginRegistry.getState().plugins[pluginId];
+    if (!plugin) {
+      // Shouldn't happen — menu only lists enabled plugins — but guard
+      // against a race where the plugin unloaded between menu open and pick.
+      setAddAnchor(null);
+      return;
+    }
+    const { component, layout } = defaultComponentForPlugin(plugin.manifest);
     persist({
       components: [...config.components, component],
       layout: [...config.layout, layout],
@@ -105,12 +133,34 @@ export function DashboardView({
     }
   }
 
+  /** Persist a plugin widget's new opaque config (called when the plugin
+   *  invokes `props.onConfigChange(next)`). Builds a new DashboardComponent
+   *  with the config replaced and re-persists the whole dashboard. */
+  function handleWidgetConfigChange(widgetId: string, next: unknown) {
+    persist({
+      ...config,
+      components: config.components.map((c) =>
+        c.id === widgetId && c.type === 'plugin' ? { ...c, config: next } : c,
+      ),
+    });
+  }
+
+  // Context handed to plugin widgets via DashboardPluginContext — keeps the
+  // cell layer (DashboardGrid → WidgetHost) free of plugin-only props.
+  const pluginContextValue = {
+    databaseId: view.databaseId,
+    viewId: view.id,
+    properties: schema.properties,
+    onWidgetConfigChange: handleWidgetConfigChange,
+    onOpenManager: () => setManagerOpen(true),
+  };
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   return (
-    <>
+    <DashboardPluginContext.Provider value={pluginContextValue}>
       {config.components.length === 0 ? (
         <DashboardEmpty
           canAdd={!!onChangeDashboard}
@@ -122,6 +172,7 @@ export function DashboardView({
             count={visibleRows.length}
             canAdd={!!onChangeDashboard}
             onAddClick={(rect) => setAddAnchor(rect)}
+            onOpenPluginManager={onChangeDashboard ? () => setManagerOpen(true) : undefined}
           />
           <DashboardGrid
             config={config}
@@ -138,10 +189,13 @@ export function DashboardView({
         <AddWidgetMenu
           anchorRect={addAnchor}
           onPick={handleAdd}
+          onPickPlugin={onChangeDashboard ? handleAddPlugin : undefined}
           onClose={() => setAddAnchor(null)}
         />
       )}
-    </>
+
+      {managerOpen && <PluginManagerModal onClose={() => setManagerOpen(false)} />}
+    </DashboardPluginContext.Provider>
   );
 }
 
@@ -248,6 +302,21 @@ function renderWidgetBody(
           onRemove={onRemove}
         />
       );
+    case 'plugin':
+      // PluginWidgetRenderer pulls databaseId / viewId / properties /
+      // onWidgetConfigChange / onOpenManager from DashboardPluginContext
+      // (provided by DashboardView below), so we only pass the per-cell bits.
+      // isEditing / containerWidth default until per-cell measurement ships.
+      return (
+        <PluginWidgetRenderer
+          component={component}
+          rows={rows}
+          onOpenRow={onOpenRow}
+          onRemove={onRemove}
+          isEditing={false}
+          containerWidth={0}
+        />
+      );
   }
 }
 
@@ -288,26 +357,57 @@ function DashboardToolbar({
   count,
   canAdd,
   onAddClick,
+  onOpenPluginManager,
 }: {
   count: number;
   canAdd: boolean;
   onAddClick: (rect: DOMRect) => void;
+  onOpenPluginManager?: () => void;
 }) {
   const { t } = useTranslation();
   return (
     <div className="h-9 flex-shrink-0 flex items-center justify-between px-3 border-b border-border-hairline">
-      <span className="text-xs text-text-secondary">
-        {count} {count === 1 ? 'row' : 'rows'}
-      </span>
-      {canAdd && (
-        <button
-          type="button"
-          onClick={(e) => onAddClick(e.currentTarget.getBoundingClientRect())}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-bg-page border border-border-hairline hover:border-accent/40 hover:bg-bg-hover text-text-primary transition-colors"
-        >
-          + <span>{t('database.dashboard.addWidget')}</span>
-        </button>
-      )}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-text-secondary">
+          {count} {count === 1 ? 'row' : 'rows'}
+        </span>
+      </div>
+      <div className="flex items-center gap-1">
+        {onOpenPluginManager && (
+          <button
+            type="button"
+            onClick={onOpenPluginManager}
+            title={t('database.plugins.manager.title')}
+            aria-label={t('database.dashboard.pluginsButton')}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+          >
+            {/* Puzzle piece icon — universal "plugin" / "extension" affordance. */}
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M9.5 2.5h-3v1.75a1.75 1.75 0 1 1-3.5 0V2.5H2.5v3.5a1.75 1.75 0 1 0 0 3.5v3.5h3.5a1.75 1.75 0 1 1 3.5 0h3.5v-3.5a1.75 1.75 0 1 1 0-3.5v-3.5h-3.5a1.75 1.75 0 1 0-3.5 0V2.5z" />
+            </svg>
+            <span>{t('database.dashboard.pluginsButton')}</span>
+          </button>
+        )}
+        {canAdd && (
+          <button
+            type="button"
+            onClick={(e) => onAddClick(e.currentTarget.getBoundingClientRect())}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-bg-page border border-border-hairline hover:border-accent/40 hover:bg-bg-hover text-text-primary transition-colors"
+          >
+            + <span>{t('database.dashboard.addWidget')}</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 }
