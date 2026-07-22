@@ -9,9 +9,14 @@ name: release
 # Each channel publishes to ONE rolling GitHub Release (e.g. `stable-latest`):
 # artifacts AND the `latest.json` updater manifest both land there.
 # `tauri-apps/tauri-action@v0` does NOT support splitting them across two
-# tags, so the rolling release is overwritten on every build and the dated
-# version number is recorded in `releaseName` / `releaseBody` for history.
-# The Tauri updater reads `latest.json` from each channel's rolling tag.
+# tags, so every build reuses the same rolling release. Caveat: tauri-action
+# only creates the rolling git tag + Release on its FIRST run; on every later
+# run it merely appends assets and does NOT move the rolling git tag pointer
+# or update the Release's name/body/target_commitish. The `finalize-rolling`
+# job below closes that gap by PATCHing the git ref and the Release after each
+# successful build, so the tag pointer, the release name (e.g. "v0.3.0
+# (stable)"), and the assets all stay in sync. The Tauri updater reads
+# `latest.json` from each channel's rolling tag.
 #
 # Code is hosted on GitLab and mirrored to GitHub; this workflow runs on the
 # GitHub mirror so it can publish to GitHub Releases. Set up push mirror in
@@ -129,3 +134,84 @@ jobs:
           releaseDraft: false
           prerelease: ${{ steps.chan.outputs.channel != 'stable' }}
           args: ${{ matrix.args }}
+
+  finalize-rolling:
+    # tauri-action only creates the rolling tag+release once; on every later
+    # build it just appends assets without moving the tag pointer or syncing
+    # the release metadata. This job runs after all matrix builds succeed and
+    # fixes both: (1) move the rolling git tag to this commit via the git-refs
+    # API, (2) PATCH the rolling release so name/body/target_commitish reflect
+    # the current build. Without this, the Releases page keeps showing the
+    # first-ever version name (e.g. "v0.1.0 (stable)") forever even though the
+    # assets and latest.json inside it have moved on.
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Resolve channel + tag names
+        id: chan
+        shell: bash
+        run: |
+          CH="${{ github.event.inputs.channel || '' }}"
+          TAG="${GITHUB_REF#refs/tags/}"
+          if [ -z "$CH" ]; then
+            if [[ "$TAG" == nightly-* ]] || [ "${{ github.event_name }}" = "schedule" ]; then CH=nightly
+            else CH=stable; fi
+          fi
+          ROLLING="$CH-latest"
+          DATED="$TAG"
+          if [ "$CH" = "nightly" ] && [ -z "$DATED" ]; then
+            DATED="nightly-$(date -u +%Y-%m-%d)"
+          fi
+          echo "channel=$CH"      >> "$GITHUB_OUTPUT"
+          echo "rolling=$ROLLING" >> "$GITHUB_OUTPUT"
+          echo "dated=$DATED"     >> "$GITHUB_OUTPUT"
+
+      - name: Move rolling git tag to this build's commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          ROLLING="${{ steps.chan.outputs.rolling }}"
+          SHA="${{ github.sha }}"
+          # PATCH moves an existing lightweight tag. Fall back to POST (create)
+          # for the very first build of a channel where tauri-action has not
+          # created the tag yet (defensive — normally build already made it).
+          if ! curl -fsSL -X PATCH \
+               -H "Authorization: Bearer $GH_TOKEN" \
+               -H "Accept: application/vnd.github+json" \
+               "https://api.github.com/repos/$REPO/git/refs/tags/$ROLLING" \
+               -d "{\"sha\":\"$SHA\"}"; then
+            curl -fsSL -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/git/refs" \
+              -d "{\"ref\":\"refs/tags/$ROLLING\",\"sha\":\"$SHA\"}"
+          fi
+
+      - name: Sync rolling Release metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          ROLLING="${{ steps.chan.outputs.rolling }}"
+          DATED="${{ steps.chan.outputs.dated }}"
+          CH="${{ steps.chan.outputs.channel }}"
+          SHA="${{ github.sha }}"
+          RID=$(curl -fsSL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/releases/tags/$ROLLING" | jq -r '.id')
+          curl -fsSL -X PATCH \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/releases/$RID" \
+            -d "{
+              \"tag_name\":\"$ROLLING\",
+              \"target_commitish\":\"$SHA\",
+              \"name\":\"$DATED ($CH)\",
+              \"body\":\"Folio $CH build $DATED\"
+            }"
