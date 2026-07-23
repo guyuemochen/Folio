@@ -30,6 +30,7 @@ import type {
   ViewConfig,
   Workspace,
 } from './types';
+import type { PluginListEntry } from '../plugins/types';
 
 // ============================================================================
 // All backend invoke wrappers live here so call sites get one consistent
@@ -241,6 +242,40 @@ export const api = {
 
   saveBinaryFile: (path: string, contentB64: string): Promise<void> =>
     invoke('save_binary_file', { path, contentB64 }),
+
+  // --- Plugins (dashboard widget plugin system) -------------------------
+  pluginGetDirs: (): Promise<{ global: string; workspace: string | null }> =>
+    invoke('plugin_get_dirs'),
+
+  pluginList: (): Promise<PluginListEntry[]> => invoke('plugin_list'),
+
+  pluginInstallFile: (srcPath: string): Promise<string> =>
+    invoke('plugin_install_file', { srcPath }),
+
+  pluginUninstall: (path: string): Promise<void> => invoke('plugin_uninstall', { path }),
+
+  pluginOpenDir: (scope: 'global' | 'workspace'): Promise<void> =>
+    invoke('plugin_open_dir', { scope }),
+
+  pluginReadManifest: (dirPath: string): Promise<unknown> =>
+    invoke('plugin_read_manifest', { dirPath }),
+
+  /** Read a plugin file's text content. The loader uses this to fetch `.js`
+   *  source for Blob-URL import (bypasses asset-protocol/fs-scope limitations
+   *  for workspace plugins in arbitrary user folders). */
+  pluginReadText: (path: string): Promise<string> => invoke('plugin_read_text', { path }),
+
+  pluginStorageGet: (pluginId: string, key: string): Promise<unknown> =>
+    invoke('plugin_storage_get', { pluginId, key }),
+
+  pluginStorageSet: (pluginId: string, key: string, value: unknown): Promise<void> =>
+    invoke('plugin_storage_set', { pluginId, key, value }),
+
+  pluginStorageDelete: (pluginId: string, key: string): Promise<void> =>
+    invoke('plugin_storage_delete', { pluginId, key }),
+
+  pluginStorageKeys: (pluginId: string): Promise<string[]> =>
+    invoke('plugin_storage_keys', { pluginId }),
 } as const;
 
 // Re-export dialog helpers for convenience.

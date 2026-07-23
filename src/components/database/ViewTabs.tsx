@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { Popover } from '../ui/Popover';
-import type { ViewConfig } from '../../lib/types';
+import type { BuiltinViewType, ViewConfig } from '../../lib/types';
 import { nextViewName, useViewTabs } from './useViewTabs';
+import {
+  parsePluginViewType,
+  selectViewContributions,
+  usePluginRegistry,
+} from '../../plugins/store';
 
 interface ViewTabsProps {
   databaseId: string;
@@ -45,8 +51,25 @@ export function ViewTabs({ databaseId, views, activeViewId, onSelect, onAfterMut
   };
 
   const handleCreate = async (type: ViewConfig['type']) => {
-    const typeLabel = t(`database.viewType.${type}`);
-    const name = nextViewName(views, type, typeLabel === `database.viewType.${type}` ? type : typeLabel);
+    // Resolve a sensible default tab label for the new view. Built-ins go
+    // through i18n; plugin view types resolve to the contribution's name
+    // (via a direct registry read — this is a one-shot lookup at create
+    // time, not a reactive subscription).
+    let typeLabel: string;
+    const parsed = parsePluginViewType(type);
+    if (parsed) {
+      const contribution = usePluginRegistry
+        .getState()
+        .plugins[parsed.pluginId]?.contributions.views?.find(
+          (v) => v.type === parsed.viewType,
+        );
+      typeLabel = contribution?.name ?? parsed.viewType;
+    } else {
+      const key = `database.viewType.${type}`;
+      const resolved = t(key);
+      typeLabel = resolved === key ? type : resolved;
+    }
+    const name = nextViewName(views, type, typeLabel);
     setCreatePickerOpen(false);
     try {
       const v = await createView({ name, type });
@@ -164,7 +187,7 @@ export function ViewTabs({ databaseId, views, activeViewId, onSelect, onAfterMut
 // Sub-components
 // ---------------------------------------------------------------------------
 
-const TYPE_ICON: Record<ViewConfig['type'], string> = {
+const TYPE_ICON: Record<BuiltinViewType, string> = {
   table: '📋',
   board: '📊',
   calendar: '📅',
@@ -173,6 +196,53 @@ const TYPE_ICON: Record<ViewConfig['type'], string> = {
   list: '📝',
   dashboard: '🎛',
 };
+
+/** Default icon for plugin-provided view types whose contribution omits one. */
+const PLUGIN_VIEW_DEFAULT_ICON = '🧩';
+
+/** Resolve an icon for any view type. Built-ins map via {@link TYPE_ICON};
+ *  plugin view types resolve to the contribution's `icon` (or a default).
+ *  Reads the registry — returns the default synchronously before plugins
+ *  finish loading. */
+function useViewTypeIcon(type: ViewConfig['type']): string {
+  const parsed = parsePluginViewType(type);
+  const contribution = usePluginRegistry(
+    useShallow((s) => {
+      if (!parsed) return undefined;
+      return s.plugins[parsed.pluginId]?.contributions.views?.find(
+        (v) => v.type === parsed.viewType,
+      );
+    }),
+  );
+  if (!parsed) {
+    // Built-in (or unknown built-in) — fall back to a generic mark so a stray
+    // type string never crashes the icon lookup.
+    return TYPE_ICON[type as BuiltinViewType] ?? '❓';
+  }
+  return contribution?.icon ?? PLUGIN_VIEW_DEFAULT_ICON;
+}
+
+/** Resolve a human label for any view type. Built-ins go through i18n;
+ *  plugin view types resolve to the contribution's `name` (falling back to
+ *  the raw type). Returns the resolved string (never the raw i18n key). */
+function useViewTypeLabel(type: ViewConfig['type']): string {
+  const { t } = useTranslation();
+  const parsed = parsePluginViewType(type);
+  const contribution = usePluginRegistry(
+    useShallow((s) => {
+      if (!parsed) return undefined;
+      return s.plugins[parsed.pluginId]?.contributions.views?.find(
+        (v) => v.type === parsed.viewType,
+      );
+    }),
+  );
+  if (parsed) {
+    return contribution?.name ?? parsed.viewType;
+  }
+  const labelKey = `database.viewType.${type}`;
+  const raw = t(labelKey);
+  return raw === labelKey ? type : raw;
+}
 
 interface TabButtonProps {
   view: ViewConfig;
@@ -193,10 +263,8 @@ function TabButton({
   onCommitRename,
   onContextMenu,
 }: TabButtonProps) {
-  const { t } = useTranslation();
-  const typeLabelKey = `database.viewType.${view.type}`;
-  const rawTypeLabel = t(typeLabelKey);
-  const typeLabel = rawTypeLabel === typeLabelKey ? view.type : rawTypeLabel;
+  const icon = useViewTypeIcon(view.type);
+  const typeLabel = useViewTypeLabel(view.type);
 
   // Keyboard handler for the inline rename input: Enter commits, Escape
   // aborts (resets to original), and we stopPropagation so the parent
@@ -242,7 +310,7 @@ function TabButton({
           : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
       }`}
     >
-      <span className="text-[11px] opacity-80" aria-hidden>{TYPE_ICON[view.type]}</span>
+      <span className="text-[11px] opacity-80" aria-hidden>{icon}</span>
       <span className="max-w-[180px] truncate">{view.name}</span>
       {/* Active underline — uses --accent so it follows the theme. */}
       {active && (
@@ -294,7 +362,17 @@ interface CreateViewPickerProps {
 
 function CreateViewPicker({ anchorRect, onClose, onPick }: CreateViewPickerProps) {
   const { t } = useTranslation();
-  const types: ViewConfig['type'][] = ['table', 'board', 'calendar', 'timeline', 'gallery', 'list', 'dashboard'];
+  const builtinTypes: BuiltinViewType[] = [
+    'table',
+    'board',
+    'calendar',
+    'timeline',
+    'gallery',
+    'list',
+    'dashboard',
+  ];
+  // Plugin-provided view types, flattened across enabled plugins.
+  const pluginViews = usePluginRegistry(useShallow(selectViewContributions));
   return (
     <Popover anchorRect={anchorRect} onClose={onClose} width={280} placement="bottom-start" ariaLabel={t('database.newView')}>
       <div className="py-2">
@@ -302,7 +380,7 @@ function CreateViewPicker({ anchorRect, onClose, onPick }: CreateViewPickerProps
           {t('database.pickViewType')}
         </div>
         <div className="grid grid-cols-2 gap-1 px-2">
-          {types.map((type) => {
+          {builtinTypes.map((type) => {
             const labelKey = `database.viewType.${type}`;
             const raw = t(labelKey);
             const label = raw === labelKey ? type : raw;
@@ -330,6 +408,27 @@ function CreateViewPicker({ anchorRect, onClose, onPick }: CreateViewPickerProps
               </button>
             );
           })}
+
+          {pluginViews.length > 0 && (
+            pluginViews.map((entry) => (
+              <button
+                key={entry.persistedType}
+                type="button"
+                onClick={() => onPick(entry.persistedType)}
+                className="flex items-center gap-2 px-2 py-2 text-[12px] rounded text-left text-text-primary hover:bg-bg-hover transition-colors"
+              >
+                <span className="text-[14px]" aria-hidden>
+                  {entry.contribution.icon ?? '🧩'}
+                </span>
+                <span className="flex flex-col">
+                  <span className="font-medium">{entry.contribution.name}</span>
+                  <span className="text-[10px] text-text-tertiary">
+                    {entry.plugin.manifest.name}
+                  </span>
+                </span>
+              </button>
+            ))
+          )}
         </div>
       </div>
     </Popover>

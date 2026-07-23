@@ -354,7 +354,52 @@
       "removeWidget": "Remove widget",
       "untitledStat": "Total rows",
       "untitledRecentRows": "Recent rows",
-      "noRows": "No rows match."
+      "noRows": "No rows match.",
+      "pluginsButton": "Plugins"
+    },
+
+    "plugins": {
+      "manager": {
+        "title": "Plugin manager",
+        "open": "Plugins",
+        "openFolder": "Open folder",
+        "global": "Global plugins",
+        "workspace": "Workspace plugins",
+        "globalHint": "Available in every workspace.",
+        "workspaceHint": "Only in this workspace. Shadows global plugins with the same id.",
+        "noPlugins": "No plugins installed in this scope.",
+        "install": "Install from file…",
+        "installFolder": "Install folder…",
+        "installSuccess": "Installed \"{{name}}\".",
+        "installError": "Install failed: {{error}}",
+        "uninstall": "Uninstall",
+        "uninstallConfirm": "Remove \"{{name}}\" from the plugins folder? Dashboard widgets using it will become unavailable.",
+        "reload": "Reload",
+        "enable": "Enable",
+        "disable": "Disable",
+        "version": "v{{version}}",
+        "by": "by {{author}}",
+        "errorLoad": "Failed to load: {{error}}",
+        "permissions": "Permissions"
+      },
+      "widget": {
+        "builtinSection": "Built-in",
+        "pluginSection": "Plugins",
+        "noPlugins": "No plugins installed — open the manager to add one.",
+        "unavailableTitle": "Plugin \"{{id}}\" unavailable",
+        "unavailableHint": "Open the plugin manager to install or enable it.",
+        "errorTitle": "Plugin crashed",
+        "errorHint": "{{message}}",
+        "errorReload": "Reload plugin"
+      },
+      "view": {
+        "unavailableHint": "Plugin \"{{id}}\" is not available. Open the plugin manager to install or enable it.",
+        "disabledHint": "This view's plugin is disabled. Enable it in the plugin manager.",
+        "errorHint": "This view's plugin failed to load. See the plugin manager for details.",
+        "contributionMissing": "This view type (\"{{type}}\") is no longer provided by the plugin.",
+        "hostMissing": "Plugin host could not be initialized.",
+        "malformedType": "This view has a malformed type (\"{{type}}\") and cannot be rendered."
+      }
     }
   },
 

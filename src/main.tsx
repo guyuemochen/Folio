@@ -5,6 +5,8 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import { perf } from './lib/perf';
 import { queryClient } from './lib/queryClient';
+import { usePluginRegistry } from './plugins/store';
+import { startPluginHotReload } from './plugins/hot-reload';
 import './i18n/config';
 import './styles/globals.css';
 // KaTeX stylesheet — required for the Equation/InlineMath NodeViews to render
@@ -17,6 +19,24 @@ import { initTheme } from './lib/theme';
 // wrong theme (PRD §10.4 prefers-color-scheme). The runtime listener lives
 // in <App/> via useTheme().
 initTheme();
+
+// Expose the host React instance BEFORE any plugin dynamic-import resolves.
+// Plugins proxy React through `globalThis.__FOLIO__.react` (see
+// `@folio/plugin-sdk/react`) so they share our single React instance — this
+// is what avoids "Invalid hook call" / context desync when a plugin widget
+// renders. Must run before registry.init() (which dynamic-imports plugins).
+(globalThis as unknown as { __FOLIO__: unknown }).__FOLIO__ = {
+  react: React,
+  reactDOM: ReactDOM,
+};
+
+// Kick off plugin discovery + hot-reload. Both are fire-and-forget — the
+// registry store exposes a `initialized` flag the UI can wait on, and a
+// failure to load plugins must never block the rest of the app.
+void usePluginRegistry.getState().init();
+void startPluginHotReload().catch((e) =>
+  console.error('[folio:plugins] failed to start hot-reload listener:', e),
+);
 
 // M6 perf: start the cold-start timer at JS entry. The matching `end` is
 // emitted from <App/>'s mount effect — together they measure the

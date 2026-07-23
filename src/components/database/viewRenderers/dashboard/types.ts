@@ -12,10 +12,18 @@ import type {
   DashboardLayoutItem,
 } from '../../../../lib/types';
 
-/** All widget kinds the renderer knows how to instantiate. Adding a new
- *  kind requires (a) a branch in `defaultComponentFor` and (b) a matching
- *  case in `DashboardView`'s render switch. */
-export type WidgetKind = DashboardComponent['type'];
+/** Built-in widget kinds only (the closed set this file knows about).
+ *
+ *  NOTE: deliberately NOT derived from `DashboardComponent['type']` anymore.
+ *  The persistence union now also has a `'plugin'` variant, but plugins are
+ *  open-ended (loaded at runtime from disk) so they cannot live in the
+ *  static `WIDGET_KIND_INFO` record or the `defaultComponentFor` switch.
+ *  Plugin widgets take a separate code path:
+ *    - `defaultComponentForPlugin(manifest)` builds their initial config.
+ *    - `AddWidgetMenu` lists them under a separate "Plugins" section.
+ *    - `renderWidgetBody` handles `'plugin'` via `PluginWidgetRenderer`.
+ */
+export type WidgetKind = 'stat' | 'recent_rows';
 
 /** Per-kind metadata for the "Add widget" picker: label, description,
  *  default geometry. Centralised here so the picker and the renderer agree
@@ -112,4 +120,84 @@ export function defaultComponentFor(kind: WidgetKind): {
 /** Helper for tests / storybook: an empty (but valid) dashboard config. */
 export function emptyDashboardConfig(): DashboardConfig {
   return { components: [], layout: [] };
+}
+
+/** Default grid footprint for a plugin widget whose contribution omits
+ *  `defaultLayout` (and whose manifest omits it too). Picked to fit both
+ *  compact stat-style and small list-style plugins without dominating the
+ *  dashboard. */
+const PLUGIN_DEFAULT_LAYOUT = { w: 6, h: 6, minW: 2, minH: 2 } as const;
+
+/** Input shape for {@link defaultComponentForPlugin}. Mirrors the relevant
+ *  fields of a loaded widget contribution + the plugin manifest (so callers
+ *  can pass either without pulling SDK types into this persistence-shape
+ *  file). Resolution order for each field: contribution → manifest. */
+export interface PluginWidgetSpec {
+  pluginId: string;
+  /** Contribution id within the plugin. Written to the persisted component's
+   *  `widgetId` so the renderer can pick the right widget from a unified
+   *  plugin. Omitted here only for legacy single-widget plugins (normalized
+   *  to `'default'` by the loader). */
+  widgetId?: string;
+  /** Per-contribution default grid footprint; falls back to `manifestLayout`. */
+  defaultLayout?: {
+    w: number;
+    h: number;
+    minW?: number;
+    maxW?: number;
+    minH?: number;
+    maxH?: number;
+  };
+  /** Manifest-level default grid footprint (used when the contribution omits
+   *  its own). */
+  manifestLayout?: {
+    w: number;
+    h: number;
+    minW?: number;
+    maxW?: number;
+    minH?: number;
+    maxH?: number;
+  };
+}
+
+/** Build a fresh plugin component + matching layout item, honouring the
+ *  widget contribution's `defaultLayout` (then the manifest's) when present.
+ *
+ *  The persisted component carries both `pluginId` and `widgetId` so a unified
+ *  plugin with multiple widgets can be disambiguated at render time. */
+export function defaultComponentForPlugin(spec: PluginWidgetSpec): {
+  component: DashboardComponent;
+  layout: DashboardLayoutItem;
+} {
+  const widgetId = genWidgetId();
+  const dl = spec.defaultLayout ?? spec.manifestLayout;
+  const w = dl?.w ?? PLUGIN_DEFAULT_LAYOUT.w;
+  const h = dl?.h ?? PLUGIN_DEFAULT_LAYOUT.h;
+  return {
+    component: {
+      id: widgetId,
+      type: 'plugin',
+      pluginId: spec.pluginId,
+      // Persist the contribution id when it's meaningful (i.e. not the
+      // 'default' shorthand the loader synthesizes for legacy plugins —
+      // leaving it undefined keeps old dashboards byte-compatible).
+      widgetId: spec.widgetId && spec.widgetId !== 'default' ? spec.widgetId : undefined,
+      // Title intentionally left undefined so the renderer falls back to
+      // the contribution's / manifest's `name`. Users can override via the
+      // widget header (once header editing ships; for now this stays opaque).
+      title: undefined,
+      config: undefined,
+    },
+    layout: {
+      i: widgetId,
+      x: 0,
+      y: Infinity, // RGL convention: place at the bottom of the grid
+      w,
+      h,
+      minW: dl?.minW ?? PLUGIN_DEFAULT_LAYOUT.minW,
+      minH: dl?.minH ?? PLUGIN_DEFAULT_LAYOUT.minH,
+      maxW: dl?.maxW,
+      maxH: dl?.maxH,
+    },
+  };
 }

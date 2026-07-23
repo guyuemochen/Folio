@@ -1,0 +1,10 @@
+{
+  "id": "hello-counter",
+  "name": "Hello Counter",
+  "version": "1.0.0",
+  "description": "A minimal demo: a counter button that persists across reloads via host.storage.",
+  "author": "Folio",
+  "main": "index.js",
+  "defaultLayout": { "w": 4, "h": 4, "minW": 2, "minH": 3 },
+  "permissions": []
+}
