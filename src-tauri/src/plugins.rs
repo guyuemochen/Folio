@@ -321,23 +321,53 @@ pub fn plugin_install_file(app: AppHandle, src_path: String) -> Result<String> {
     let dest_root = global_plugins_dir(&app_data);
     std::fs::create_dir_all(&dest_root)?;
     let src = Path::new(&src_path);
+
+    // Case 1: user picked a directory (e.g. via the "Install from folder…"
+    // picker, or drag-dropped a folder). Copy the whole folder recursively
+    // under its own basename.
+    if src.is_dir() {
+        let folder_name = src
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| Error::Other("invalid source folder name".into()))?;
+        return copy_plugin_tree(src, folder_name, &dest_root, true);
+    }
+
+    // Case 2: user picked a file inside a folder plugin. If a `manifest.json`
+    // sits next to it, treat the whole parent directory as the plugin and
+    // copy it — so the manifest (and any sibling assets) come along. This
+    // makes the README's "pick any file inside the folder — Folio copies the
+    // whole folder" promise true for folder plugins.
+    if let Some(parent) = src.parent() {
+        if parent.join("manifest.json").exists() {
+            let folder_name = parent
+                .file_name()
+                .and_then(|n| n.to_str())
+                .ok_or_else(|| Error::Other("invalid plugin folder name".into()))?;
+            return copy_plugin_tree(parent, folder_name, &dest_root, true);
+        }
+    }
+
+    // Case 3: single-file plugin — copy just the .js. Reject anything that's
+    // neither a .js nor a folder upfront (the loader would reject it too, but
+    // failing fast in the picker flow gives a cleaner error).
     let file_name = src
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or_else(|| Error::Other("invalid source file name".into()))?;
-
-    // Reject obviously-not-a-plugin extensions at install time (the loader
-    // will reject them too, but better to fail fast in the picker flow).
-    let is_js = file_name.ends_with(".js");
-    let src_is_dir = src.is_dir();
-    if !is_js && !src_is_dir {
+    if !file_name.ends_with(".js") {
         return Err(Error::Other(format!(
-            "not a plugin: {file_name} (must be a .js file or a directory)"
+            "not a plugin: {file_name} (must be a .js file, a folder, or a file inside a folder containing manifest.json)"
         )));
     }
+    copy_plugin_tree(src, file_name, &dest_root, false)
+}
 
-    let dest = dest_root.join(file_name);
-    // If exists, replace — install is idempotent.
+/// Copy a plugin source (file or directory) into `<dest_root>/<name>`,
+/// replacing any existing entry. Idempotent. `src_is_dir` selects between
+/// recursive copy (folder plugin) and single-file copy (.js plugin).
+fn copy_plugin_tree(src: &Path, name: &str, dest_root: &Path, src_is_dir: bool) -> Result<String> {
+    let dest = dest_root.join(name);
     if dest.exists() {
         if dest.is_dir() {
             std::fs::remove_dir_all(&dest)?;

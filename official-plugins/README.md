@@ -1,6 +1,6 @@
-# Folio Dashboard Plugins — Examples
+# Folio Official Plugins
 
-Reference plugins for the Folio dashboard plugin system.
+Official plugins shipped with Folio, plus reference examples for the dashboard plugin system.
 
 ## hello-counter/
 
@@ -22,7 +22,10 @@ Copy the folder into Folio's global plugins dir:
 | macOS   | `~/Library/Application Support/tech.guyuemochen.folio/plugins/hello-counter/` |
 | Linux   | `~/.local/share/tech.guyuemochen.folio/plugins/hello-counter/` |
 
-Or use Folio's **Plugin manager** → *Install from file…* (pick any file inside the folder — Folio copies the whole folder).
+Or use Folio's **Plugin manager**:
+
+- **Install from file…** — pick any `.js` inside the folder; Folio auto-detects the sibling `manifest.json` and copies the whole folder. (For single-file plugins, just pick the `.js` directly.)
+- **Install folder…** — pick the folder itself.
 
 Or: open the manager → *Open folder* → drag `hello-counter/` into the window.
 
@@ -36,6 +39,28 @@ Edit `index.js` and save — Folio's file watcher reloads the plugin within ~300
 2. Click `+` a few times — the count updates.
 3. Reload the dashboard (or restart Folio) — the count restores from `host.storage`.
 4. Edit `index.js` (e.g. change the `+`/`−` buttons to `👍`/`👎`) and save — the widget re-renders with the new buttons.
+
+## pie-chart/
+
+A **folder plugin** that counts rows by the value of one property and renders the distribution as a pie chart with a legend. No bundler required.
+
+- Counts any property type; designed for `select` / `status` / `multi_select` (where each row holds discrete option values)
+- `checkbox` columns render as a two-slice ✓ / ✗ pie
+- `multi_select` counts each selected value once per row
+- Honours the property's declared option order; everything else sorts by count desc
+- Inline config (while dashboard is in edit mode) picks the source column — no separate settings panel
+- Pure SVG, zero runtime deps
+
+### Try this
+
+1. Install the folder (same steps as `hello-counter/` above).
+2. Add the plugin to a dashboard (Add widget → Plugins → Pie Chart).
+3. The widget shows a **Group rows by:** dropdown — pick a column.
+4. The pie + legend render from the view's current rows. Click **Change** in the footer to re-pick.
+
+### Hot reload
+
+Same as `hello-counter/` — edit `index.js` and save; the chart re-renders within ~300 ms.
 
 ## Authoring your own
 
