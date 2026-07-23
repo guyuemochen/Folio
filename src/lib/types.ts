@@ -242,10 +242,16 @@ export type DashboardComponent =
       id: string;
       type: 'plugin';
       /** Foreign key into the runtime plugin registry (`manifest.id`).
-       *  Survives plugin file renames; queried to find the loaded plugin. */
+        *  Survives plugin file renames; queried to find the loaded plugin. */
       pluginId: string;
-      /** Optional card title override; falls back to the plugin manifest's
-       *  `name` when empty/undefined. */
+      /** Which widget contribution within the plugin renders this cell.
+       *  Omitted for dashboards saved against the legacy single-`component`
+       *  plugin shape (resolved to the plugin's only widget). For unified
+       *  plugins that ship multiple widgets, this disambiguates them;
+       *  changing it after save repoints the cell to a different widget. */
+      widgetId?: string;
+      /** Optional card title override; falls back to the widget contribution's
+       *  `name` (then the plugin manifest's `name`) when empty/undefined. */
       title?: string;
       /** Opaque, plugin-defined configuration. The host NEVER interprets,
        *  validates, or migrates this value — it stores and passes it back
@@ -261,11 +267,31 @@ export interface DashboardConfig {
   layout: DashboardLayoutItem[];
 }
 
+/** The closed set of view types shipped with Folio. Plugins cannot add to
+ *  this set — they add new types via the open {@link ViewType} string space
+ *  (prefixed `plugin:<pluginId>:<type>` at runtime). */
+export type BuiltinViewType =
+  | 'table'
+  | 'board'
+  | 'calendar'
+  | 'timeline'
+  | 'gallery'
+  | 'list'
+  | 'dashboard';
+
+/** Every possible view type: a built-in OR a plugin-provided type string.
+ *  Plugin types are namespaced as `plugin:<pluginId>:<viewType>` (see
+ *  `pluginViewTypeId` in `src/plugins/store.ts`). The `string & {}` suffix
+ *  keeps IDE autocomplete biased toward the built-ins while still accepting
+ *  arbitrary plugin type strings. Persisted as TEXT in SQLite — no migration
+ *  is needed to add plugin view types. */
+export type ViewType = BuiltinViewType | (string & {});
+
 export interface ViewConfig {
   id: string;
   databaseId: string;
   name: string;
-  type: 'table' | 'board' | 'calendar' | 'timeline' | 'gallery' | 'list' | 'dashboard';
+  type: ViewType;
   filter?: FilterNode | null;
   sort?: SortEntry[] | null;
   group?: GroupConfig | null;
@@ -375,7 +401,7 @@ export interface UpdateCellInput {
 export interface CreateViewInput {
   databaseId: string;
   name: string;
-  type?: 'table' | 'board' | 'calendar' | 'timeline' | 'gallery' | 'list' | 'dashboard';
+  type?: ViewType;
 }
 
 export interface UpdateViewInput {

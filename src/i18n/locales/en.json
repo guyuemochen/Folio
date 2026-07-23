@@ -369,6 +369,7 @@
         "workspaceHint": "Only in this workspace. Shadows global plugins with the same id.",
         "noPlugins": "No plugins installed in this scope.",
         "install": "Install from file…",
+        "installFolder": "Install folder…",
         "installSuccess": "Installed \"{{name}}\".",
         "installError": "Install failed: {{error}}",
         "uninstall": "Uninstall",
@@ -390,6 +391,14 @@
         "errorTitle": "Plugin crashed",
         "errorHint": "{{message}}",
         "errorReload": "Reload plugin"
+      },
+      "view": {
+        "unavailableHint": "Plugin \"{{id}}\" is not available. Open the plugin manager to install or enable it.",
+        "disabledHint": "This view's plugin is disabled. Enable it in the plugin manager.",
+        "errorHint": "This view's plugin failed to load. See the plugin manager for details.",
+        "contributionMissing": "This view type (\"{{type}}\") is no longer provided by the plugin.",
+        "hostMissing": "Plugin host could not be initialized.",
+        "malformedType": "This view has a malformed type (\"{{type}}\") and cannot be rendered."
       }
     }
   },

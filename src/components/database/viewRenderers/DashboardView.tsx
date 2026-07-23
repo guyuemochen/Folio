@@ -92,10 +92,13 @@ export function DashboardView({
     setAddAnchor(null);
   }
 
-  /** Pick a plugin from the AddWidgetMenu → look up its manifest in the
-   *  registry, build a fresh `{ type: 'plugin', pluginId, … }` widget + grid
-   *  layout (honouring the manifest's `defaultLayout`), persist. */
-  function handleAddPlugin(pluginId: string) {
+  /** Pick a widget from the AddWidgetMenu → look up the plugin + the specific
+   *  widget contribution in the registry, build a fresh
+   *  `{ type: 'plugin', pluginId, widgetId, … }` widget + grid layout
+   *  (honouring the contribution's `defaultLayout`, then the manifest's),
+   *  persist. A unified plugin can ship several widgets, hence the
+   *  `(pluginId, widgetId)` pair. */
+  function handleAddPlugin(pluginId: string, widgetId: string) {
     const plugin = usePluginRegistry.getState().plugins[pluginId];
     if (!plugin) {
       // Shouldn't happen — menu only lists enabled plugins — but guard
@@ -103,7 +106,19 @@ export function DashboardView({
       setAddAnchor(null);
       return;
     }
-    const { component, layout } = defaultComponentForPlugin(plugin.manifest);
+    const contribution = plugin.contributions.widgets?.find(
+      (w) => (w.id ?? 'default') === widgetId,
+    );
+    if (!contribution) {
+      setAddAnchor(null);
+      return;
+    }
+    const { component, layout } = defaultComponentForPlugin({
+      pluginId,
+      widgetId,
+      defaultLayout: contribution.defaultLayout,
+      manifestLayout: plugin.manifest.defaultLayout,
+    });
     persist({
       components: [...config.components, component],
       layout: [...config.layout, layout],

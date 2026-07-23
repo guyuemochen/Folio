@@ -51,11 +51,15 @@ export interface DashboardPluginContextValue {
 export const DashboardPluginContext = createContext<DashboardPluginContextValue | null>(null);
 
 export interface PluginWidgetRendererProps {
-  /** The persisted widget config (id, pluginId, title, config). */
+  /** The persisted widget config (id, pluginId, widgetId, title, config). */
   component: {
     id: string;
     type: 'plugin';
     pluginId: string;
+    /** Which widget contribution within the plugin. Optional for dashboards
+     *  saved against legacy single-`component` plugins (resolved to the
+     *  plugin's only widget). */
+    widgetId?: string;
     title?: string;
     config?: unknown;
   };
@@ -78,8 +82,21 @@ export function PluginWidgetRenderer(props: PluginWidgetRendererProps) {
   const getHost = usePluginRegistry((s) => s.getHost);
   const ctx = useContext(DashboardPluginContext);
 
-  // Resolve display title: explicit override → manifest name → synthetic.
-  const title = component.title || plugin?.manifest.name || component.pluginId;
+  // Resolve the specific widget contribution this cell renders. A unified
+  // plugin may ship several widgets; `component.widgetId` disambiguates
+  // (legacy single-widget plugins leave it undefined → first widget).
+  const widget = plugin?.contributions.widgets?.find(
+    (w) => (w.id ?? 'default') === (component.widgetId ?? 'default'),
+  );
+
+  // Resolve display title: explicit override → contribution name → manifest
+  // name → synthetic. Falls through the chain so old dashboards (no widgetId,
+  // no contribution name) keep their pre-refactor title.
+  const title =
+    component.title ||
+    widget?.name ||
+    plugin?.manifest.name ||
+    component.pluginId;
 
   // Case 1: plugin not loaded at all (uninstalled, never scanned).
   if (!plugin) {
@@ -113,7 +130,25 @@ export function PluginWidgetRenderer(props: PluginWidgetRendererProps) {
     );
   }
 
-  // Case 3: plugin loaded + enabled — render it inside the boundary.
+  // Case 3: plugin loaded + enabled but the specific widget contribution is
+  // gone (plugin author removed/renamed it). Show unavailable so the user
+  // understands the empty cell rather than seeing a silent blank.
+  if (!widget || typeof widget.component !== 'function') {
+    return (
+      <PluginUnavailable
+        pluginId={component.pluginId}
+        title={title}
+        statusHint="error"
+        errorMessage={
+          component.widgetId
+            ? `Widget "${component.widgetId}" not found in this plugin.`
+            : 'This plugin has no widget to render.'
+        }
+        onOpenManager={ctx?.onOpenManager}
+      />
+    );
+  }
+
   const host = getHost(component.pluginId);
   if (!host || !ctx) {
     // Should be unreachable (host is built alongside the plugin in the store;
@@ -162,7 +197,7 @@ export function PluginWidgetRenderer(props: PluginWidgetRendererProps) {
             type-erased (`(props) => unknown`) and may be any callable. The
             plugin's own React (read from globalThis.__FOLIO__) is the same
             instance as ours, so the produced elements slot into our tree. */}
-        {createElement(plugin.component as never, widgetProps as never)}
+        {createElement(widget.component as never, widgetProps as never)}
       </WidgetFrame>
     </PluginErrorBoundary>
   );

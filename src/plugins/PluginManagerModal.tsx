@@ -1,6 +1,6 @@
 /**
  * Plugin manager modal — install / enable / disable / reload / uninstall
- * dashboard widget plugins.
+ * plugins (a plugin may contribute dashboard widgets and/or view types).
  *
  * Two scope sections:
  *   - **Global**   (`<appData>/plugins/`)        — shared across workspaces
@@ -60,26 +60,15 @@ export function PluginManagerModal({ onClose }: Props) {
     return Object.values(plugins).find((p) => p.sourcePath === entry.path) ?? null;
   }
 
-  async function handleInstall() {
-    setFeedback(null);
+  /** Shared install core: copy the picked source into the global plugins dir
+   *  via the backend, then refresh listings + load. `displayName` is what we
+   *  show in the success toast (basename for folders, full path for files). */
+  async function installFromPath(srcPath: string, displayName: string) {
+    setBusyPath(srcPath);
     try {
-      const picked = await open({
-        multiple: false,
-        title: t('database.plugins.manager.install'),
-        // Accept both single .js files and plugin folders (directory picker
-        // can't combine with file filters, so we accept either via two-step
-        // — for v1, file picker with .js + an "all" fallback; folders install
-        // via "Open plugins folder" drag-drop.
-        filters: [
-          { name: 'JavaScript', extensions: ['js'] },
-          { name: 'All', extensions: ['*'] },
-        ],
-      });
-      if (!picked || Array.isArray(picked)) return;
-      setBusyPath(picked);
-      await api.pluginInstallFile(picked);
+      await api.pluginInstallFile(srcPath);
       await scan(); // refresh listings + load the new plugin
-      setFeedback({ kind: 'ok', msg: t('database.plugins.manager.installSuccess', { name: picked }) });
+      setFeedback({ kind: 'ok', msg: t('database.plugins.manager.installSuccess', { name: displayName }) });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error('[folio:plugins] install failed:', e);
@@ -87,6 +76,41 @@ export function PluginManagerModal({ onClose }: Props) {
     } finally {
       setBusyPath(null);
     }
+  }
+
+  /** Pick a single .js file (single-file plugin) OR any file inside a folder
+   *  plugin — the backend auto-detects a sibling `manifest.json` and copies
+   *  the whole folder. This makes the README's "pick any file inside the
+   *  folder — Folio copies the whole folder" promise true. */
+  async function handleInstall() {
+    setFeedback(null);
+    const picked = await open({
+      multiple: false,
+      title: t('database.plugins.manager.install'),
+      filters: [
+        { name: 'JavaScript', extensions: ['js'] },
+        { name: 'All', extensions: ['*'] },
+      ],
+    });
+    if (!picked || Array.isArray(picked)) return;
+    await installFromPath(picked, picked);
+  }
+
+  /** Pick a directory directly — the explicit path for folder plugins
+   *  (manifest.json + entry .js). Complements `handleInstall` for users who
+   *  prefer selecting the folder itself over drilling in to pick a file. */
+  async function handleInstallFolder() {
+    setFeedback(null);
+    const picked = await open({
+      multiple: false,
+      directory: true,
+      title: t('database.plugins.manager.installFolder'),
+    });
+    if (!picked || Array.isArray(picked)) return;
+    // Show the folder basename (not the full path) in the toast — it's what
+    // the user will see in the plugin list.
+    const name = picked.split(/[\\/]/).pop() ?? picked;
+    await installFromPath(picked, name);
   }
 
   async function handleUninstall(entry: PluginListEntry) {
@@ -151,6 +175,14 @@ export function PluginManagerModal({ onClose }: Props) {
             className="px-3 py-1 text-sm rounded-md bg-accent text-white hover:bg-accent/90 disabled:opacity-50 transition-colors"
           >
             {t('database.plugins.manager.install')}
+          </button>
+          <button
+            type="button"
+            onClick={handleInstallFolder}
+            disabled={busyPath !== null}
+            className="px-3 py-1 text-sm rounded-md border border-border-hairline hover:bg-bg-hover text-text-primary disabled:opacity-50 transition-colors"
+          >
+            {t('database.plugins.manager.installFolder')}
           </button>
           <button
             type="button"

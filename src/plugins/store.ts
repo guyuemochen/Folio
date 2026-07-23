@@ -2,11 +2,15 @@
  * Plugin registry — the central runtime state of all loaded plugins.
  *
  * One Zustand store keyed by resolved plugin id. Holds:
- *   - `plugins[id]`  — LoadedPlugin (manifest + component + metadata + revision)
+ *   - `plugins[id]`  — LoadedPlugin (manifest + contributions + metadata + revision)
  *   - `statuses[id]` — current lifecycle state (loading / loaded / error / disabled)
  *   - `entries`      — the raw directory listing from `plugin_list` (so the
  *                      manager UI can show all entries even when some failed
  *                      to load)
+ *
+ * A plugin may contribute dashboard widgets AND view/tab types
+ * (see `LoadedPlugin.contributions`); the legacy single-`component` shape is
+ * normalized into one widget contribution on load.
  *
  * Loading is via dynamic `import()` of a Blob URL built from the file content
  * fetched through `plugin_read_text`. This bypasses asset-protocol/fs-scope
@@ -21,9 +25,11 @@ import { create } from 'zustand';
 import { api } from '../lib/invoke';
 import { makeHost } from './host-api';
 import type {
+  FolioContributions,
   FolioPluginEntry,
   FolioPluginHost,
   FolioPluginManifest,
+  FolioWidgetComponent,
   LoadedPlugin,
   PluginListEntry,
   PluginScope,
@@ -36,6 +42,8 @@ const hostCache = new Map<string, FolioPluginHost>();
 
 /** Built-in id pattern (matches SDK contract enforced server-side). */
 const PLUGIN_ID_RE = /^[a-z0-9-]+$/;
+/** Contribution id pattern (widget/view ids within a plugin). */
+const CONTRIBUTION_ID_RE = /^[a-z0-9-]+$/;
 
 // ============================================================================
 // Store shape
@@ -167,7 +175,7 @@ export const usePluginRegistry = create<PluginRegistryState>((set, get) => ({
     // 2. Load the entry source via plugin_read_text (bypasses scope) →
     //    Blob URL → dynamic import. Cache-bust by always creating a new blob
     //    (each call to reloadByPath builds a fresh URL).
-    let loaded: { manifest: FolioPluginManifest; component: FolioPluginEntry['component'] };
+    let loaded: { manifest: FolioPluginManifest; contributions: FolioContributions };
     try {
       const code = await api.pluginReadText(entryPath);
       const blob = new Blob([code], { type: 'text/javascript' });
@@ -175,7 +183,7 @@ export const usePluginRegistry = create<PluginRegistryState>((set, get) => ({
       // `/* @vite-ignore */` prevents Vite from trying to bundle this import
       // at build time (it can't — the URL is runtime-only).
       const mod = (await import(/* @vite-ignore */ blobUrl)) as {
-        default?: FolioPluginEntry | { component: FolioPluginEntry['component'] };
+        default?: FolioPluginEntry | { component: FolioWidgetComponent };
       };
       // Blob URL is no longer needed once the module is in the cache.
       // Releasing here is safe — modules persist in the registry after import.
@@ -184,10 +192,6 @@ export const usePluginRegistry = create<PluginRegistryState>((set, get) => ({
       const def = mod.default;
       if (!def || typeof def !== 'object') {
         throw new Error('plugin entry has no default export');
-      }
-      const component = (def as { component: unknown }).component;
-      if (typeof component !== 'function') {
-        throw new Error('plugin entry default export has no `component` function');
       }
       // Merge: in-band manifest from the .js default-export wins on conflict
       // (per SDK contract); folder manifest.json fills in anything missing.
@@ -207,7 +211,13 @@ export const usePluginRegistry = create<PluginRegistryState>((set, get) => ({
           `plugin manifest has invalid id "${manifest.id}" (must match /^[a-z0-9-]+$/)`,
         );
       }
-      loaded = { manifest, component: component as FolioPluginEntry['component'] };
+      // Normalize whatever the entry exports (legacy single `component` and/or
+      // unified `contributions`) into a single FolioContributions object.
+      const contributions = normalizeContributions(
+        def as Partial<FolioPluginEntry>,
+        manifest,
+      );
+      loaded = { manifest, contributions };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error(`[folio:plugins] load failed for ${entryPath}:`, e);
@@ -244,7 +254,7 @@ export const usePluginRegistry = create<PluginRegistryState>((set, get) => ({
           ...s.plugins,
           [id]: {
             manifest: loaded.manifest,
-            component: loaded.component,
+            contributions: loaded.contributions,
             scope,
             sourcePath: path,
             importUrl: entryPath,
@@ -313,6 +323,89 @@ function deriveErrorId(path: string): string {
   return `_broken:${base}`;
 }
 
+/** Normalize a plugin entry's exports into a single {@link FolioContributions}.
+ *
+ *  Accepts both authoring shapes:
+ *   - Legacy: `component` only → one widget contribution with `id: 'default'`.
+ *   - Unified: `contributions.widgets` / `contributions.views` (the legacy
+ *     `component` is ignored when `contributions.widgets` is present).
+ *
+ *  Validates contribution ids (kebab-case, unique within the plugin) and view
+ *  type ids, and that every `component` is a function. Throws on bad shapes —
+ *  the caller catches and records the error status. */
+function normalizeContributions(
+  def: Partial<FolioPluginEntry>,
+  manifest: FolioPluginManifest,
+): FolioContributions {
+  const raw = def.contributions;
+  let widgets = raw?.widgets?.slice();
+  const views = raw?.views?.slice();
+
+  // Fold legacy single `component` into one widget contribution — but only
+  // when the unified `contributions.widgets` is absent (unified wins).
+  if ((!widgets || widgets.length === 0) && typeof def.component === 'function') {
+    widgets = [{ id: 'default', component: def.component }];
+  }
+
+  // --- Validate widgets ----------------------------------------------------
+  const widgetIds = new Set<string>();
+  const normalizedWidgets = (widgets ?? []).map((w, i) => {
+    if (typeof w.component !== 'function') {
+      throw new Error(
+        `plugin "${manifest.id}" widget #${i} has no callable \`component\``,
+      );
+    }
+    const id = w.id ?? (widgets!.length === 1 ? 'default' : `widget-${i}`);
+    if (!CONTRIBUTION_ID_RE.test(id)) {
+      throw new Error(
+        `plugin "${manifest.id}" widget id "${id}" is invalid (must match /^[a-z0-9-]+$/)`,
+      );
+    }
+    if (widgetIds.has(id)) {
+      throw new Error(
+        `plugin "${manifest.id}" has duplicate widget id "${id}"`,
+      );
+    }
+    widgetIds.add(id);
+    return { ...w, id };
+  });
+
+  // --- Validate views ------------------------------------------------------
+  const viewIds = new Set<string>();
+  const normalizedViews = (views ?? []).map((v, i) => {
+    if (typeof v.component !== 'function') {
+      throw new Error(
+        `plugin "${manifest.id}" view #${i} "${v.type}" has no callable \`component\``,
+      );
+    }
+    if (!v.type || !CONTRIBUTION_ID_RE.test(v.type)) {
+      throw new Error(
+        `plugin "${manifest.id}" view type "${v.type}" is invalid (must match /^[a-z0-9-]+$/)`,
+      );
+    }
+    if (viewIds.has(v.type)) {
+      throw new Error(
+        `plugin "${manifest.id}" has duplicate view type "${v.type}"`,
+      );
+    }
+    viewIds.add(v.type);
+    return v;
+  });
+
+  if (normalizedWidgets.length === 0 && normalizedViews.length === 0) {
+    // Valid but useless — load it anyway so the manager can show it; the
+    // pickers simply won't list anything from it.
+    console.warn(
+      `[folio:plugins] plugin "${manifest.id}" declares no widgets and no views`,
+    );
+  }
+
+  return {
+    widgets: normalizedWidgets.length > 0 ? normalizedWidgets : undefined,
+    views: normalizedViews.length > 0 ? normalizedViews : undefined,
+  };
+}
+
 // ============================================================================
 // Selectors (kept tiny — most components subscribe to the whole `plugins` map)
 // ============================================================================
@@ -322,4 +415,87 @@ export function selectEnabledPlugins(state: PluginRegistryState): LoadedPlugin[]
   return Object.values(state.plugins)
     .filter((p) => p.enabled)
     .sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
+}
+
+/** A widget contribution paired with the plugin that owns it. Emitted by
+ *  {@link selectWidgetContributions} for the "Add widget" picker. */
+export interface WidgetContributionEntry {
+  plugin: LoadedPlugin;
+  contribution: NonNullable<NonNullable<FolioContributions['widgets']>[number]>;
+  /** Resolved widget id (never undefined — normalized at load time). */
+  widgetId: string;
+  /** Resolved display name (contribution → manifest). */
+  name: string;
+  /** Resolved description (contribution → manifest → undefined). */
+  description?: string;
+}
+
+/** A view contribution paired with the plugin that owns it. Emitted by
+ *  {@link selectViewContributions} for the "New view" picker. */
+export interface ViewContributionEntry {
+  plugin: LoadedPlugin;
+  contribution: NonNullable<NonNullable<FolioContributions['views']>[number]>;
+  /** The namespaced type persisted on `ViewConfig.type`:
+   *  `plugin:<pluginId>:<type>`. */
+  persistedType: string;
+}
+
+/** Prefix marking a view type as plugin-provided. Followed by
+ *  `<pluginId>:<viewType>`. Built-in types never start with this. */
+export const PLUGIN_VIEW_TYPE_PREFIX = 'plugin:';
+
+/** Build the persisted `ViewConfig.type` string for a plugin view
+ *  contribution: `plugin:<pluginId>:<viewType>`. */
+export function pluginViewTypeId(pluginId: string, viewType: string): string {
+  return `${PLUGIN_VIEW_TYPE_PREFIX}${pluginId}:${viewType}`;
+}
+
+/** Parse a persisted view type back into `{ pluginId, viewType }` when it's a
+ *  plugin view type; returns null for built-in types. */
+export function parsePluginViewType(
+  type: string,
+): { pluginId: string; viewType: string } | null {
+  if (!type.startsWith(PLUGIN_VIEW_TYPE_PREFIX)) return null;
+  const rest = type.slice(PLUGIN_VIEW_TYPE_PREFIX.length);
+  const sep = rest.indexOf(':');
+  if (sep <= 0) return null;
+  return { pluginId: rest.slice(0, sep), viewType: rest.slice(sep + 1) };
+}
+
+/** All widget contributions across all enabled plugins, in a stable order
+ *  (plugin name → widget order). The dashboard "Add widget" picker lists
+ *  these flattened (each entry knows its plugin so the UI can group/label). */
+export function selectWidgetContributions(state: PluginRegistryState): WidgetContributionEntry[] {
+  const out: WidgetContributionEntry[] = [];
+  for (const plugin of selectEnabledPlugins(state)) {
+    const widgets = plugin.contributions.widgets ?? [];
+    for (const w of widgets) {
+      const widgetId = w.id ?? 'default';
+      out.push({
+        plugin,
+        contribution: w,
+        widgetId,
+        name: w.name ?? plugin.manifest.name,
+        description: w.description ?? plugin.manifest.description,
+      });
+    }
+  }
+  return out;
+}
+
+/** All view contributions across all enabled plugins, in a stable order.
+ *  The "New view" picker appends these to the built-in types. */
+export function selectViewContributions(state: PluginRegistryState): ViewContributionEntry[] {
+  const out: ViewContributionEntry[] = [];
+  for (const plugin of selectEnabledPlugins(state)) {
+    const views = plugin.contributions.views ?? [];
+    for (const v of views) {
+      out.push({
+        plugin,
+        contribution: v,
+        persistedType: pluginViewTypeId(plugin.manifest.id, v.type),
+      });
+    }
+  }
+  return out;
 }

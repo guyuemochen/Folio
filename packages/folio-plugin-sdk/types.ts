@@ -1,11 +1,17 @@
 /**
- * Dashboard plugin SDK — type contracts.
+ * Folio plugin SDK — type contracts.
  *
  * This file is the single source of truth for the plugin protocol. It defines:
- *   - {@link FolioPluginManifest}   — what a plugin declares (id, name, perms)
- *   - {@link FolioPluginEntry}      — what a plugin's entry .js default-exports
- *   - {@link FolioWidgetProps}      — what the host passes to every widget
- *   - {@link FolioPluginHost}       — the scoped host API each widget can call
+ *   - {@link FolioPluginManifest}     — what a plugin declares (id, name, perms)
+ *   - {@link FolioPluginEntry}        — what a plugin's entry .js default-exports
+ *   - {@link FolioContributions}      — the widgets AND view types a plugin ships
+ *   - {@link FolioWidgetProps}        — what the host passes to every widget
+ *   - {@link FolioViewProps}          — what the host passes to every view renderer
+ *   - {@link FolioPluginHost}         — the scoped host API each plugin can call
+ *
+ * A plugin is unified: one package can contribute dashboard widgets AND new
+ * view/tab types (see {@link FolioContributions}). The legacy single-`component`
+ * shape still works as a one-widget shorthand.
  *
  * The runtime bridge lives in `packages/folio-plugin-sdk/` (a tiny package
  * plugin authors `import` from — it proxies React through `globalThis.__FOLIO__`
@@ -70,11 +76,136 @@ export interface FolioPluginManifest {
  *  using the JSX runtime provided by `@folio/plugin-sdk`. */
 export type FolioWidgetComponent = (props: FolioWidgetProps) => unknown;
 
-/** What a plugin's entry `.js` file must `export default` (single-file plugin)
- *  OR what `manifest.json`'s `"main"` field must point at (folder plugin). */
-export interface FolioPluginEntry extends FolioPluginManifest {
+// ----------------------------------------------------------------------------
+// Contributions — a unified plugin can declare widgets AND view/tab types.
+// ----------------------------------------------------------------------------
+
+/** One dashboard widget contribution. A plugin may ship several. Each is a
+ *  separate entry in the "Add widget" picker and is referenced in persisted
+ *  dashboard configs by `pluginId` + `widgetId`. */
+export interface FolioWidgetContribution {
+  /** Stable id WITHIN this plugin, kebab-case, validated against
+   *  `/^[a-z0-9-]+$/`. Must be unique among this plugin's widget
+   *  contributions. When omitted the host uses `'default'` — use that only
+   *  for single-widget plugins (the legacy shape).
+   *
+   *  Persisted on `DashboardComponent.widgetId`; changing it breaks existing
+   *  dashboards, so pick a stable id at author time. */
+  id?: string;
+  /** Display name shown in the "Add widget" picker. Falls back to the
+   *  manifest's `name` (useful for single-widget plugins). */
+  name?: string;
+  /** One-line description shown under the name in the picker. Falls back to
+   *  the manifest's `description`. */
+  description?: string;
+  /** Default grid footprint when the widget is first added. Falls back to the
+   *  manifest's `defaultLayout`, then to the host's built-in default. */
+  defaultLayout?: {
+    w: number;
+    h: number;
+    minW?: number;
+    maxW?: number;
+    minH?: number;
+    maxH?: number;
+  };
   /** The widget React component rendered inside a `WidgetFrame` cell. */
   component: FolioWidgetComponent;
+}
+
+/** Props handed to every plugin view/tab renderer. Mirrors the built-in view
+ *  renderer contract (`ViewRendererProps` in the host), with types kept opaque
+ *  (`unknown`) so this SDK file doesn't depend on the persistence layer.
+ *  Plugins cast at runtime — `view` → `ViewConfig`, `rows` → `DatabaseRow[]`,
+ *  `schema` → `DatabaseWithSchema`, `prop` → `PropertyDef`.
+ *
+ *  In addition to the built-in surface, plugin views receive a scoped
+ *  `host` (storage / invoke / events) so they can persist their own layout
+ *  state (keyed by `view.id` to stay per-instance). */
+export interface FolioViewProps {
+  /** The saved view (filter / sort / type-specific config lives here). */
+  view: unknown;
+  /** Database schema (page metadata + properties + all saved views). */
+  schema: unknown;
+  /** All non-trashed rows with their property values; the renderer is
+   *  responsible for applying `view.filter` / `view.sort`. */
+  rows: unknown[];
+  /** Commit a cell update (e.g. a card title edit, a drag-to-change-column). */
+  onCellChange: (row: unknown, prop: unknown, value: unknown) => void;
+  /** Open a row's full page in the main editor. */
+  onOpenRow: (pageId: string) => void;
+  /** Add a new blank row to the database. */
+  onAddRow: () => void;
+  /** Change which property drives a grouped layout. Optional; renderers that
+   *  don't group can ignore it. */
+  onChangeGroupProperty?: (propertyId: string | null) => void;
+  /** Scoped host API (storage, whitelisted invoke, events, i18n). Same shape
+   *  widget plugins receive. */
+  host: FolioPluginHost;
+}
+
+/** The view renderer component. Type-erased like {@link FolioWidgetComponent}.
+ *  Plugins author this as `function MyView(props: FolioViewProps) {…}` using
+ *  the JSX runtime provided by `@folio/plugin-sdk`. */
+export type FolioViewComponent = (props: FolioViewProps) => unknown;
+
+/** One view/tab type contribution. A plugin may ship several. Each becomes a
+ *  selectable type in the "New view" picker and renders as a full tab inside
+ *  a database (same surface as built-in board / calendar / … views). */
+export interface FolioViewContribution {
+  /** Stable type id WITHIN this plugin, kebab-case, validated against
+   *  `/^[a-z0-9-]+$/`. Must be unique among this plugin's view contributions.
+   *
+   *  Persisted (namespaced) on `ViewConfig.type` as
+   *  `plugin:<pluginId>:<type>`. Changing it breaks existing views, so pick a
+   *  stable id at author time. */
+  type: string;
+  /** Display name shown in the "New view" picker and the tab tooltip. */
+  name: string;
+  /** Short label/emoji shown in the tab strip. Falls back to a generic icon
+   *  when omitted. */
+  icon?: string;
+  /** One-line description shown under the name in the picker (optional). */
+  description?: string;
+  /** The view renderer component invoked when the user opens a tab of this
+   *  type. */
+  component: FolioViewComponent;
+}
+
+/** The unified contribution surface. A single plugin may declare any
+ *  combination of widgets and view types (both optional, both may contain
+ *  multiple entries). A plugin with neither is valid but useless — the host
+ *  loads it without error and it simply contributes nothing. */
+export interface FolioContributions {
+  /** Dashboard widget contributions. Listed under the "Plugins" section of
+   *  the "Add widget" picker. */
+  widgets?: FolioWidgetContribution[];
+  /** View/tab type contributions. Listed in the "New view" picker and
+   *  rendered as full database tabs. */
+  views?: FolioViewContribution[];
+}
+
+/** What a plugin's entry `.js` file must `export default` (single-file plugin)
+ *  OR what `manifest.json`'s `"main"` field must point at (folder plugin).
+ *
+ *  Two authoring shapes, both built with `definePlugin`:
+ *
+ *  1. **Legacy single-widget** — set `component` only (a single dashboard
+ *     widget). The host normalizes this into one widget contribution with
+ *     `id: 'default'`. Existing plugins keep working unchanged.
+ *  2. **Unified** — set `contributions` with any combination of `widgets`
+ *     and `views`. A plugin can ship several widgets AND several view types
+ *     in one package.
+ *
+ *  If both `component` and `contributions.widgets` are present,
+ *  `contributions.widgets` wins and `component` is ignored. */
+export interface FolioPluginEntry extends FolioPluginManifest {
+  /** Legacy shorthand for a single dashboard widget. Normalized into
+   *  `contributions.widgets = [{ id: 'default', component }]`. Ignored when
+   *  `contributions.widgets` is present. */
+  component?: FolioWidgetComponent;
+  /** Unified contributions surface. A plugin may declare widgets and/or view
+   *  types here. */
+  contributions?: FolioContributions;
 }
 
 // ============================================================================
@@ -202,11 +333,15 @@ export interface PluginStatus {
    *  `PluginUnavailable` for any persisted widgets referencing it. */
 }
 
-/** A fully-loaded plugin in the registry. The `component` is the live
- *  function reference imported from the plugin's entry .js. */
+/** A fully-loaded plugin in the registry. `contributions` holds the
+ *  normalized widget + view contributions (the legacy single `component` is
+ *  folded into `contributions.widgets` by the loader). */
 export interface LoadedPlugin {
   manifest: FolioPluginManifest;
-  component: FolioWidgetComponent;
+  /** Normalized contributions. Legacy single-`component` plugins appear here
+   *  as `widgets: [{ id: 'default', component }]`. Widget/view renderers and
+   *  the pickers read from this — never from a bare `component` field. */
+  contributions: FolioContributions;
   scope: PluginScope;
   /** Absolute path on disk to the entry .js file. */
   sourcePath: string;
