@@ -13,6 +13,9 @@ mod db;
 mod database;
 mod export;
 mod import;
+// M10 AI assistant (v2 built-in agent): HTTPS + SSE + provider trait, no
+// external subprocess. See docs/m10-ai-assistant-plan.md.
+mod agent;
 #[allow(dead_code)] // media helpers — used by notion_zip import + future features
 mod media;
 mod plugins;
@@ -161,6 +164,9 @@ pub struct AppState {
     /// Plugin watcher (file watcher for hot reload). Lives for app lifetime
     /// once started in `app.setup()`.
     pub plugins: Arc<plugins::PluginWatcherState>,
+    /// M10 AI assistant state — conversation memory + busy flag. Owned by
+    /// AppState so commands and spawned tasks can reach it via State<_>.
+    pub agent: Arc<agent::AgentState>,
 }
 
 // =============================================================================
@@ -1626,6 +1632,7 @@ pub fn run() {
                 registry: Arc::new(Mutex::new(registry_conn)),
                 db: Arc::new(Mutex::new(conn)),
                 plugins: plugin_watcher,
+                agent: Arc::new(agent::AgentState::new()),
             };
             app.manage(state);
 
@@ -1722,6 +1729,9 @@ pub fn run() {
             plugins::plugin_open_dir,
             plugins::plugin_read_manifest,
             plugins::plugin_read_text,
+            // AI assistant (M10 P1)
+            agent::ai_send,
+            agent::ai_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Folio");

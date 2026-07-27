@@ -39,6 +39,13 @@ scraper = "0.26"
 zip = "2"
 base64 = "0.22"
 url = "2"
+# M10 AI assistant (v2 built-in agent): HTTPS + SSE streaming for LLM providers.
+# rustls-tls (not native-tls) avoids OpenSSL on Windows; default-features off
+# drops the default native-tls backend so only rustls ships.
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+eventsource-stream = "0.2"
+futures = "0.3"
+async-trait = "0.1"
 
 [features]
 # this feature is used for production builds or when `devUrl` points to the filesystem
