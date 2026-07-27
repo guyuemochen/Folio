@@ -33,8 +33,14 @@ export function BlockMenu({ editor, blockPos, anchorRect, onClose }: BlockMenuPr
   const { t } = useTranslation();
   const [submenu, setSubmenu] = useState<SubmenuName>(null);
 
-  // Resolve the current block to know its type for the Turn into submenu.
-  const $pos = editor.state.doc.resolve(blockPos);
+  // `blockPos` was captured when the user clicked the drag handle. If the doc
+  // has changed since (undo, page switch, concurrent edit), the position may
+  // be past the new doc end. Clamp + resolve defensively instead of throwing
+  // out of the React render — a stale position should yield a no-op menu,
+  // not crash the editor tree.
+  const doc = editor.state.doc;
+  const safeBlockPos = Math.max(0, Math.min(blockPos, doc.content.size));
+  const $pos = doc.resolve(safeBlockPos);
   const currentNode: PmNode | null = $pos.parent.maybeChild($pos.index(0)) ?? null;
   const currentType = currentNode?.type.name ?? 'paragraph';
   const currentLevel = (currentNode?.attrs?.level ?? null) as number | null;
@@ -474,13 +480,18 @@ const HIGHLIGHT_COLORS: { label: string; value: string }[] = [
  * Find the (node, from, to) of the top-level block whose start is `blockPos`.
  * `blockPos` is the doc position returned by `view.posAtCoords` and resolved
  * to the start of the block.
+ *
+ * Clamps the input to the current doc size so a stale `blockPos` (captured
+ * before the doc changed) returns `{ node: null, from: 0, to: 0 }` instead
+ * of throwing `RangeError` and aborting the click handler.
  */
 function findBlockRange(
   editor: Editor,
   blockPos: number,
 ): { node: PmNode | null; from: number; to: number } {
   const doc = editor.state.doc;
-  let $pos = doc.resolve(blockPos);
+  const clamped = Math.max(0, Math.min(blockPos, doc.content.size));
+  let $pos = doc.resolve(clamped);
   // If pos is inside a paragraph (depth > 0), walk back to start of top-level.
   if ($pos.depth > 0) {
     $pos = doc.resolve($pos.before(1));

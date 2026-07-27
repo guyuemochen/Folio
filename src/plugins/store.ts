@@ -46,6 +46,73 @@ const PLUGIN_ID_RE = /^[a-z0-9-]+$/;
 const CONTRIBUTION_ID_RE = /^[a-z0-9-]+$/;
 
 // ============================================================================
+// Derived state builders
+// ----------------------------------------------------------------------------
+// `widgetContributions` / `viewContributions` are stored on the state (rather
+// than recomputed by selectors on every read) so subscribers receive a stable
+// array reference across renders. Selectors that build fresh arrays per call
+// defeat `useShallow` (its element comparison is `Object.is`) and trigger an
+// infinite `useSyncExternalStore` rerender loop in React 19.
+// ============================================================================
+
+/** Enabled plugins sorted by manifest name. Stable order ⇒ stable entry list
+ *  as long as the underlying plugin objects don't change. */
+function sortedEnabledPlugins(plugins: Record<string, LoadedPlugin>): LoadedPlugin[] {
+  return Object.values(plugins)
+    .filter((p) => p.enabled)
+    .sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
+}
+
+/** Rebuild the flattened widget-contribution list from the plugins map. */
+function rebuildWidgetContributions(
+  plugins: Record<string, LoadedPlugin>,
+): WidgetContributionEntry[] {
+  const out: WidgetContributionEntry[] = [];
+  for (const plugin of sortedEnabledPlugins(plugins)) {
+    const widgets = plugin.contributions.widgets ?? [];
+    for (const w of widgets) {
+      const widgetId = w.id ?? 'default';
+      out.push({
+        plugin,
+        contribution: w,
+        widgetId,
+        name: w.name ?? plugin.manifest.name,
+        description: w.description ?? plugin.manifest.description,
+      });
+    }
+  }
+  return out;
+}
+
+/** Rebuild the flattened view-contribution list from the plugins map. */
+function rebuildViewContributions(
+  plugins: Record<string, LoadedPlugin>,
+): ViewContributionEntry[] {
+  const out: ViewContributionEntry[] = [];
+  for (const plugin of sortedEnabledPlugins(plugins)) {
+    const views = plugin.contributions.views ?? [];
+    for (const v of views) {
+      out.push({
+        plugin,
+        contribution: v,
+        persistedType: pluginViewTypeId(plugin.manifest.id, v.type),
+      });
+    }
+  }
+  return out;
+}
+
+/** Recompute both derived contribution lists from a (possibly new) plugins
+ *  map. Use inside `set()` calls that replace `plugins` so the derived state
+ *  stays in sync atomically. */
+function rebuildDerived(plugins: Record<string, LoadedPlugin>) {
+  return {
+    widgetContributions: rebuildWidgetContributions(plugins),
+    viewContributions: rebuildViewContributions(plugins),
+  };
+}
+
+// ============================================================================
 // Store shape
 // ============================================================================
 
@@ -58,6 +125,16 @@ interface PluginRegistryState {
   /** Raw directory entries from the last `plugin_list` call. Used by the
    *  manager UI to show ALL entries (including failed + disabled ones). */
   entries: PluginListEntry[];
+  /** Derived: all widget contributions across enabled plugins, in a stable
+   *  order. Recomputed whenever `plugins` changes (load / unload / enable /
+   *  disable). Stored on the state so subscribers get a stable array
+   *  reference — selectors that build a fresh array per call defeat
+   *  `useShallow` (whose element comparison is `Object.is`) and trigger an
+   *  infinite `useSyncExternalStore` rerender loop. */
+  widgetContributions: WidgetContributionEntry[];
+  /** Derived: all view contributions across enabled plugins, in a stable
+   *  order. Same rationale as `widgetContributions`. */
+  viewContributions: ViewContributionEntry[];
   /** Global + workspace plugin dir paths (resolved on init). */
   globalDir: string | null;
   workspaceDir: string | null;
@@ -92,6 +169,8 @@ export const usePluginRegistry = create<PluginRegistryState>((set, get) => ({
   plugins: {},
   statuses: {},
   entries: [],
+  widgetContributions: [],
+  viewContributions: [],
   globalDir: null,
   workspaceDir: null,
   initialized: false,
@@ -249,19 +328,21 @@ export const usePluginRegistry = create<PluginRegistryState>((set, get) => ({
       delete statuses[deriveErrorId(path)];
 
       const wasEnabled = s.statuses[id]?.state !== 'disabled';
-      return {
-        plugins: {
-          ...s.plugins,
-          [id]: {
-            manifest: loaded.manifest,
-            contributions: loaded.contributions,
-            scope,
-            sourcePath: path,
-            importUrl: entryPath,
-            revision,
-            enabled: wasEnabled,
-          },
+      const plugins: Record<string, LoadedPlugin> = {
+        ...s.plugins,
+        [id]: {
+          manifest: loaded.manifest,
+          contributions: loaded.contributions,
+          scope,
+          sourcePath: path,
+          importUrl: entryPath,
+          revision,
+          enabled: wasEnabled,
         },
+      };
+      return {
+        plugins,
+        ...rebuildDerived(plugins),
         statuses: {
           ...statuses,
           [id]: {
@@ -283,7 +364,7 @@ export const usePluginRegistry = create<PluginRegistryState>((set, get) => ({
         statuses[id] = { state: 'error', error: 'Plugin file removed.' };
       }
       hostCache.delete(id);
-      return { plugins, statuses };
+      return { plugins, ...rebuildDerived(plugins), statuses };
     });
   },
 
@@ -299,7 +380,7 @@ export const usePluginRegistry = create<PluginRegistryState>((set, get) => ({
       const plugins = { ...s.plugins };
       const p = plugins[id];
       if (p) plugins[id] = { ...p, enabled };
-      return { statuses, plugins };
+      return { statuses, plugins, ...rebuildDerived(plugins) };
     });
   },
 
@@ -407,14 +488,20 @@ function normalizeContributions(
 }
 
 // ============================================================================
-// Selectors (kept tiny — most components subscribe to the whole `plugins` map)
+// Selectors
+// ----------------------------------------------------------------------------
+// All selectors below are now trivial accessors over cached derived state
+// (rebuilt inside `set()` whenever `plugins` changes). Returning a fresh array
+// here would defeat `useShallow` — its element comparison is `Object.is`, so a
+// new array of new entry-object literals always looks "changed" and triggers
+// an infinite `useSyncExternalStore` rerender loop in React 19.
 // ============================================================================
 
-/** All enabled plugins, sorted by name. The "Add widget" picker uses this. */
+/** All enabled plugins, sorted by name. Computed live from `plugins` — used
+ *  only by callers that explicitly want a fresh derivation (e.g. tests). UI
+ *  components should prefer the cached `state.widgetContributions`. */
 export function selectEnabledPlugins(state: PluginRegistryState): LoadedPlugin[] {
-  return Object.values(state.plugins)
-    .filter((p) => p.enabled)
-    .sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
+  return sortedEnabledPlugins(state.plugins);
 }
 
 /** A widget contribution paired with the plugin that owns it. Emitted by
@@ -464,38 +551,19 @@ export function parsePluginViewType(
 
 /** All widget contributions across all enabled plugins, in a stable order
  *  (plugin name → widget order). The dashboard "Add widget" picker lists
- *  these flattened (each entry knows its plugin so the UI can group/label). */
+ *  these flattened (each entry knows its plugin so the UI can group/label).
+ *
+ *  Returns the cached `state.widgetContributions` array (rebuilt on every
+ *  `plugins` mutation) so subscribers receive a stable reference. */
 export function selectWidgetContributions(state: PluginRegistryState): WidgetContributionEntry[] {
-  const out: WidgetContributionEntry[] = [];
-  for (const plugin of selectEnabledPlugins(state)) {
-    const widgets = plugin.contributions.widgets ?? [];
-    for (const w of widgets) {
-      const widgetId = w.id ?? 'default';
-      out.push({
-        plugin,
-        contribution: w,
-        widgetId,
-        name: w.name ?? plugin.manifest.name,
-        description: w.description ?? plugin.manifest.description,
-      });
-    }
-  }
-  return out;
+  return state.widgetContributions;
 }
 
 /** All view contributions across all enabled plugins, in a stable order.
- *  The "New view" picker appends these to the built-in types. */
+ *  The "New view" picker appends these to the built-in types.
+ *
+ *  Returns the cached `state.viewContributions` array (rebuilt on every
+ *  `plugins` mutation) so subscribers receive a stable reference. */
 export function selectViewContributions(state: PluginRegistryState): ViewContributionEntry[] {
-  const out: ViewContributionEntry[] = [];
-  for (const plugin of selectEnabledPlugins(state)) {
-    const views = plugin.contributions.views ?? [];
-    for (const v of views) {
-      out.push({
-        plugin,
-        contribution: v,
-        persistedType: pluginViewTypeId(plugin.manifest.id, v.type),
-      });
-    }
-  }
-  return out;
+  return state.viewContributions;
 }

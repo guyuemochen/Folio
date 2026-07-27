@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next';
-import { useShallow } from 'zustand/react/shallow';
 import { Popover } from '../../../ui/Popover';
 import type { WidgetKind } from './types';
 import { WIDGET_KIND_INFO } from './types';
@@ -31,7 +30,12 @@ interface AddWidgetMenuProps {
 export function AddWidgetMenu({ anchorRect, onPick, onPickPlugin, onClose }: AddWidgetMenuProps) {
   const { t } = useTranslation();
   const kinds = Object.keys(WIDGET_KIND_INFO) as WidgetKind[];
-  const widgetEntries = usePluginRegistry(useShallow(selectWidgetContributions));
+  // `selectWidgetContributions` now returns the cached `state.widgetContributions`
+  // array (rebuilt on every `plugins` mutation), so the returned reference is
+  // stable across renders. No `useShallow` needed — and using it here used to
+  // cause an infinite `useSyncExternalStore` rerender loop because the old
+  // selector built fresh entry-object literals on every call.
+  const widgetEntries = usePluginRegistry(selectWidgetContributions);
   const showPlugins = !!onPickPlugin;
 
   return (

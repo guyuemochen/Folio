@@ -372,7 +372,10 @@ function CreateViewPicker({ anchorRect, onClose, onPick }: CreateViewPickerProps
     'dashboard',
   ];
   // Plugin-provided view types, flattened across enabled plugins.
-  const pluginViews = usePluginRegistry(useShallow(selectViewContributions));
+  // `selectViewContributions` returns the cached `state.viewContributions`
+  // array (rebuilt on every `plugins` mutation), so the returned reference is
+  // stable across renders. No `useShallow` needed.
+  const pluginViews = usePluginRegistry(selectViewContributions);
   return (
     <Popover anchorRect={anchorRect} onClose={onClose} width={280} placement="bottom-start" ariaLabel={t('database.newView')}>
       <div className="py-2">
