@@ -211,6 +211,16 @@ CREATE TABLE IF NOT EXISTS favorites (
     created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_favorites_order ON favorites(sort_order);
+
+-- M10 AI assistant: provider config (key/value). Lives in the workspace DB so
+-- it follows the workspace across machines if the user copies the folder.
+-- `api_key` is stored plaintext for now — local-first means the DB is already
+-- on the user's machine; keyring upgrade is tracked as a P4 follow-up
+-- (plan §7.1 / §7.2). Other rows: enabled / provider / model / base_url.
+CREATE TABLE IF NOT EXISTS ai_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 "#;
 
 /// Apply the schema. Idempotent — safe to call on every startup.

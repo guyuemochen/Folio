@@ -524,6 +524,8 @@
 
   "settings": {
     "title": "Settings",
+    "tabGeneral": "General",
+    "tabAi": "AI Assistant",
     "appearance": "Appearance",
     "themeHint": "Choose how Folio looks. System follows your OS color scheme.",
     "themeSystem": "System",
@@ -532,7 +534,30 @@
     "language": "Language",
     "languageHint": "Choose Folio's display language. System follows your OS locale.",
     "languageSystem": "System",
-    "updates": "Updates"
+    "updates": "Updates",
+    "aiSection": "AI Assistant",
+    "aiEnable": "Enable AI assistant",
+    "aiEnableHint": "Off by default. When enabled, open the panel (Ctrl+J) to chat with AI.",
+    "aiProvider": "Provider",
+    "aiProviderOpenai": "OpenAI",
+    "aiProviderAnthropic": "Anthropic (P2)",
+    "aiProviderOllama": "Ollama (local)",
+    "aiProviderCustom": "Custom (OpenAI-compatible)",
+    "aiApiKey": "API Key",
+    "aiApiKeyHint": "Stored plaintext in the workspace DB (alongside your page data). Local only.",
+    "aiApiKeyPlaceholderOllama": "Local models usually need no key; leave empty",
+    "aiModel": "Model",
+    "aiBaseUrl": "Base URL",
+    "aiBaseUrlHint": "Empty = provider default. Ollama defaults to http://localhost:11434/v1.",
+    "aiTest": "Test connection",
+    "aiTesting": "Testing…",
+    "aiTestOk": "✓ Connection OK: {{message}}",
+    "aiTestFail": "✗ Failed: {{error}}",
+    "aiSave": "Save",
+    "aiSaving": "Saving…",
+    "aiSaved": "Saved",
+    "aiSaveFirstHint": "Save settings before testing.",
+    "aiPrivacy": "LLM traffic goes directly to your chosen provider; Folio does not proxy. Tool-call reads of page content are sent to the provider as context."
   },
 
   "about": {

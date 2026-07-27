@@ -1732,6 +1732,10 @@ pub fn run() {
             // AI assistant (M10 P1)
             agent::ai_send,
             agent::ai_stop,
+            // AI assistant (M10 P3 — Settings UI)
+            agent::ai_get_config,
+            agent::ai_save_config,
+            agent::ai_test_connection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Folio");

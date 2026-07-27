@@ -804,3 +804,56 @@ fn prune_snapshots(conn: &rusqlite::Connection, page_id: &str) -> Result<()> {
     )?;
     Ok(())
 }
+
+// =============================================================================
+// M10 AI assistant — provider settings (workspace-local)
+// =============================================================================
+//
+// Simple key/value store backed by the `ai_settings` table (defined in
+// schema.rs). Settings live in the workspace DB so they follow the data
+// when the user copies / moves the workspace folder.
+//
+// P3 stores `api_key` plaintext in this table — local-first means the DB is
+// already on the user's machine. P4 will evaluate moving the key to the
+// system keyring (plan §7.1 / §7.2); the helper signatures stay unchanged.
+
+/// Read one AI setting. Returns `None` if the row doesn't exist (vs. an SQL
+/// error). Callers interpret `None` as "unset, use default".
+///
+/// Currently unused — `ai_get_all_settings` covers all callers — but kept as
+/// part of the public API for future single-key lookups (e.g. quickly
+/// checking `enabled` without pulling the whole row set).
+#[allow(dead_code)]
+pub fn ai_get_setting(conn: &rusqlite::Connection, key: &str) -> Result<Option<String>> {
+    let mut stmt = conn.prepare_cached("SELECT value FROM ai_settings WHERE key = ?1")?;
+    let value: Option<String> = match stmt.query_row(params![key], |row| row.get::<_, String>(0)) {
+        Ok(v) => Some(v),
+        Err(rusqlite::Error::QueryReturnedNoRows) => None,
+        Err(other) => return Err(other.into()),
+    };
+    Ok(value)
+}
+
+/// Insert-or-update one AI setting. The table has no `updated_at` column —
+/// settings are small enough that we don't bother tracking when they changed.
+pub fn ai_set_setting(conn: &rusqlite::Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO ai_settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+/// Read all known AI settings into a HashMap. Missing keys are simply absent
+/// from the map; callers apply their own defaults.
+pub fn ai_get_all_settings(conn: &rusqlite::Connection) -> Result<std::collections::HashMap<String, String>> {
+    let mut stmt = conn.prepare_cached("SELECT key, value FROM ai_settings")?;
+    let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    let mut out = std::collections::HashMap::new();
+    for r in rows {
+        let (k, v) = r?;
+        out.insert(k, v);
+    }
+    Ok(out)
+}

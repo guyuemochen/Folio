@@ -105,78 +105,206 @@ pub struct AiConfig {
     pub temperature: Option<f32>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProviderKind {
     Openai,
     Anthropic,
     Ollama,
+    /// OpenAI-compatible endpoint at a user-supplied base_url (LM Studio,
+    /// vLLM, DeepSeek, 智谱, etc). Treated like Openai at the wire level.
+    Custom,
 }
 
 impl ProviderKind {
-    fn parse(s: &str) -> Result<Self, String> {
+    pub fn parse(s: &str) -> Result<Self, String> {
         match s.to_ascii_lowercase().as_str() {
             "" | "openai" => Ok(ProviderKind::Openai),
             "anthropic" => Ok(ProviderKind::Anthropic),
             "ollama" => Ok(ProviderKind::Ollama),
-            other => Err(format!("unknown AI_PROVIDER: {other}")),
+            "custom" => Ok(ProviderKind::Custom),
+            other => Err(format!("unknown provider: {other}")),
+        }
+    }
+
+    /// Lowercase id used in `ai_settings.provider` row. Currently only used
+    /// for documentation; P4 may use it for README generation.
+    #[allow(dead_code)]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProviderKind::Openai => "openai",
+            ProviderKind::Anthropic => "anthropic",
+            ProviderKind::Ollama => "ollama",
+            ProviderKind::Custom => "custom",
         }
     }
 }
 
-fn load_config() -> Result<AiConfig, String> {
-    let provider_kind = ProviderKind::parse(&std::env::var("AI_PROVIDER").unwrap_or_default())?;
+// =============================================================================
+// Settings IO type (frontend <-> backend boundary)
+// =============================================================================
+//
+// `AiSettings` is the wire type crossing the Tauri command boundary: a flat
+// camelCase struct that the Settings UI reads/writes. `AiConfig` is the
+// agent's internal, typed representation. Conversion happens in
+// `load_config_from_settings`.
 
-    // P1: Anthropic provider is implemented in P2 — refuse early with a clear
-    // message instead of falling through to OpenAI silently.
+/// Frontend-facing AI settings. Persisted in the `ai_settings` SQLite table
+/// (one row per field, by name). Returned by `ai_get_config` and accepted by
+/// `ai_save_config` / `ai_test_connection`.
+///
+/// `api_key` is stored plaintext for now (P3); P4 will evaluate moving it
+/// to the OS keyring (plan §7.1).
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSettings {
+    /// Master switch. When false, `ai_send` refuses with a clear error.
+    pub enabled: bool,
+    /// Provider id: "openai" | "anthropic" | "ollama" | "custom".
+    pub provider: String,
+    /// Plaintext API key. Empty string is allowed for Ollama (local, no auth).
+    pub api_key: String,
+    /// Model id (e.g. "gpt-4o-mini", "llama3.1", "claude-3-5-sonnet").
+    pub model: String,
+    /// Base URL override. Empty means "use provider default". Always set by
+    /// the UI for Ollama / custom; usually empty for OpenAI / Anthropic.
+    pub base_url: String,
+}
+
+impl Default for AiSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: "openai".into(),
+            api_key: String::new(),
+            model: "gpt-4o-mini".into(),
+            base_url: String::new(),
+        }
+    }
+}
+
+fn default_base_url(kind: ProviderKind) -> &'static str {
+    match kind {
+        ProviderKind::Ollama => "http://localhost:11434/v1",
+        _ => "https://api.openai.com/v1",
+    }
+}
+
+fn default_model(kind: ProviderKind) -> &'static str {
+    match kind {
+        ProviderKind::Ollama => "llama3.1",
+        _ => "gpt-4o-mini",
+    }
+}
+
+/// Build an `AiConfig` (internal) from an `AiSettings` (frontend). No IO —
+/// pure conversion. Used by both `load_config` (after reading the DB) and
+/// `ai_test_connection` (after receiving the form from the UI).
+pub fn load_config_from_settings(s: &AiSettings) -> Result<AiConfig, String> {
+    let provider_kind = ProviderKind::parse(&s.provider)?;
+
+    // P1/P3: Anthropic provider is implemented in P2 — refuse early with a
+    // clear message instead of falling through to OpenAI silently.
     if provider_kind == ProviderKind::Anthropic {
         return Err(
             "Anthropic provider not yet implemented (lands in P2). \
-             Set AI_PROVIDER=openai or AI_PROVIDER=ollama for now."
+             Use OpenAI / Ollama / Custom (OpenAI-compatible) for now."
                 .into(),
         );
     }
 
-    let api_key = std::env::var("OPENAI_API_KEY")
-        .map_err(|_| "OPENAI_API_KEY env var not set (P1 dev config)".to_string())?;
+    if s.api_key.is_empty() && provider_kind != ProviderKind::Ollama {
+        return Err(format!(
+            "API key required for provider '{}' (only Ollama allows empty key)",
+            s.provider
+        ));
+    }
 
-    let base_url = match provider_kind {
-        ProviderKind::Ollama => {
-            std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "http://localhost:11434/v1".into())
-        }
-        _ => std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".into()),
+    let base_url = if s.base_url.is_empty() {
+        default_base_url(provider_kind).to_string()
+    } else {
+        s.base_url.clone()
+    };
+    let model = if s.model.is_empty() {
+        default_model(provider_kind).to_string()
+    } else {
+        s.model.clone()
     };
 
-    let model = match provider_kind {
-        ProviderKind::Ollama => std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "llama3.1".into()),
-        _ => std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into()),
-    };
+    Ok(AiConfig {
+        provider_kind,
+        api_key: s.api_key.clone(),
+        base_url,
+        model,
+        max_tokens: 4096,
+        temperature: None,
+    })
+}
 
-    let max_tokens = std::env::var("AI_MAX_TOKENS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(4096);
-    let temperature = std::env::var("AI_TEMPERATURE")
-        .ok()
-        .and_then(|s| s.parse().ok());
+/// Read settings from the workspace DB (via `db::ai_get_all_settings`) and
+/// convert to an `AiConfig`. Falls back to env vars (dev mode) when the DB
+/// has no `enabled` row — keeps `OPENAI_API_KEY=... pnpm tauri dev` working
+/// as a smoke test without configuring Settings UI.
+pub fn load_config(db: &rusqlite::Connection) -> Result<AiConfig, String> {
+    let m = crate::db::ai_get_all_settings(db).map_err(|e| e.to_string())?;
+
+    // No `enabled` row → first-run or dev-only. Use env-var fallback.
+    if !m.contains_key("enabled") {
+        return load_config_from_env();
+    }
+
+    let enabled = m.get("enabled").map(|s| s == "true").unwrap_or(false);
+    if !enabled {
+        return Err("AI is disabled — enable it in Settings".into());
+    }
+
+    let settings = AiSettings {
+        enabled: true,
+        provider: m.get("provider").cloned().unwrap_or_else(|| "openai".into()),
+        api_key: m.get("api_key").cloned().unwrap_or_default(),
+        model: m
+            .get("model")
+            .cloned()
+            .unwrap_or_else(|| default_model(ProviderKind::Openai).into()),
+        base_url: m.get("base_url").cloned().unwrap_or_default(),
+    };
+    load_config_from_settings(&settings)
+}
+
+/// Env-var fallback for dev mode. Reads OPENAI_API_KEY / OPENAI_BASE_URL /
+/// OPENAI_MODEL / AI_PROVIDER.
+fn load_config_from_env() -> Result<AiConfig, String> {
+    let provider_kind = ProviderKind::parse(&std::env::var("AI_PROVIDER").unwrap_or_default())?;
+
+    if provider_kind == ProviderKind::Anthropic {
+        return Err("Anthropic provider not yet implemented (lands in P2)".into());
+    }
+
+    let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
+        "OPENAI_API_KEY env var not set, and AI is not configured in Settings".to_string()
+    })?;
+    let base_url =
+        std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| default_base_url(provider_kind).into());
+    let model =
+        std::env::var("OPENAI_MODEL").unwrap_or_else(|_| default_model(provider_kind).into());
 
     Ok(AiConfig {
         provider_kind,
         api_key,
         base_url,
         model,
-        max_tokens,
-        temperature,
+        max_tokens: 4096,
+        temperature: None,
     })
 }
 
-/// Construct a provider for the given config. P1 only wires OpenAI
-/// (which also covers Ollama via the OpenAI-compatible endpoint).
-fn build_provider(cfg: &AiConfig) -> Result<Box<dyn Provider>, ProviderError> {
+/// Construct a provider for the given config. Used by `ai_send` and
+/// `ai_test_connection`.
+pub fn build_provider(cfg: &AiConfig) -> Result<Box<dyn Provider>, ProviderError> {
     match cfg.provider_kind {
-        ProviderKind::Openai | ProviderKind::Ollama => Ok(Box::new(
+        ProviderKind::Openai | ProviderKind::Ollama | ProviderKind::Custom => Ok(Box::new(
             openai::OpenaiProvider::with_base_url(&cfg.base_url, &cfg.api_key),
         )),
-        // P1 refuses Anthropic in `load_config`; this branch is unreachable
+        // `load_config` already refuses Anthropic; this branch is unreachable
         // until P2 adds `agent::anthropic::AnthropicProvider`.
         ProviderKind::Anthropic => Err(ProviderError::Config("anthropic provider lands in P2".into())),
     }
@@ -205,11 +333,14 @@ pub async fn ai_send(
 
     // Load config BEFORE touching conversation memory so a config error does
     // not corrupt state. If config fails, restore the busy flag.
-    let cfg = match load_config() {
-        Ok(c) => c,
-        Err(e) => {
-            state.agent.busy.store(false, Ordering::SeqCst);
-            return Err(e);
+    let cfg = {
+        let db = state.db.lock();
+        match load_config(&db) {
+            Ok(c) => c,
+            Err(e) => {
+                state.agent.busy.store(false, Ordering::SeqCst);
+                return Err(e);
+            }
         }
     };
 
@@ -255,6 +386,95 @@ pub async fn ai_send(
 pub fn ai_stop(state: State<'_, crate::AppState>) -> Result<(), String> {
     state.agent.reset();
     Ok(())
+}
+
+/// Read the current AI settings from the workspace DB. Returns the default
+/// (enabled=false, provider="openai", model="gpt-4o-mini") on first run —
+/// never errors just because settings are uninitialized.
+#[tauri::command]
+pub fn ai_get_config(state: State<'_, crate::AppState>) -> Result<AiSettings, String> {
+    let db = state.db.lock();
+    let m = crate::db::ai_get_all_settings(&db).map_err(|e| e.to_string())?;
+    if m.is_empty() {
+        return Ok(AiSettings::default());
+    }
+    Ok(AiSettings {
+        enabled: m.get("enabled").map(|s| s == "true").unwrap_or(false),
+        provider: m.get("provider").cloned().unwrap_or_else(|| "openai".into()),
+        api_key: m.get("api_key").cloned().unwrap_or_default(),
+        model: m
+            .get("model")
+            .cloned()
+            .unwrap_or_else(|| "gpt-4o-mini".into()),
+        base_url: m.get("base_url").cloned().unwrap_or_default(),
+    })
+}
+
+/// Persist AI settings to the workspace DB. Each field becomes one row in
+/// `ai_settings` (upsert). After saving, the conversation memory is reset —
+/// old context was for the old model/provider and should not leak in.
+#[tauri::command]
+pub fn ai_save_config(
+    state: State<'_, crate::AppState>,
+    settings: AiSettings,
+) -> Result<(), String> {
+    {
+        let db = state.db.lock();
+        crate::db::ai_set_setting(&db, "enabled", if settings.enabled { "true" } else { "false" })
+            .map_err(|e| e.to_string())?;
+        crate::db::ai_set_setting(&db, "provider", &settings.provider).map_err(|e| e.to_string())?;
+        crate::db::ai_set_setting(&db, "api_key", &settings.api_key).map_err(|e| e.to_string())?;
+        crate::db::ai_set_setting(&db, "model", &settings.model).map_err(|e| e.to_string())?;
+        crate::db::ai_set_setting(&db, "base_url", &settings.base_url).map_err(|e| e.to_string())?;
+    }
+    // Reset conversation memory — config changed, old context invalid.
+    state.agent.reset();
+    Ok(())
+}
+
+/// Send a tiny "hi" request with the supplied settings (does NOT persist
+/// them) and verify the provider responds. Used by the Settings UI's "Test
+/// connection" button before the user commits to Save.
+///
+/// Returns Ok(message) on success where `message` describes what happened
+/// ("ok — got 5 tokens"); Err(human-readable) on any failure.
+#[tauri::command]
+pub async fn ai_test_connection(settings: AiSettings) -> Result<String, String> {
+    if !settings.enabled {
+        return Err("Enable AI before testing.".into());
+    }
+    let cfg = load_config_from_settings(&settings)?;
+    let provider = build_provider(&cfg).map_err(|e| e.to_string())?;
+
+    let req = ChatRequest {
+        model: cfg.model.clone(),
+        messages: vec![ChatMessage::user("hi")],
+        max_tokens: 5, // tiny to minimize cost
+        temperature: None,
+    };
+
+    let mut stream = provider.stream(&req).await.map_err(|e| e.to_string())?;
+    let mut got_tokens = 0u32;
+    while let Some(ev) = stream.next().await {
+        match ev {
+            Ok(StreamEvent::Delta(_)) => {
+                got_tokens += 1;
+                if got_tokens >= 1 {
+                    return Ok(format!("ok — provider responded (model: {})", cfg.model));
+                }
+            }
+            Ok(StreamEvent::Finish { reason: _, usage: _ }) => {
+                if got_tokens == 0 {
+                    return Ok(format!("ok — connection works, but model returned no tokens ({})", cfg.model));
+                }
+                return Ok(format!("ok — provider responded (model: {})", cfg.model));
+            }
+            Ok(StreamEvent::ThoughtDelta(_)) => {}
+            Ok(StreamEvent::Error(e)) => return Err(e.to_string()),
+            Err(_) => return Err("stream error".into()),
+        }
+    }
+    Ok(format!("ok — connection closed cleanly ({})", cfg.model))
 }
 
 // =============================================================================

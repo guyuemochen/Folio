@@ -523,3 +523,29 @@ export interface ImportResult {
   warnings: string[];
   errors: string[];
 }
+
+// =============================================================================
+// M10 AI assistant
+// =============================================================================
+
+/**
+ * AI provider configuration. Mirrors `agent::AiSettings` in
+ * `src-tauri/src/agent/mod.rs` (camelCase via serde rename). Persisted in the
+ * workspace DB so it follows the data folder.
+ *
+ * `provider` values:
+ *   - "openai"    — OpenAI official API (default base_url).
+ *   - "anthropic" — Anthropic Messages API (P2, not yet wired).
+ *   - "ollama"    — Local Ollama server (default base_url http://localhost:11434/v1).
+ *   - "custom"    — Any OpenAI-compatible endpoint at a user-supplied base_url.
+ *
+ * `apiKey` is stored plaintext in the DB for now; P4 will evaluate moving it
+ * to the OS keyring (plan §7.1).
+ */
+export interface AiSettings {
+  enabled: boolean;
+  provider: 'openai' | 'anthropic' | 'ollama' | 'custom';
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+}
