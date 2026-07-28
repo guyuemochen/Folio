@@ -29,6 +29,7 @@ import type {
   UpdateViewInput,
   ViewConfig,
   Workspace,
+  AiSettings,
 } from './types';
 import type { PluginListEntry } from '../plugins/types';
 
@@ -276,6 +277,23 @@ export const api = {
 
   pluginStorageKeys: (pluginId: string): Promise<string[]> =>
     invoke('plugin_storage_keys', { pluginId }),
+
+  // --- AI assistant (M10) -------------------------------------------------
+  // Streamed replies arrive via Tauri events: `ai-token`, `ai-thought`,
+  // `ai-tool`, `ai-done`, `ai-error`, `ai-permission` (P2 tool approval).
+  // See src-tauri/src/agent/mod.rs for the event contract.
+  aiSend: (message: string): Promise<void> => invoke('ai_send', { message }),
+  aiStop: (): Promise<void> => invoke('ai_stop'),
+  aiPermissionRespond: (approve: boolean): Promise<void> =>
+    invoke('ai_permission_respond', { approve }),
+
+  // AI assistant config (M10 P3 — Settings UI). Settings persist in the
+  // workspace DB (ai_settings table) so they follow the data folder.
+  aiGetConfig: (): Promise<AiSettings> => invoke('ai_get_config'),
+  aiSaveConfig: (settings: AiSettings): Promise<void> =>
+    invoke('ai_save_config', { settings }),
+  aiTestConnection: (settings: AiSettings): Promise<string> =>
+    invoke('ai_test_connection', { settings }),
 } as const;
 
 // Re-export dialog helpers for convenience.
