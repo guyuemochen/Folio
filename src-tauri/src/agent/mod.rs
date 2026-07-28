@@ -38,6 +38,7 @@ use tauri::{AppHandle, Emitter, State};
 
 pub use provider::{
     Block, ChatMessage, ChatRequest, FinishReason, Provider, ProviderError, StreamEvent, ToolChoice,
+    Usage,
 };
 
 // =============================================================================
@@ -138,6 +139,16 @@ impl ProviderKind {
             "ollama" => Ok(ProviderKind::Ollama),
             "custom" => Ok(ProviderKind::Custom),
             other => Err(format!("unknown provider: {other}")),
+        }
+    }
+
+    /// Lowercase id used in `ai_settings.provider` row + log output.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProviderKind::Openai => "openai",
+            ProviderKind::Anthropic => "anthropic",
+            ProviderKind::Ollama => "ollama",
+            ProviderKind::Custom => "custom",
         }
     }
 }
@@ -314,8 +325,16 @@ pub async fn ai_send(
     // Reentrancy guard. swap returns the OLD value; if old was true, someone
     // is already mid-turn — refuse without disturbing their flag.
     if state.agent.busy.swap(true, Ordering::SeqCst) {
+        eprintln!("[folio:ai] ai_send refused: another turn is in flight");
         return Err("AI busy — stop the current turn before sending another".into());
     }
+
+    let prompt_preview: String = message.chars().take(80).collect();
+    eprintln!(
+        "[folio:ai] → ai_send: prompt={:?} ({} chars total)",
+        prompt_preview,
+        message.chars().count()
+    );
 
     // Load config BEFORE touching conversation memory so a config error does
     // not corrupt state. If config fails, restore the busy flag.
@@ -324,15 +343,28 @@ pub async fn ai_send(
         match load_config(&db) {
             Ok(c) => c,
             Err(e) => {
+                eprintln!("[folio:ai] ✗ config load failed: {e}");
                 state.agent.busy.store(false, Ordering::SeqCst);
                 return Err(e);
             }
         }
     };
 
+    // Log provider config (mask the API key — first 8 chars only).
+    let masked_key: String = cfg.api_key.chars().take(8).collect();
+    eprintln!(
+        "[folio:ai] config: provider={} model={} base_url={} key={}… ({} chars)",
+        cfg.provider_kind.as_str(),
+        cfg.model,
+        cfg.base_url,
+        masked_key,
+        cfg.api_key.chars().count()
+    );
+
     let provider = match build_provider(&cfg) {
         Ok(p) => p,
         Err(e) => {
+            eprintln!("[folio:ai] ✗ build_provider failed: {e}");
             state.agent.busy.store(false, Ordering::SeqCst);
             return Err(e.to_string());
         }
@@ -340,6 +372,8 @@ pub async fn ai_send(
 
     // Stage the user message into conversation memory.
     state.agent.messages.lock().push(ChatMessage::user(message));
+    let msg_count = state.agent.messages.lock().len();
+    eprintln!("[folio:ai] conversation memory: {msg_count} messages staged");
 
     // Move ownership of provider + a clone of the shared Arcs into the
     // spawned task. The task resets `busy` on completion (success or error).
@@ -350,6 +384,7 @@ pub async fn ai_send(
     let app_for_task = app.clone();
 
     tauri::async_runtime::spawn(async move {
+        let started = std::time::Instant::now();
         let result = run_agent_loop(
             &app_for_task,
             provider.as_ref(),
@@ -359,12 +394,15 @@ pub async fn ai_send(
             pending_permission,
         )
         .await;
+        let elapsed = started.elapsed();
         busy.store(false, Ordering::SeqCst);
         match result {
             Ok(()) => {
+                eprintln!("[folio:ai] ← ai-done (turn took {:.2}s)", elapsed.as_secs_f64());
                 let _ = app_for_task.emit("ai-done", ());
             }
             Err(e) => {
+                eprintln!("[folio:ai] ← ai-error after {:.2}s: {e}", elapsed.as_secs_f64());
                 let _ = app_for_task.emit("ai-error", e.to_string());
             }
         }
@@ -454,6 +492,13 @@ pub async fn ai_test_connection(settings: AiSettings) -> Result<String, String> 
     if !settings.enabled {
         return Err("Enable AI before testing.".into());
     }
+    eprintln!(
+        "[folio:ai] ai_test_connection: provider={} model={} base_url={} key={}…",
+        settings.provider,
+        settings.model,
+        if settings.base_url.is_empty() { "(default)" } else { &settings.base_url },
+        settings.api_key.chars().take(8).collect::<String>(),
+    );
     let cfg = load_config_from_settings(&settings)?;
     let provider = build_provider(&cfg).map_err(|e| e.to_string())?;
 
@@ -474,16 +519,28 @@ pub async fn ai_test_connection(settings: AiSettings) -> Result<String, String> 
             Ok(StreamEvent::Delta(_)) => {
                 got_tokens += 1;
                 if got_tokens >= 1 {
+                    eprintln!(
+                        "[folio:ai] ai_test_connection: ok after 1 token (model {})",
+                        cfg.model
+                    );
                     return Ok(format!("ok — provider responded (model: {})", cfg.model));
                 }
             }
             Ok(StreamEvent::Finish { reason: _, usage: _ }) => {
                 if got_tokens == 0 {
+                    eprintln!(
+                        "[folio:ai] ai_test_connection: ok but no tokens (model {})",
+                        cfg.model
+                    );
                     return Ok(format!(
                         "ok — connection works, but model returned no tokens ({})",
                         cfg.model
                     ));
                 }
+                eprintln!(
+                    "[folio:ai] ai_test_connection: ok after Finish (model {})",
+                    cfg.model
+                );
                 return Ok(format!("ok — provider responded (model: {})", cfg.model));
             }
             Ok(StreamEvent::ThoughtDelta(_)) => {}
@@ -492,8 +549,14 @@ pub async fn ai_test_connection(settings: AiSettings) -> Result<String, String> 
             Ok(StreamEvent::ToolCallStart { .. })
             | Ok(StreamEvent::ToolCallDelta { .. })
             | Ok(StreamEvent::ToolCallEnd { .. }) => {}
-            Ok(StreamEvent::Error(e)) => return Err(e.to_string()),
-            Err(_) => return Err("stream error".into()),
+            Ok(StreamEvent::Error(e)) => {
+                eprintln!("[folio:ai] ai_test_connection: stream error: {e}");
+                return Err(e.to_string());
+            }
+            Err(_) => {
+                eprintln!("[folio:ai] ai_test_connection: double-wrapped error");
+                return Err("stream error".into());
+            }
         }
     }
     Ok(format!("ok — connection closed cleanly ({})", cfg.model))
@@ -523,7 +586,16 @@ async fn run_agent_loop(
 ) -> Result<(), ProviderError> {
     const MAX_ITERATIONS: usize = 10;
 
-    for _ in 0..MAX_ITERATIONS {
+    let tool_count = tools::schemas().len();
+    eprintln!(
+        "[folio:ai] agent loop start: {} messages in memory, {} tools available",
+        messages.lock().len(),
+        tool_count
+    );
+
+    for iteration in 1..=MAX_ITERATIONS {
+        eprintln!("[folio:ai] iteration {iteration}/{MAX_ITERATIONS}");
+
         let req = ChatRequest {
             model: cfg.model.clone(),
             messages: messages.lock().clone(),
@@ -533,12 +605,22 @@ async fn run_agent_loop(
             tool_choice: ToolChoice::Auto,
         };
 
+        let stream_started = std::time::Instant::now();
+        eprintln!(
+            "[folio:ai]   → provider.stream(): model={} messages={} tools={}",
+            cfg.model,
+            req.messages.len(),
+            req.tools.len()
+        );
         let mut stream = provider.stream(&req).await?;
+        eprintln!("[folio:ai]   ← stream opened");
 
         // Per-round accumulators.
         let mut text_buf = String::new();
+        let mut thought_total_chars: usize = 0;
         let mut tool_calls: Vec<PendingToolCall> = Vec::new();
         let mut finish_reason: Option<FinishReason> = None;
+        let mut finish_usage: Option<Usage> = None;
 
         while let Some(ev) = stream.next().await {
             match ev {
@@ -547,9 +629,13 @@ async fn run_agent_loop(
                     let _ = app.emit("ai-token", text);
                 }
                 Ok(StreamEvent::ThoughtDelta(text)) => {
+                    thought_total_chars += text.chars().count();
                     let _ = app.emit("ai-thought", text);
                 }
                 Ok(StreamEvent::ToolCallStart { id, name }) => {
+                    eprintln!(
+                        "[folio:ai]   tool_call_start: id={id} name={name}"
+                    );
                     let _ = app.emit("ai-tool", name.clone());
                     tool_calls.push(PendingToolCall {
                         id,
@@ -562,18 +648,36 @@ async fn run_agent_loop(
                         tc.args_json.push_str(&partial_json);
                     }
                 }
-                Ok(StreamEvent::ToolCallEnd { id: _ }) => {
-                    // Arguments complete for this tool; parsed when the loop
-                    // executes the tool below. No event to emit here — the
-                    // UI already saw `ai-tool` at ToolCallStart.
+                Ok(StreamEvent::ToolCallEnd { id }) => {
+                    if let Some(tc) = tool_calls.iter().find(|t| t.id == id) {
+                        eprintln!(
+                            "[folio:ai]   tool_call_end: id={} args={} bytes",
+                            tc.id,
+                            tc.args_json.len()
+                        );
+                    }
                 }
-                Ok(StreamEvent::Finish { reason, usage: _ }) => {
+                Ok(StreamEvent::Finish { reason, usage }) => {
+                    eprintln!(
+                        "[folio:ai]   finish: reason={}{}",
+                        reason.as_str(),
+                        usage
+                            .as_ref()
+                            .map(|u| format!(
+                                " usage=in:{}/out:{}",
+                                u.input_tokens, u.output_tokens
+                            ))
+                            .unwrap_or_default()
+                    );
                     finish_reason = Some(reason);
-                    // The provider emits Finish as the last event of its
-                    // stream; keep draining to be safe.
+                    finish_usage = usage;
                 }
-                Ok(StreamEvent::Error(e)) => return Err(e),
+                Ok(StreamEvent::Error(e)) => {
+                    eprintln!("[folio:ai]   ✗ stream error: {e}");
+                    return Err(e);
+                }
                 Err(_) => {
+                    eprintln!("[folio:ai]   ✗ double-wrapped stream error");
                     return Err(ProviderError::Stream(
                         "unexpected double-wrapped stream error".into(),
                     ));
@@ -581,16 +685,42 @@ async fn run_agent_loop(
             }
         }
 
+        eprintln!(
+            "[folio:ai]   stream drained in {:.2?}: {} text chars, {} thought chars, {} tool calls",
+            stream_started.elapsed(),
+            text_buf.chars().count(),
+            thought_total_chars,
+            tool_calls.len()
+        );
+        // Keep `usage` referenced even if no log above used it.
+        let _ = finish_usage;
+
         let reason = finish_reason.unwrap_or(FinishReason::Stop);
         if reason != FinishReason::Tools || tool_calls.is_empty() {
             // End of turn — push the final assistant message (text only).
             if !text_buf.trim().is_empty() {
+                let preview: String = text_buf.chars().take(120).collect();
+                eprintln!(
+                    "[folio:ai]   assistant text: {} chars, preview={:?}",
+                    text_buf.chars().count(),
+                    preview
+                );
                 messages.lock().push(ChatMessage::assistant_text(text_buf));
+            } else {
+                eprintln!("[folio:ai]   assistant text: empty");
             }
+            eprintln!(
+                "[folio:ai] agent loop: turn complete (reason={})",
+                reason.as_str()
+            );
             return Ok(());
         }
 
         // Tool round: build assistant message with text + tool_use blocks.
+        eprintln!(
+            "[folio:ai]   assistant requested {} tool call(s); executing…",
+            tool_calls.len()
+        );
         let mut blocks: Vec<Block> = Vec::new();
         if !text_buf.trim().is_empty() {
             blocks.push(Block::Text(text_buf));
@@ -613,8 +743,13 @@ async fn run_agent_loop(
 
             // Write tool: ask the user first.
             if tools::is_write_tool(&tc.name) {
-                let preview = serde_json::to_string_pretty(&args).unwrap_or_default();
-                let preview: String = preview.chars().take(500).collect();
+                let pretty = serde_json::to_string_pretty(&args).unwrap_or_default();
+                let preview: String = pretty.chars().take(500).collect();
+                eprintln!(
+                    "[folio:ai]   permission requested for write tool {} (args {} bytes)",
+                    tc.name,
+                    args.to_string().len()
+                );
                 let _ = app.emit(
                     "ai-permission",
                     serde_json::json!({
@@ -624,34 +759,62 @@ async fn run_agent_loop(
                 );
                 let approved = wait_for_permission(&pending_permission).await;
                 if !approved {
+                    eprintln!(
+                        "[folio:ai]   permission: REJECTED → tool_result(is_error) for id={}",
+                        tc.id
+                    );
                     messages
                         .lock()
                         .push(ChatMessage::tool_result(&tc.id, "user rejected", true));
                     continue;
                 }
+                eprintln!("[folio:ai]   permission: APPROVED");
+            } else {
+                let args_preview: String =
+                    serde_json::to_string(&args).unwrap_or_default().chars().take(200).collect();
+                eprintln!(
+                    "[folio:ai]   dispatch read tool: {} args={}",
+                    tc.name, args_preview
+                );
             }
 
             // Dispatch (sync — MutexGuard dropped before any await).
+            let dispatch_started = std::time::Instant::now();
             let result = {
                 let guard = db.lock();
                 tools::dispatch(&tc.name, &args, &guard)
             };
+            let dispatch_elapsed = dispatch_started.elapsed();
+
             let (content, is_error) = match result {
                 Ok(s) => (s, false),
                 Err(e) => (e, true),
             };
+            let content_preview: String = content.chars().take(200).collect();
+            eprintln!(
+                "[folio:ai]   tool result: id={} {} in {:.2?} ({} chars) preview={:?}",
+                tc.id,
+                if is_error { "ERROR" } else { "ok" },
+                dispatch_elapsed,
+                content.chars().count(),
+                content_preview,
+            );
             messages
                 .lock()
                 .push(ChatMessage::tool_result(&tc.id, &content, is_error));
 
             // Notify editor to refresh after a successful write.
             if tools::is_write_tool(&tc.name) && !is_error {
+                eprintln!(
+                    "[folio:ai]   folio:ai-content-changed emitted (write tool succeeded)"
+                );
                 let _ = app.emit("folio:ai-content-changed", ());
             }
         }
         // Loop continues → next provider.stream() with tool_results in messages.
     }
 
+    eprintln!("[folio:ai] ✗ agent loop: exceeded max iterations ({MAX_ITERATIONS})");
     Err(ProviderError::Stream(
         "agent loop exceeded max iterations (10) — too many tool calls in one turn".into(),
     ))
@@ -673,8 +836,15 @@ struct PendingToolCall {
 async fn wait_for_permission(pending: &Arc<Mutex<Option<oneshot::Sender<bool>>>>) -> bool {
     let (tx, rx) = oneshot::channel();
     *pending.lock() = Some(tx);
+    let started = std::time::Instant::now();
     // Receiver::await returns Err when the sender is dropped without sending.
     // Treat that as a rejection so the agent loop moves on with a tool_result
     // the model can react to.
-    rx.await.unwrap_or(false)
+    let result = rx.await.unwrap_or(false);
+    eprintln!(
+        "[folio:ai]   wait_for_permission: {} after {:.2?}",
+        if result { "approved" } else { "rejected/cancelled" },
+        started.elapsed()
+    );
+    result
 }

@@ -217,6 +217,19 @@ pub enum FinishReason {
     Other(String),
 }
 
+impl FinishReason {
+    /// Short lowercase id for log output. Used by `[folio:ai]` log lines.
+    pub fn as_str(&self) -> &str {
+        match self {
+            FinishReason::Stop => "stop",
+            FinishReason::Tools => "tools",
+            FinishReason::Length => "length",
+            FinishReason::ContentFilter => "content_filter",
+            FinishReason::Other(s) => s.as_str(),
+        }
+    }
+}
+
 /// Token usage for one round-trip. Surfaced to the P3 Settings stats UI
 /// (cost/usage tracking).
 #[allow(dead_code)]
