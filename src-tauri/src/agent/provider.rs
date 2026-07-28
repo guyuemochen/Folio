@@ -5,39 +5,63 @@
 //! `Provider`; the agent loop in `mod.rs` drives the conversation through
 //! this trait, unaware of wire-format specifics.
 //!
-//! P1 scope: text-only chat (no tools). P2 will extend with tool calling:
-//!   - `ChatRequest.tools` / `tool_choice` fields
-//!   - `StreamEvent::ToolCallStart/Delta/End` variants
-//!   - `Role::Tool` + tool-result message content
-//! The types below are sized so P2 is an additive change, not a rewrite.
+//! P2 scope: tool calling (text + tool_use / tool_result blocks). The
+//! `MessageContent` enum lets a single conversation hold mixed text and
+//! tool calls without per-provider message types — provider impls translate
+//! to their own wire format (OpenAI: messages with role=tool; Anthropic:
+//! content blocks with type=tool_use/tool_result).
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
+use serde_json::Value;
 
 // =============================================================================
 // Chat request / message types
 // =============================================================================
 
-/// One message in the conversation.
-///
-/// P1: content is a plain `String` (text-only).
-/// P2: will become an enum (`Text(String) | Blocks(Vec<...>)`) to carry
-/// tool_use / tool_result blocks for Anthropic and OpenAI tool calling.
+/// One message in the conversation. Content is provider-agnostic — the
+/// `Blocks` variant carries tool_use / tool_result blocks alongside text so
+/// a single conversation history can be replayed across providers.
 #[derive(Clone, Debug)]
 pub struct ChatMessage {
     pub role: Role,
-    pub content: String,
+    pub content: MessageContent,
 }
 
 impl ChatMessage {
-    pub fn system(content: impl Into<String>) -> Self {
-        Self { role: Role::System, content: content.into() }
+    pub fn system(text: impl Into<String>) -> Self {
+        Self { role: Role::System, content: MessageContent::Text(text.into()) }
     }
-    pub fn user(content: impl Into<String>) -> Self {
-        Self { role: Role::User, content: content.into() }
+    pub fn user(text: impl Into<String>) -> Self {
+        Self { role: Role::User, content: MessageContent::Text(text.into()) }
     }
-    pub fn assistant(content: impl Into<String>) -> Self {
-        Self { role: Role::Assistant, content: content.into() }
+    /// Assistant turn with plain text (no tool_use blocks). Equivalent to
+    /// `assistant_blocks(vec![Block::Text(text)])` — sugar for the common
+    /// case where the assistant only emitted text.
+    pub fn assistant_text(text: impl Into<String>) -> Self {
+        Self { role: Role::Assistant, content: MessageContent::Text(text.into()) }
+    }
+    /// Assistant turn with mixed content (text + tool_use blocks). Each
+    /// provider translates this to its wire format.
+    pub fn assistant_blocks(blocks: Vec<Block>) -> Self {
+        Self { role: Role::Assistant, content: MessageContent::Blocks(blocks) }
+    }
+    /// Tool-result message. OpenAI: role=tool with content; Anthropic:
+    /// role=user with a tool_result content block. Provider impls handle
+    /// the rewrite; agent loop just stages this after executing a tool.
+    pub fn tool_result(
+        tool_use_id: impl Into<String>,
+        content: impl Into<String>,
+        is_error: bool,
+    ) -> Self {
+        Self {
+            role: Role::Tool,
+            content: MessageContent::Blocks(vec![Block::ToolResult {
+                tool_use_id: tool_use_id.into(),
+                content: content.into(),
+                is_error,
+            }]),
+        }
     }
 }
 
@@ -46,7 +70,34 @@ pub enum Role {
     System,
     User,
     Assistant,
-    // P2: Tool,
+    /// Tool-result message (OpenAI: role=tool). Anthropic provider will
+    /// translate this to role=user with a tool_result block at serialize
+    /// time; consumers iterate Role naively.
+    Tool,
+}
+
+#[derive(Clone, Debug)]
+pub enum MessageContent {
+    /// Plain text message (system, simple user/assistant turns).
+    Text(String),
+    /// Multi-block content (assistant with tool_use, user with tool_result).
+    Blocks(Vec<Block>),
+}
+
+#[derive(Clone, Debug)]
+pub enum Block {
+    /// Text content (an assistant turn may contain several text blocks
+    /// interleaved with tool_use blocks).
+    Text(String),
+    /// Assistant's request to call a tool. `input` is the parsed JSON
+    /// arguments object sent by the model — both OpenAI (`arguments`
+    /// string, parsed by us) and Anthropic (`input` object) are normalized
+    /// to a `serde_json::Value` here.
+    ToolUse { id: String, name: String, input: Value },
+    /// Result of a tool call, returned to the model. Always wrapped in a
+    /// `Role::Tool` message (OpenAI convention); Anthropic provider
+    /// translates the wrapping message's role to user at serialize time.
+    ToolResult { tool_use_id: String, content: String, is_error: bool },
 }
 
 /// Provider-agnostic chat request. Provider impls translate this to their
@@ -58,8 +109,54 @@ pub struct ChatRequest {
     pub messages: Vec<ChatMessage>,
     pub max_tokens: u32,
     pub temperature: Option<f32>,
-    // P2: pub tools: Vec<ToolSchema>,
-    // P2: pub tool_choice: ToolChoice,
+    /// Tools the model may call. Empty vec = no tool calling (model is
+    /// never offered tools, never emits tool_use).
+    pub tools: Vec<ToolSchema>,
+    /// How the model should choose to call tools. `Auto` is the default.
+    pub tool_choice: ToolChoice,
+}
+
+impl ChatRequest {
+    /// Builder sugar: build a request with tools set.
+    #[allow(dead_code)]
+    pub fn with_tools(mut self, tools: Vec<ToolSchema>) -> Self {
+        self.tools = tools;
+        self
+    }
+}
+
+/// How the model should choose to call tools. `Auto` is the default and the
+/// only value the agent loop currently sets; `Required` / `None` are kept
+/// for future tool-routing heuristics.
+#[allow(dead_code)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ToolChoice {
+    /// Model decides whether to call a tool or answer directly (default).
+    Auto,
+    /// Model must call at least one tool.
+    Required,
+    /// Model must NOT call any tools (text-only response).
+    None,
+}
+
+impl Default for ToolChoice {
+    fn default() -> Self {
+        ToolChoice::Auto
+    }
+}
+
+/// Description of a tool the model can call. Provider impls wrap this in
+/// their own envelope:
+///   - OpenAI: `{"type":"function","function":{"name","description","parameters":input_schema}}`
+///   - Anthropic: `{"name","description","input_schema"}`
+#[derive(Clone, Debug)]
+pub struct ToolSchema {
+    pub name: String,
+    pub description: String,
+    /// JSON Schema describing the tool's input arguments. Both providers
+    /// accept a subset of JSON Schema draft 7; keep descriptions inside
+    /// `description` fields so the model picks correctly.
+    pub input_schema: Value,
 }
 
 // =============================================================================
@@ -67,12 +164,12 @@ pub struct ChatRequest {
 // =============================================================================
 
 /// One event in the streaming response. The agent loop matches on these to
-/// emit Tauri events (`ai-token`, `ai-done`, `ai-error`).
+/// emit Tauri events (`ai-token`, `ai-tool`, `ai-permission`, `ai-done`).
 ///
-/// P1 only emits `Delta` and `Finish` (text-only chat). `ThoughtDelta` and
-/// `Error` variants are wired in P2 (thinking models + provider error
-/// mid-stream) — `#[allow(dead_code)]` keeps P1 warning-free without
-/// removing them.
+/// `Error` is emitted by provider impls when they hit an error mid-stream
+/// (provider impls so far surface errors via the channel's `Result::Err`
+/// arm instead, but the variant is part of the contract); `Finish.usage`
+/// is captured for the future stats UI.
 #[allow(dead_code)]
 #[derive(Debug)]
 pub enum StreamEvent {
@@ -81,13 +178,21 @@ pub enum StreamEvent {
     /// Reasoning/thinking token (Anthropic thinking blocks / OpenAI o1).
     /// Kept separate from `Delta` so the UI can dim/collapse it.
     ThoughtDelta(String),
+    /// Tool call started — first chunk of a tool_use; carries the call id
+    /// (for correlation across deltas) and the tool name. The UI shows
+    /// "🔧 calling {name}".
+    ToolCallStart { id: String, name: String },
+    /// Partial JSON arguments for a tool call. Concatenate `partial_json`
+    /// across deltas with the same `id`; the full JSON is only parseable
+    /// after `ToolCallEnd`. (Anthropic calls this `input_json_delta`.)
+    ToolCallDelta { id: String, partial_json: String },
+    /// Tool call's arguments are complete. The agent loop parses the
+    /// accumulated JSON here and stages the tool for execution. Multiple
+    /// tools may be in flight (OpenAI: keyed by `index`; Anthropic: by
+    /// `content_block_start`).
+    ToolCallEnd { id: String },
     /// Stream completed (one provider round-trip, not necessarily the whole
     /// agent turn — agent loop may continue if reason is `Tools`).
-    ///
-    /// `reason` and `usage` are populated but not consumed by P1's text-only
-    /// loop; P2 branches on `reason == Tools` to drive the tool loop, and
-    /// P3 surfaces `usage` in the Settings stats UI.
-    #[allow(dead_code)]
     Finish {
         reason: FinishReason,
         usage: Option<Usage>,
@@ -95,7 +200,6 @@ pub enum StreamEvent {
     /// Provider-level error mid-stream. The agent loop emits `ai-error` and
     /// terminates the turn.
     Error(ProviderError),
-    // P2: ToolCallStart / ToolCallDelta / ToolCallEnd variants
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -114,7 +218,7 @@ pub enum FinishReason {
 }
 
 /// Token usage for one round-trip. Surfaced to the P3 Settings stats UI
-/// (cost/usage tracking). Not consumed in P1/P2.
+/// (cost/usage tracking).
 #[allow(dead_code)]
 #[derive(Clone, Debug, Default)]
 pub struct Usage {
