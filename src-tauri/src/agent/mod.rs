@@ -392,6 +392,9 @@ pub async fn ai_send(
             &cfg,
             db,
             pending_permission,
+            // Pass the busy Arc so the loop can detect mid-stream cancellation
+            // (ai_stop resets busy to false → loop checks it and breaks).
+            busy.clone(),
         )
         .await;
         let elapsed = started.elapsed();
@@ -583,6 +586,7 @@ async fn run_agent_loop(
     cfg: &AiConfig,
     db: Arc<Mutex<rusqlite::Connection>>,
     pending_permission: Arc<Mutex<Option<oneshot::Sender<bool>>>>,
+    busy: Arc<AtomicBool>,
 ) -> Result<(), ProviderError> {
     const MAX_ITERATIONS: usize = 10;
 
@@ -594,6 +598,14 @@ async fn run_agent_loop(
     );
 
     for iteration in 1..=MAX_ITERATIONS {
+        // Between-iterations cancel check: ai_stop resets busy → loop bails.
+        // (The task's outer `.store(false)` at the end is skipped on this path
+        // because it's already false — store-if-different is idempotent.)
+        if !busy.load(Ordering::SeqCst) {
+            eprintln!("[folio:ai] agent loop: cancelled by user before iteration {iteration}");
+            return Ok(());
+        }
+
         eprintln!("[folio:ai] iteration {iteration}/{MAX_ITERATIONS}");
 
         let req = ChatRequest {
@@ -623,6 +635,13 @@ async fn run_agent_loop(
         let mut finish_usage: Option<Usage> = None;
 
         while let Some(ev) = stream.next().await {
+            // Mid-stream cancel check (user hit Stop). Drop the stream by
+            // breaking — the underlying reqwest response + worker task get
+            // released when the receiver goes out of scope.
+            if !busy.load(Ordering::SeqCst) {
+                eprintln!("[folio:ai]   ✗ cancelled mid-stream by user");
+                return Ok(());
+            }
             match ev {
                 Ok(StreamEvent::Delta(text)) => {
                     text_buf.push_str(&text);

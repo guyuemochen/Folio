@@ -314,6 +314,53 @@ Internationalization (PRD §10.5) and accessibility (PRD §10.4).
   button + channel picker belongs in a future Settings panel.
 - **Demo video.**
 
+## What works in M10 — AI Assistant
+
+Built-in AI assistant for reading and writing your notes, powered by your choice of LLM provider.
+
+### Built-in agent (no external binary)
+
+- **Agent loop runs entirely in Folio Rust core** — no spawned opencode subprocess, no MCP-over-stdio
+- Direct HTTPS+SSE connection from Rust core to your configured provider
+
+### Two LLM providers, natively
+
+- **OpenAI chat/completions API** — also covers any OpenAI-compatible endpoint via `base_url` override (e.g., Ollama)
+- **Anthropic Messages API** — with named-event SSE streaming
+- Both support streaming tokens AND tool calling (function calling / `tool_use`)
+
+### Built-in tools (agent can read & write your notes)
+
+- **`list_pages(parentId?)`** — list workspace pages
+- **`get_page(pageId)`** — read a page's text content
+- **`search_pages(query, limit?)`** — FTS5 search
+- **`update_page(pageId, markdown)`** — replace page content (auto-snapshotted for history)
+- Write tools are gated behind a user-approval prompt in the panel
+
+### Settings UI
+
+- **Settings → AI Assistant tab**: enable toggle (default off), provider select, API key (masked), model, base URL, test-connection button
+- Config persists in the workspace DB (`ai_settings` table) — follows the data folder
+- Privacy: API key stored plaintext in workspace DB; OS keyring evaluated as a future enhancement
+
+### Panel UX
+
+- **Cmd/Ctrl+J** opens a right-side panel
+- **Streamed Markdown rendering** (lazy-loaded `marked`)
+- **Thinking/reasoning tokens** shown in a collapsible section (Claude / DeepSeek-style)
+- **Permission prompts** for write tools ("Allow AI to call update_page?")
+- **Error classification**: auth / rate-limit / network / 5xx / stream-cancel each get a typed message + recover suggestion
+- **a11y**: full `useDialog()` integration (`role=dialog`, focus trap, Escape, scroll lock)
+- **i18n**: zh-CN + en (ai namespace)
+- **Performance**: token deltas buffered + flushed at ~20fps to avoid main-thread thrash
+
+### Privacy
+
+- LLM traffic goes **directly** from Folio's Rust core to your chosen provider; Folio does **not** proxy
+- No telemetry, no account
+- Tool-call reads of page content are sent to the provider as context (necessary for the agent to work) — surfaced in the Settings panel
+- AI is **OFF by default**; user opts in by configuring a provider in Settings
+
 ## What's new in 0.2.0
 
 Post-M9 editor polish plus a license change. Shipped as `v0.2.0`.

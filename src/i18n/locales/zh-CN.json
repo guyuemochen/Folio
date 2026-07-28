@@ -559,6 +559,30 @@
     "aiSaveFirstHint": "请先保存设置再测试连接。",
     "aiPrivacy": "LLM 流量直连你选择的服务商，Folio 不经手。工具调用读取的页面内容会作为上下文发送给服务商。"
   },
+  "ai": {
+    "title": "AI 助手",
+    "closeLabel": "关闭 AI 助手面板",
+    "emptyHint": "输入消息开始对话（Enter 发送，Shift+Enter 换行，Esc 关闭）。",
+    "you": "你",
+    "assistant": "AI",
+    "thinking": "思考过程",
+    "noOutput": "（无文本输出）",
+    "waiting": "等待 AI 响应…",
+    "allow": "允许",
+    "reject": "拒绝",
+    "stop": "停止",
+    "send": "发送",
+    "inputPlaceholder": "给 AI 发消息…",
+    "errorAuth": "API key 无效或权限不足。请在「设置 → AI 助手」中检查。",
+    "errorRateLimit": "请求过于频繁或配额已用尽。请稍后再试。",
+    "errorNetwork": "无法连接到服务商。请检查网络或 Base URL 设置。",
+    "errorServer": "服务商返回错误（5xx）。请稍后再试或更换 provider。",
+    "errorStream": "对话流中断。请重试。",
+    "errorToolRejected": "工具调用已被拒绝。",
+    "errorGeneric": "出错了：{{message}}",
+    "errorDetails": "技术详情",
+    "errorDismiss": "忽略"
+  },
 
   "about": {
     "title": "关于 Folio",

@@ -559,6 +559,30 @@
     "aiSaveFirstHint": "Save settings before testing.",
     "aiPrivacy": "LLM traffic goes directly to your chosen provider; Folio does not proxy. Tool-call reads of page content are sent to the provider as context."
   },
+  "ai": {
+    "title": "AI Assistant",
+    "closeLabel": "Close AI assistant panel",
+    "emptyHint": "Type a message to start (Enter to send, Shift+Enter for newline, Esc to close).",
+    "you": "You",
+    "assistant": "AI",
+    "thinking": "Thinking",
+    "noOutput": "(no text output)",
+    "waiting": "Waiting for AI response…",
+    "allow": "Allow",
+    "reject": "Reject",
+    "stop": "Stop",
+    "send": "Send",
+    "inputPlaceholder": "Message AI…",
+    "errorAuth": "API key is invalid or permission denied. Check Settings → AI Assistant.",
+    "errorRateLimit": "Rate limited or quota exhausted. Please try again later.",
+    "errorNetwork": "Cannot reach the provider. Check your network or Base URL.",
+    "errorServer": "Provider returned an error (5xx). Try again later or switch provider.",
+    "errorStream": "Stream interrupted. Please retry.",
+    "errorToolRejected": "Tool call was rejected.",
+    "errorGeneric": "Error: {{message}}",
+    "errorDetails": "Technical details",
+    "errorDismiss": "Dismiss"
+  },
 
   "about": {
     "title": "About Folio",
