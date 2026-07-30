@@ -549,3 +549,41 @@ export interface AiSettings {
   model: string;
   baseUrl: string;
 }
+
+/**
+ * Summary of one persisted AI conversation session. Mirrors
+ * `agent::storage::AiSessionSummary` in `src-tauri/src/agent/storage.rs`
+ * (camelCase via serde rename). Used in the panel's session picker list.
+ */
+export interface AiSessionSummary {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  /** Row count in ai_message — UI hint for "is this empty?". */
+  messageCount: number;
+}
+
+/**
+ * One stored message in a session. Mirrors
+ * `agent::storage::AiStoredMessage`. The `contentJson` shape is the same
+ * produced by `serialize_message` on the backend:
+ *   - `{ text: string }` for plain-text turns (most user / assistant-text messages)
+ *   - `{ blocks: Block[] }` for tool_use / tool_result turns
+ *
+ * The frontend only reads `text` and assistant text blocks for display;
+ * the rest is for round-tripping conversation memory on resume.
+ */
+export interface AiStoredMessage {
+  id: string;
+  sessionId: string;
+  seq: number;
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  contentJson: { text?: string; blocks?: unknown[] };
+  createdAt: number;
+}
+
+/** Full session with all messages — returned by `ai_load_session`. */
+export interface AiSessionWithMessages extends AiSessionSummary {
+  messages: AiStoredMessage[];
+}

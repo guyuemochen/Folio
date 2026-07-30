@@ -2,6 +2,9 @@ import { open, save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import type {
   AddPropertyInput,
+  AiSessionSummary,
+  AiSessionWithMessages,
+  AiSettings,
   AttachmentInfo,
   CreateDatabaseInput,
   CreatePageInput,
@@ -29,7 +32,6 @@ import type {
   UpdateViewInput,
   ViewConfig,
   Workspace,
-  AiSettings,
 } from './types';
 import type { PluginListEntry } from '../plugins/types';
 
@@ -294,6 +296,20 @@ export const api = {
     invoke('ai_save_config', { settings }),
   aiTestConnection: (settings: AiSettings): Promise<string> =>
     invoke('ai_test_connection', { settings }),
+
+  // AI assistant — session history (M10+). Sessions persist in the workspace
+  // DB so the user can reopen past conversations. The active session is
+  // tracked server-side; ai_send appends to it lazily (creating a row on
+  // first send), and ai_load_session swaps the in-memory conversation
+  // memory to the chosen past session.
+  aiListSessions: (): Promise<AiSessionSummary[]> => invoke('ai_list_sessions'),
+  aiLoadSession: (sessionId: string): Promise<AiSessionWithMessages> =>
+    invoke('ai_load_session', { sessionId }),
+  aiNewSession: (): Promise<void> => invoke('ai_new_session'),
+  aiDeleteSession: (sessionId: string): Promise<void> =>
+    invoke('ai_delete_session', { sessionId }),
+  aiRenameSession: (sessionId: string, title: string): Promise<void> =>
+    invoke('ai_rename_session', { sessionId, title }),
 } as const;
 
 // Re-export dialog helpers for convenience.

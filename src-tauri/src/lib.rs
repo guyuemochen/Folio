@@ -1737,6 +1737,12 @@ pub fn run() {
             agent::ai_get_config,
             agent::ai_save_config,
             agent::ai_test_connection,
+            // AI assistant — session history (M10+)
+            agent::ai_list_sessions,
+            agent::ai_load_session,
+            agent::ai_new_session,
+            agent::ai_delete_session,
+            agent::ai_rename_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Folio");

@@ -25,6 +25,7 @@
 pub mod anthropic;
 pub mod openai;
 pub mod provider;
+pub mod storage;
 pub mod stream;
 pub mod tools;
 
@@ -65,6 +66,14 @@ pub struct AgentState {
     /// Allow / Reject in the panel (which calls `ai_permission_respond`).
     /// One slot — only one tool asks at a time.
     pub pending_permission: Arc<Mutex<Option<oneshot::Sender<bool>>>>,
+    /// Active session id (row in `ai_session`). `None` until the user starts
+    /// the first turn — `ai_send` creates a session lazily and stores its id
+    /// here. `ai_load_session` overwrites it with the loaded session's id.
+    pub current_session_id: Arc<Mutex<Option<String>>>,
+    /// How many trailing messages in `messages` have already been written to
+    /// `ai_message` for the current session. The persistence pass appends
+    /// messages from this index onward after a turn. Reset on session switch.
+    pub last_persisted_seq: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl AgentState {
@@ -73,12 +82,18 @@ impl AgentState {
             messages: Arc::new(Mutex::new(Vec::new())),
             busy: Arc::new(AtomicBool::new(false)),
             pending_permission: Arc::new(Mutex::new(None)),
+            current_session_id: Arc::new(Mutex::new(None)),
+            last_persisted_seq: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
 
     /// Reset the conversation memory, drop any pending permission waiter,
     /// and clear the busy flag. Called by `ai_stop` and when the user
     /// changes provider/model in Settings.
+    ///
+    /// Does NOT clear `current_session_id` — stopping a turn mid-flight is
+    /// not the same as leaving the session. Messages already persisted to
+    /// the active session remain on disk; the user can keep talking.
     pub fn reset(&self) {
         self.messages.lock().clear();
         // Dropping the sender causes the receiver's await to return Err,
@@ -86,6 +101,14 @@ impl AgentState {
         // loop then posts a tool_result(is_error) and moves on.
         *self.pending_permission.lock() = None;
         self.busy.store(false, Ordering::SeqCst);
+        self.last_persisted_seq.store(0, Ordering::SeqCst);
+    }
+
+    /// Reset everything including session tracking — used by `ai_new_session`
+    /// and `ai_load_session` to clear the slate before switching context.
+    pub fn reset_session(&self) {
+        self.reset();
+        *self.current_session_id.lock() = None;
     }
 }
 
@@ -371,15 +394,59 @@ pub async fn ai_send(
     };
 
     // Stage the user message into conversation memory.
-    state.agent.messages.lock().push(ChatMessage::user(message));
+    let user_msg = ChatMessage::user(message.clone());
+    state.agent.messages.lock().push(user_msg.clone());
     let msg_count = state.agent.messages.lock().len();
     eprintln!("[folio:ai] conversation memory: {msg_count} messages staged");
+
+    // Lazily create a session row if none is active yet. The title is the
+    // first user message, truncated — same UX as ChatGPT and avoids empty
+    // sessions cluttering storage when the user opens the panel and closes
+    // it without sending.
+    let now = chrono::Utc::now().timestamp_millis();
+    let session_id = {
+        let mut guard = state.agent.current_session_id.lock();
+        match guard.clone() {
+            Some(id) => id,
+            None => {
+                let title: String = message.chars().take(60).collect();
+                let id = {
+                    let db = state.db.lock();
+                    storage::create_session(&db, &title, now)
+                        .map_err(|e| {
+                            eprintln!("[folio:ai] ✗ create_session failed: {e}");
+                            e
+                        })
+                        .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string())
+                };
+                *guard = Some(id.clone());
+                eprintln!("[folio:ai] new ai_session created: id={id} title={title:?}");
+                id
+            }
+        }
+    };
+
+    // Persist the user message immediately (so a crash mid-turn still leaves
+    // the user's question on disk). seq = position in the in-memory vec
+    // minus one (we just pushed it).
+    {
+        let db = state.db.lock();
+        let seq = state.agent.last_persisted_seq.load(Ordering::SeqCst);
+        if let Err(e) = storage::append_message(&db, &session_id, seq, &user_msg, now) {
+            eprintln!("[folio:ai] persist user message failed (continuing): {e}");
+        } else {
+            state.agent.last_persisted_seq.store(seq + 1, Ordering::SeqCst);
+        }
+        // Touch updated_at so the session bubbles to the top of the list.
+        let _ = storage::touch_session(&db, &session_id, now);
+    }
 
     // Move ownership of provider + a clone of the shared Arcs into the
     // spawned task. The task resets `busy` on completion (success or error).
     let messages = state.agent.messages.clone();
     let busy = state.agent.busy.clone();
     let pending_permission = state.agent.pending_permission.clone();
+    let last_persisted_seq = state.agent.last_persisted_seq.clone();
     let db = state.db.clone();
     let app_for_task = app.clone();
 
@@ -390,7 +457,7 @@ pub async fn ai_send(
             provider.as_ref(),
             &messages,
             &cfg,
-            db,
+            db.clone(),
             pending_permission,
             // Pass the busy Arc so the loop can detect mid-stream cancellation
             // (ai_stop resets busy to false → loop checks it and breaks).
@@ -398,6 +465,23 @@ pub async fn ai_send(
         )
         .await;
         let elapsed = started.elapsed();
+
+        // After the turn, persist any new messages (assistant text, tool_use,
+        // tool_result). We walk from last_persisted_seq to the current length.
+        // This is best-effort — persistence failure doesn't fail the turn.
+        let session_id_owned = session_id.clone();
+        let new_seq = persist_pending(
+            &db,
+            &session_id_owned,
+            &last_persisted_seq,
+            &messages,
+        );
+        if new_seq.is_some() {
+            let now = chrono::Utc::now().timestamp_millis();
+            let conn = db.lock();
+            let _ = storage::touch_session(&conn, &session_id_owned, now);
+        }
+
         busy.store(false, Ordering::SeqCst);
         match result {
             Ok(()) => {
@@ -412,6 +496,37 @@ pub async fn ai_send(
     });
 
     Ok(())
+}
+
+/// Walk `messages` from `last_persisted_seq` to the end, append each to the
+/// session row, and bump the counter. Returns the new seq value (or `None`
+/// if nothing was persisted). Best-effort — log + continue on error.
+fn persist_pending(
+    db: &Arc<Mutex<rusqlite::Connection>>,
+    session_id: &str,
+    last_persisted_seq: &Arc<std::sync::atomic::AtomicUsize>,
+    messages: &Arc<Mutex<Vec<ChatMessage>>>,
+) -> Option<usize> {
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut start = last_persisted_seq.load(Ordering::SeqCst);
+    let snapshot: Vec<ChatMessage> = messages.lock().clone();
+    if start >= snapshot.len() {
+        return None;
+    }
+    let conn = db.lock();
+    while start < snapshot.len() {
+        if let Err(e) = storage::append_message(&conn, session_id, start, &snapshot[start], now) {
+            eprintln!(
+                "[folio:ai] persist message seq={start} failed (continuing): {e}"
+            );
+            // Stop trying further messages — keep the seq counter where it is
+            // so the next attempt resumes from here.
+            break;
+        }
+        start += 1;
+    }
+    last_persisted_seq.store(start, Ordering::SeqCst);
+    Some(start)
 }
 
 /// Stop the assistant: reset conversation memory + clear the busy flag +
@@ -441,6 +556,134 @@ pub fn ai_permission_respond(
         }
         None => Err("no pending permission request".into()),
     }
+}
+
+// =============================================================================
+// Session history commands
+// =============================================================================
+//
+// The user can reopen past conversations. Sessions are persisted in
+// `ai_session` (+ `ai_message`) so they survive app restarts. The agent
+// state holds ONE active session at a time (`current_session_id`) — these
+// commands manipulate that pointer plus the storage rows.
+
+/// List all past sessions, most-recently-touched first. Each row includes a
+/// message-count hint so the UI can show "(3)" or hide empty sessions.
+#[tauri::command]
+pub fn ai_list_sessions(state: State<'_, crate::AppState>) -> Result<Vec<storage::AiSessionSummary>, String> {
+    let db = state.db.lock();
+    storage::list_sessions(&db)
+}
+
+/// Load a session: reset conversation memory, replay the stored messages into
+/// it, and remember the session id so subsequent `ai_send` calls append to it.
+/// Refuses if a turn is currently in flight — switching mid-turn would lose
+/// the in-flight assistant message.
+#[tauri::command]
+pub fn ai_load_session(
+    state: State<'_, crate::AppState>,
+    session_id: String,
+) -> Result<storage::AiSessionWithMessages, String> {
+    if state.agent.busy.load(Ordering::SeqCst) {
+        return Err("cannot switch sessions while AI is responding".into());
+    }
+    let db = state.db.lock();
+    let messages = storage::load_messages(&db, &session_id)?;
+    // Find session row for the summary fields.
+    let session: storage::AiSessionSummary = db
+        .query_row(
+            "SELECT id, title, created_at, updated_at, \
+                    (SELECT COUNT(*) FROM ai_message m WHERE m.session_id = s.id) \
+             FROM ai_session s WHERE id = ?1",
+            rusqlite::params![&session_id],
+            |row| {
+                Ok(storage::AiSessionSummary {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    created_at: row.get(2)?,
+                    updated_at: row.get(3)?,
+                    message_count: row.get(4)?,
+                })
+            },
+        )
+        .map_err(|e| format!("session {session_id} not found: {e}"))?;
+
+    // Rebuild in-memory conversation memory from stored messages. Skip rows
+    // we can't parse rather than failing the whole load.
+    let mut rebuilt: Vec<ChatMessage> = Vec::with_capacity(messages.len());
+    for m in &messages {
+        if let Some(msg) = storage::deserialize_message(&m.role, &m.content_json) {
+            rebuilt.push(msg);
+        }
+    }
+    drop(db);
+
+    state.agent.reset_session();
+    *state.agent.messages.lock() = rebuilt.clone();
+    *state.agent.current_session_id.lock() = Some(session_id.clone());
+    state
+        .agent
+        .last_persisted_seq
+        .store(rebuilt.len(), Ordering::SeqCst);
+
+    eprintln!(
+        "[folio:ai] loaded session {session_id}: {} stored rows, {} rebuilt messages",
+        messages.len(),
+        rebuilt.len()
+    );
+    Ok(storage::AiSessionWithMessages { session, messages })
+}
+
+/// Forget the current session and start fresh — clears conversation memory
+/// but does NOT persist a new session row (that happens lazily on the first
+/// `ai_send`). Used by the panel's "New chat" button.
+#[tauri::command]
+pub fn ai_new_session(state: State<'_, crate::AppState>) -> Result<(), String> {
+    if state.agent.busy.load(Ordering::SeqCst) {
+        return Err("cannot start a new session while AI is responding".into());
+    }
+    state.agent.reset_session();
+    Ok(())
+}
+
+/// Delete a session row (cascades to its messages). If the deleted session
+/// is the currently active one, also clears the in-memory state so the
+/// panel shows an empty conversation next.
+#[tauri::command]
+pub fn ai_delete_session(
+    state: State<'_, crate::AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    {
+        let db = state.db.lock();
+        storage::delete_session(&db, &session_id)?;
+    }
+    let is_current = state
+        .agent
+        .current_session_id
+        .lock()
+        .as_ref()
+        .map(|id| id == &session_id)
+        .unwrap_or(false);
+    if is_current {
+        state.agent.reset_session();
+    }
+    Ok(())
+}
+
+/// Rename a session. The frontend uses this for inline-edit of the title in
+/// the session picker, and the backend uses it from `ai_send` to set the
+/// initial title (no — `ai_send` writes the title directly via
+/// `create_session`; this command is for user-driven renames only).
+#[tauri::command]
+pub fn ai_rename_session(
+    state: State<'_, crate::AppState>,
+    session_id: String,
+    title: String,
+) -> Result<(), String> {
+    let now = chrono::Utc::now().timestamp_millis();
+    let db = state.db.lock();
+    storage::rename_session(&db, &session_id, &title, now)
 }
 
 /// Read the current AI settings from the workspace DB. Returns the default

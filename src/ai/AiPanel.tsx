@@ -26,8 +26,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { api } from '../lib/invoke';
 import { useDialog } from '../lib/dialog';
+import type { AiSessionSummary, AiStoredMessage } from '../lib/types';
 
 interface Turn {
   role: 'user' | 'assistant';
@@ -71,6 +73,64 @@ function classifyError(raw: string): ErrorKind {
   if (/\bhttp 5\d\d\b/.test(s)) return 'server';
   if (s.includes('stream')) return 'stream';
   return 'generic';
+}
+
+// =============================================================================
+// Session helpers
+// =============================================================================
+
+/**
+ * Convert a stored backend message into a UI Turn, or `null` if the message
+ * is not displayable (system / pure-tool-result messages are hidden from
+ * the chat bubbles — they still live in conversation memory on the backend).
+ *
+ * - User messages: text field is the user input.
+ * - Assistant messages: concatenate text blocks (skip tool_use / tool_result
+ *   blocks — those are surfaced live via the `ai-tool` event during the turn,
+ *   and don't need to be replayed as bubbles when reloading an old session).
+ */
+function storedToTurn(m: AiStoredMessage): Turn | null {
+  if (m.role === 'user') {
+    const text = m.contentJson.text ?? '';
+    return text ? { role: 'user', text } : null;
+  }
+  if (m.role === 'assistant') {
+    // Two storage shapes: { text: "..." } for plain turns, or
+    // { blocks: [{type:"text",text:"..."},{type:"tool_use",...}] } for
+    // mixed turns. Concatenate text blocks only.
+    let text = '';
+    if (typeof m.contentJson.text === 'string') {
+      text = m.contentJson.text;
+    } else if (Array.isArray(m.contentJson.blocks)) {
+      for (const b of m.contentJson.blocks) {
+        if (typeof b === 'object' && b !== null && (b as { type?: string }).type === 'text') {
+          text += (b as { text?: string }).text ?? '';
+        }
+      }
+    }
+    return text ? { role: 'assistant', text } : null;
+  }
+  return null;
+}
+
+/**
+ * Compact relative-time formatter ("just now" / "5m ago" / "3h ago" /
+ * "2d ago" / ISO date for older). Avoids pulling in a date library for one
+ * label in a dropdown.
+ */
+function formatRelativeTime(timestamp: number, t: TFunction): string {
+  const now = Date.now();
+  const diff = Math.max(0, now - timestamp);
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return t('ai.sessionTimeJustNow');
+  const min = Math.floor(sec / 60);
+  if (min < 60) return t('ai.sessionTimeMinutesAgo', { count: min });
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return t('ai.sessionTimeHoursAgo', { count: hr });
+  const day = Math.floor(hr / 24);
+  if (day < 7) return t('ai.sessionTimeDaysAgo', { count: day });
+  // Older than a week → ISO date (YYYY-MM-DD).
+  return new Date(timestamp).toISOString().slice(0, 10);
 }
 
 // --- lazy marked loader (keep it out of the cold-start bundle) ---
@@ -174,6 +234,120 @@ export default function AiPanel({ onClose }: Props) {
   const [permission, setPermission] = useState<Permission | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // --- Session history state ---------------------------------------------
+  // `sessions` is the list shown in the header dropdown. `currentSessionId`
+  // is the locally-known id of the active conversation (may lag the backend
+  // by one render after a send — the backend lazily creates the session on
+  // first send). `currentTitle` is what the header shows.
+  const [sessions, setSessions] = useState<AiSessionSummary[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [currentTitle, setCurrentTitle] = useState<string>('');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  /** Refresh the session list from storage. After a turn, the active session
+   *  is the first row (most-recently-touched) — so this also picks up its
+   *  freshly-generated title. */
+  const refreshSessions = async (): Promise<void> => {
+    try {
+      const list = await api.aiListSessions();
+      setSessions(list);
+      // If we have no locally-known session but the backend just created one
+      // (first send), adopt the most-recent one as current.
+      if (!currentSessionId && list.length > 0 && list[0].messageCount > 0) {
+        setCurrentSessionId(list[0].id);
+        setCurrentTitle(list[0].title);
+      } else {
+        const cur = list.find((s) => s.id === currentSessionId);
+        if (cur) setCurrentTitle(cur.title);
+      }
+    } catch (e) {
+      console.error('[folio:ai] refreshSessions failed', e);
+    }
+  };
+
+  // Load session list once on mount so the dropdown is populated.
+  useEffect(() => {
+    void refreshSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Close the dropdown when clicking outside it.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onClick = (e: MouseEvent): void => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', onClick);
+    return () => window.removeEventListener('mousedown', onClick);
+  }, [menuOpen]);
+
+  /** User picked a past session from the dropdown. */
+  const handleLoadSession = async (sessionId: string): Promise<void> => {
+    if (loading) return; // backend will also refuse, but bail early
+    try {
+      const loaded = await api.aiLoadSession(sessionId);
+      const newTurns: Turn[] = loaded.messages
+        .map(storedToTurn)
+        .filter((tn): tn is Turn => tn !== null);
+      setTurns(newTurns);
+      setStreaming('');
+      setThinking('');
+      setError(null);
+      setPermission(null);
+      setCurrentSessionId(loaded.id);
+      setCurrentTitle(loaded.title);
+      setMenuOpen(false);
+      // Re-sync the dropdown list (the loaded session is now most-recent).
+      void refreshSessions();
+    } catch (e) {
+      setError({ kind: classifyError(String(e)), raw: String(e) });
+    }
+  };
+
+  /** User clicked "New chat". Clears local state + tells the backend to
+   *  drop its current session pointer (it'll lazily create a new one on the
+   *  next send). */
+  const handleNewSession = async (): Promise<void> => {
+    if (loading) return;
+    try {
+      await api.aiNewSession();
+    } catch (e) {
+      setError({ kind: classifyError(String(e)), raw: String(e) });
+      return;
+    }
+    setTurns([]);
+    setStreaming('');
+    setThinking('');
+    setError(null);
+    setPermission(null);
+    setCurrentSessionId(null);
+    setCurrentTitle('');
+    setMenuOpen(false);
+  };
+
+  /** User clicked the × next to a session in the dropdown. */
+  const handleDeleteSession = async (
+    sessionId: string,
+    event: React.MouseEvent,
+  ): Promise<void> => {
+    event.stopPropagation();
+    try {
+      await api.aiDeleteSession(sessionId);
+      // If we deleted the active session, reset local UI state too.
+      if (sessionId === currentSessionId) {
+        setTurns([]);
+        setCurrentSessionId(null);
+        setCurrentTitle('');
+      }
+      void refreshSessions();
+    } catch (e) {
+      setError({ kind: classifyError(String(e)), raw: String(e) });
+    }
+  };
+
   // Token / thought buffers. The event listeners write into refs (cheap,
   // synchronous, no re-render); a ~50ms interval flushes them to state so
   // React only re-renders ~20×/sec even when the model is streaming
@@ -229,6 +403,10 @@ export default function AiPanel({ onClose }: Props) {
         setStreaming('');
         setThinking('');
         setLoading(false);
+        // After the turn, the backend has persisted new messages and touched
+        // updated_at. Refresh the dropdown so the title (set from the first
+        // user message) and ordering are correct.
+        void refreshSessions();
       });
       unlisteners.push(() => u3());
 
@@ -257,6 +435,7 @@ export default function AiPanel({ onClose }: Props) {
       active = false;
       unlisteners.forEach((u) => u());
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-scroll to bottom on new content.
@@ -279,6 +458,10 @@ export default function AiPanel({ onClose }: Props) {
     setLoading(true);
     try {
       await api.aiSend(msg);
+      // The backend lazily creates a session on first send. We don't know
+      // the new id yet — refresh picks it up via the most-recent row.
+      // Defer slightly so the persistence has time to land.
+      window.setTimeout(() => void refreshSessions(), 0);
     } catch (e) {
       setError({ kind: classifyError(String(e)), raw: String(e) });
       setLoading(false);
@@ -318,8 +501,84 @@ export default function AiPanel({ onClose }: Props) {
         {/* Scoped styles for rendered assistant Markdown (Folio has no typography plugin). */}
         <style>{AI_MD_CSS}</style>
 
-        <header className="flex h-12 items-center justify-between border-b border-border-hairline px-4">
-          <span className="text-[13px] font-medium text-text-primary">{t('ai.title')}</span>
+        <header className="relative flex h-12 items-center justify-between border-b border-border-hairline px-4">
+          {/* Session picker trigger: clicking the title opens a dropdown with
+              past sessions + a "New chat" action. Refs handle click-outside. */}
+          <div ref={menuRef} className="relative flex items-center min-w-0">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              className="flex items-center gap-1 min-w-0 rounded px-1 py-0.5 text-[13px] font-medium text-text-primary hover:bg-bg-hover transition-colors"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label={t('ai.sessionsButtonLabel')}
+              title={t('ai.sessionsButtonLabel')}
+            >
+              <span className="shrink-0 text-text-tertiary text-[12px]">≡</span>
+              <span className="truncate max-w-[260px]">
+                {currentTitle || t('ai.title')}
+              </span>
+              <span className="shrink-0 text-text-tertiary text-[10px]">▾</span>
+            </button>
+
+            {menuOpen && (
+              <div
+                role="menu"
+                className="absolute top-[calc(100%+4px)] left-0 z-50 w-[300px] max-w-[90vw] rounded-md border border-border-hairline bg-bg-section shadow-popover py-1 text-[13px]"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handleNewSession()}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-text-primary hover:bg-bg-hover transition-colors"
+                >
+                  <span className="text-text-tertiary">＋</span>
+                  <span>{t('ai.newSession')}</span>
+                </button>
+                {sessions.length > 0 && (
+                  <div className="my-1 border-t border-border-hairline" />
+                )}
+                <div className="max-h-[300px] overflow-y-auto">
+                  {sessions.map((s) => (
+                    <div
+                      key={s.id}
+                      role="menuitem"
+                      tabIndex={0}
+                      onClick={() => void handleLoadSession(s.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void handleLoadSession(s.id);
+                      }}
+                      className={`group flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 hover:bg-bg-hover transition-colors ${
+                        s.id === currentSessionId ? 'bg-bg-hover/60' : ''
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-text-primary">
+                          {s.title || t('ai.untitledSession')}
+                        </div>
+                        <div className="text-[11px] text-text-tertiary">
+                          {formatRelativeTime(s.updatedAt, t)}
+                          {s.messageCount > 0 && (
+                            <span className="ml-1 opacity-70">· {s.messageCount} msg</span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => void handleDeleteSession(s.id, e)}
+                        aria-label={t('ai.deleteSessionLabel')}
+                        title={t('ai.deleteSessionLabel')}
+                        className="shrink-0 rounded px-1 text-text-tertiary opacity-0 transition-opacity hover:text-status-red group-hover:opacity-100"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={onClose}

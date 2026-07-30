@@ -581,7 +581,17 @@
     "errorToolRejected": "Tool call was rejected.",
     "errorGeneric": "Error: {{message}}",
     "errorDetails": "Technical details",
-    "errorDismiss": "Dismiss"
+    "errorDismiss": "Dismiss",
+    "newSession": "New chat",
+    "untitledSession": "Untitled chat",
+    "sessionsButtonLabel": "Chat history",
+    "deleteSessionLabel": "Delete chat",
+    "floatingButtonLabel": "Open AI assistant",
+    "floatingButtonTitle": "Open AI assistant (Ctrl+J)",
+    "sessionTimeJustNow": "just now",
+    "sessionTimeMinutesAgo": "{{count}}m ago",
+    "sessionTimeHoursAgo": "{{count}}h ago",
+    "sessionTimeDaysAgo": "{{count}}d ago"
   },
 
   "about": {
