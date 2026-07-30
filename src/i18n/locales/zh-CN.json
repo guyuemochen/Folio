@@ -581,7 +581,17 @@
     "errorToolRejected": "工具调用已被拒绝。",
     "errorGeneric": "出错了：{{message}}",
     "errorDetails": "技术详情",
-    "errorDismiss": "忽略"
+    "errorDismiss": "忽略",
+    "newSession": "新对话",
+    "untitledSession": "未命名对话",
+    "sessionsButtonLabel": "对话历史",
+    "deleteSessionLabel": "删除对话",
+    "floatingButtonLabel": "打开 AI 助手",
+    "floatingButtonTitle": "打开 AI 助手（Ctrl+J）",
+    "sessionTimeJustNow": "刚刚",
+    "sessionTimeMinutesAgo": "{{count}} 分钟前",
+    "sessionTimeHoursAgo": "{{count}} 小时前",
+    "sessionTimeDaysAgo": "{{count}} 天前"
   },
 
   "about": {

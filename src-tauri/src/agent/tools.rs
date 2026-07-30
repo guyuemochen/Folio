@@ -11,6 +11,8 @@
 //!   - get_page(pageId)                — read
 //!   - search_pages(query, limit?)     — read
 //!   - update_page(pageId, markdown)   — WRITE (agent loop asks user first)
+//!   - list_databases(parentId?)       — read  (M10+ — table access)
+//!   - query_database(databaseId)      — read  (M10+ — schema + rows)
 //!
 //! `is_write_tool()` lets the agent loop decide whether to emit
 //! `ai-permission` and block on user approval before dispatching.
@@ -69,6 +71,25 @@ pub fn schemas() -> Vec<ToolSchema> {
                 "required": ["pageId", "markdown"]
             }),
         },
+        ToolSchema {
+            name: "list_databases".into(),
+            description: "List Folio databases (tables) in the workspace. Omit parentId for all databases workspace-wide, or pass a parent page id to scope to its children. Returns [{id,title}] — use query_database to read a database's schema and rows.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "parentId": { "type": "string", "description": "Optional parent page id; omit/null for all databases in the workspace." }
+                }
+            }),
+        },
+        ToolSchema {
+            name: "query_database".into(),
+            description: "Read a Folio database (table) by id. Returns its schema (property definitions: name, type, options) and all rows with their cell values. Use list_databases or list_pages first to find the id (type='database').".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": { "databaseId": { "type": "string" } },
+                "required": ["databaseId"]
+            }),
+        },
     ]
 }
 
@@ -95,6 +116,8 @@ pub fn dispatch(name: &str, args: &Value, conn: &Connection) -> Result<String, S
         "get_page" => tool_get_page(conn, args),
         "search_pages" => tool_search_pages(conn, args),
         "update_page" => tool_update_page(conn, args),
+        "list_databases" => tool_list_databases(conn, args),
+        "query_database" => tool_query_database(conn, args),
         other => Err(format!("unknown tool: {other}")),
     }
 }
@@ -171,6 +194,69 @@ fn tool_update_page(conn: &Connection, args: &Value) -> Result<String, String> {
     ))
 }
 
+/// List database-typed pages. Optionally scoped to a parent. Reads the same
+/// `list_pages` data and filters by `type == "database"` — no extra query.
+fn tool_list_databases(conn: &Connection, args: &Value) -> Result<String, String> {
+    let parent_id = args.get("parentId").and_then(|p| p.as_str());
+    let pages = crate::db::list_pages(conn, parent_id).map_err(|e| e.to_string())?;
+    let compact: Vec<Value> = pages
+        .iter()
+        .filter(|p| p.r#type == "database")
+        .map(|p| json!({ "id": p.id, "title": p.title }))
+        .collect();
+    serde_json::to_string_pretty(&compact).map_err(|e| e.to_string())
+}
+
+/// Read a database's schema (property defs) and all rows with their cell values.
+/// Output shape: `{ id, title, properties: [{id, name, type, options?}], rows: [{id, title, properties: {propId: value}}] }`.
+fn tool_query_database(conn: &Connection, args: &Value) -> Result<String, String> {
+    let database_id = args
+        .get("databaseId")
+        .and_then(|p| p.as_str())
+        .ok_or_else(|| "databaseId required".to_string())?;
+
+    // Schema: properties + page meta. Reuse database::fetch_database which
+    // validates type == "database" and returns properties + views. We only
+    // need properties here (views are a UI concern).
+    let db_struct = crate::database::fetch_database(conn, database_id).map_err(|e| e.to_string())?;
+    let properties: Vec<Value> = db_struct
+        .properties
+        .iter()
+        .map(|p| {
+            json!({
+                "id": p.id,
+                "name": p.name,
+                "type": p.r#type,
+                "options": p.options,
+            })
+        })
+        .collect();
+
+    // Rows: reuse database::query_database. Each row already has page info
+    // flattened in (id, title) plus a `properties` map of propId -> JSON value.
+    let rows_raw = crate::database::query_database(conn, database_id).map_err(|e| e.to_string())?;
+    let rows: Vec<Value> = rows_raw
+        .iter()
+        .filter_map(|r| {
+            let row_v = serde_json::to_value(r).ok()?;
+            Some(json!({
+                "id": row_v["id"],
+                "title": row_v["title"],
+                "properties": row_v.get("properties").cloned().unwrap_or(json!({})),
+            }))
+        })
+        .collect();
+
+    let out = json!({
+        "id": db_struct.page.id,
+        "title": db_struct.page.title,
+        "properties": properties,
+        "rows": rows,
+        "rowCount": rows.len(),
+    });
+    serde_json::to_string_pretty(&out).map_err(|e| e.to_string())
+}
+
 // =============================================================================
 // ProseMirror text extraction (ported from v1 mcp_server.rs)
 // =============================================================================
@@ -231,6 +317,8 @@ mod tests {
         assert!(names.contains(&"get_page"));
         assert!(names.contains(&"search_pages"));
         assert!(names.contains(&"update_page"));
+        assert!(names.contains(&"list_databases"));
+        assert!(names.contains(&"query_database"));
     }
 
     #[test]
@@ -239,6 +327,8 @@ mod tests {
         assert!(!is_write_tool("list_pages"));
         assert!(!is_write_tool("get_page"));
         assert!(!is_write_tool("search_pages"));
+        assert!(!is_write_tool("list_databases"));
+        assert!(!is_write_tool("query_database"));
         assert!(!is_write_tool("unknown"));
     }
 
@@ -261,6 +351,30 @@ mod tests {
         let conn = open_test_db();
         let err = dispatch("search_pages", &json!({}), &conn).unwrap_err();
         assert!(err.contains("query required"));
+    }
+
+    #[test]
+    fn dispatch_query_database_missing_id_errors() {
+        let conn = open_test_db();
+        let err = dispatch("query_database", &json!({}), &conn).unwrap_err();
+        assert!(err.contains("databaseId required"));
+    }
+
+    #[test]
+    fn list_databases_returns_only_database_typed_pages() {
+        let conn = open_test_db();
+        let out = dispatch("list_databases", &json!({}), &conn).unwrap();
+        let parsed: Vec<Value> = serde_json::from_str(&out).unwrap();
+        // The seed workspace has no databases, so this is an empty list.
+        assert!(parsed.is_empty());
+    }
+
+    #[test]
+    fn query_database_on_nonexistent_id_errors() {
+        let conn = open_test_db();
+        let err = dispatch("query_database", &json!({"databaseId": "no_such_id"}), &conn).unwrap_err();
+        // fetch_database raises an error mentioning the id and/or type.
+        assert!(!err.is_empty());
     }
 
     #[test]

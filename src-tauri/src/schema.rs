@@ -221,6 +221,32 @@ CREATE TABLE IF NOT EXISTS ai_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- M10+ AI assistant: conversation session history. One row per chat session.
+-- Lets the user reopen past conversations (plan §"回到以前的聊天记录").
+CREATE TABLE IF NOT EXISTS ai_session (
+    id          TEXT PRIMARY KEY,
+    title       TEXT NOT NULL DEFAULT '',
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_session_updated ON ai_session(updated_at DESC);
+
+-- One stored message in a session. `seq` is the 0-based position within the
+-- session — used to rebuild conversation memory in order on load.
+-- `role` ∈ {'system','user','assistant','tool'}.
+-- `content_json` carries the provider-agnostic message body:
+--   {"text": "..."} for plain-text turns, or
+--   {"blocks": [<Block>...]} for tool_use/tool_result turns (see provider.rs).
+CREATE TABLE IF NOT EXISTS ai_message (
+    id            TEXT PRIMARY KEY,
+    session_id    TEXT NOT NULL REFERENCES ai_session(id) ON DELETE CASCADE,
+    seq           INTEGER NOT NULL,
+    role          TEXT NOT NULL,
+    content_json  TEXT NOT NULL,
+    created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_message_session ON ai_message(session_id, seq);
 "#;
 
 /// Apply the schema. Idempotent — safe to call on every startup.
