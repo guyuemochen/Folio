@@ -1,6 +1,12 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { PropertyDef, PropertyType, SelectOption } from '../../lib/types';
+import type {
+  FormulaDisplay,
+  PropertyDef,
+  PropertyType,
+  SelectOption,
+} from '../../lib/types';
+import { validateFormula } from '../../lib/formula/evaluator';
 import { Popover } from '../ui/Popover';
 
 const COLOR_CHOICES = [
@@ -22,8 +28,11 @@ const TYPE_LABELS: { value: PropertyType; labelKey: string; icon: string }[] = [
   { value: 'multi_select', labelKey: 'database.typeMultiSelect', icon: ' ◐' },
   { value: 'status', labelKey: 'database.typeStatus', icon: '◐' },
   { value: 'date', labelKey: 'database.typeDate', icon: '🗓' },
+  { value: 'created_time', labelKey: 'database.typeCreatedTime', icon: '⏱' },
+  { value: 'last_edited_time', labelKey: 'database.typeLastEditedTime', icon: '✎' },
   { value: 'checkbox', labelKey: 'database.typeCheckbox', icon: '☑' },
   { value: 'url', labelKey: 'database.typeUrl', icon: '🔗' },
+  { value: 'formula', labelKey: 'database.typeFormula', icon: 'ƒx' },
 ];
 
 interface PropertyMenuProps {
@@ -37,6 +46,9 @@ interface PropertyMenuProps {
     type: PropertyType;
     options?: SelectOption[];
     numberFormat?: string;
+    formula?: string;
+    formulaDisplay?: FormulaDisplay;
+    dateIncludeTime?: boolean;
   }) => void;
   onDelete?: () => void;
   /** Column-level quick actions (only shown when editing an existing column). */
@@ -74,9 +86,19 @@ export function PropertyMenu({
   const [numberFormat, setNumberFormat] = useState<string>(
     property?.numberFormat ?? 'integer',
   );
+  const [formula, setFormula] = useState<string>(property?.formula ?? '');
+  const [formulaDisplay, setFormulaDisplay] = useState<FormulaDisplay>(
+    property?.formulaDisplay ?? 'number',
+  );
+  const [dateIncludeTime, setDateIncludeTime] = useState<boolean>(
+    property?.dateIncludeTime ?? false,
+  );
 
   const isEditing = !!property;
   const canChangeType = !property || property.type !== 'title';
+
+  // Live validation of the formula as the user types.
+  const formulaError = type === 'formula' ? validateFormula(formula) : null;
 
   const submit = () => {
     onSubmit({
@@ -84,6 +106,9 @@ export function PropertyMenu({
       type,
       options: ['select', 'multi_select', 'status'].includes(type) ? options : undefined,
       numberFormat: type === 'number' ? numberFormat : undefined,
+      formula: type === 'formula' ? formula : undefined,
+      formulaDisplay: type === 'formula' ? formulaDisplay : undefined,
+      dateIncludeTime: type === 'date' ? dateIncludeTime : undefined,
     });
   };
 
@@ -168,6 +193,64 @@ export function PropertyMenu({
               <option value="decimal">{t('database.formatDecimal')}</option>
               <option value="percent">{t('database.formatPercent')}</option>
               <option value="currency">{t('database.formatCurrency')}</option>
+            </select>
+          </div>
+        )}
+
+        {/* Date format — include time-of-day? */}
+        {type === 'date' && (
+          <div className="mb-3">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={dateIncludeTime}
+                onChange={(e) => setDateIncludeTime(e.target.checked)}
+                className="accent-accent"
+              />
+              <span className="text-xs text-text-secondary">
+                {t('database.dateIncludeTime')}
+              </span>
+            </label>
+          </div>
+        )}
+
+        {/* Formula editor (type === 'formula') */}
+        {type === 'formula' && (
+          <div className="mb-3">
+            <label className="block text-xs text-text-secondary mb-1">
+              {t('database.formulaExpression')}
+            </label>
+            <textarea
+              value={formula}
+              onChange={(e) => setFormula(e.target.value)}
+              placeholder={t('database.formulaPlaceholder')}
+              rows={3}
+              spellCheck={false}
+              className="w-full px-2.5 py-1.5 mb-1 text-sm border border-border-hairline rounded-md outline-none focus:border-accent font-mono resize-y"
+            />
+            {formulaError ? (
+              <p className="text-[11px] text-status-red mb-1">⚠ {formulaError}</p>
+            ) : (
+              <p className="text-[11px] text-text-tertiary mb-2">
+                {t('database.formulaHint')}
+              </p>
+            )}
+
+            {/* Display format */}
+            <label className="block text-xs text-text-secondary mb-1">
+              {t('database.formulaDisplayAs')}
+            </label>
+            <select
+              value={formulaDisplay}
+              onChange={(e) => setFormulaDisplay(e.target.value as FormulaDisplay)}
+              className="w-full px-2 py-1.5 text-sm border border-border-hairline rounded-md bg-bg-page outline-none focus:border-accent mb-2"
+            >
+              <option value="number">{t('database.formatNumber')}</option>
+              <option value="percent">{t('database.formatPercent')}</option>
+              <option value="currency">{t('database.formatCurrency')}</option>
+              <option value="progress">{t('database.formulaDisplayProgress')}</option>
+              <option value="text">{t('database.typeText')}</option>
+              <option value="checkbox">{t('database.typeCheckbox')}</option>
             </select>
           </div>
         )}

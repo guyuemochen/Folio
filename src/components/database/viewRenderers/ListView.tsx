@@ -180,6 +180,8 @@ function formatPropertyValue(prop: PropertyDef, value: unknown): string {
         .join(', ');
     }
     case 'date':
+    case 'created_time':
+    case 'last_edited_time':
       return typeof value === 'string' ? formatDate(value) : '';
     case 'checkbox':
       return value === true ? '\u2713' : '\u25A1'; // ✓ / □

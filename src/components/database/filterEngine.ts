@@ -89,10 +89,16 @@ const OPERATORS_BY_TYPE: Record<PropertyType, OperatorDef[]> = {
   multi_select: SELECT_OPS,
   status: SELECT_OPS,
   date: DATE_OPS,
+  created_time: DATE_OPS,
+  last_edited_time: DATE_OPS,
   person: SELECT_OPS,
   checkbox: CHECKBOX_OPS,
   url: URL_OPS,
   files: EMPTY_OPS,
+  // Formula values are computed client-side, so server-side filtering on the
+  // stored (null) value is limited. NUMBER_OPS matches the dominant output
+  // type; full computed filtering is a future enhancement.
+  formula: NUMBER_OPS,
 };
 
 export function operatorsFor(type: PropertyType): OperatorDef[] {
@@ -163,6 +169,8 @@ function defaultValueFor(
     case 'multi_select':
       return [];
     case 'date':
+    case 'created_time':
+    case 'last_edited_time':
       return new Date().toISOString().slice(0, 10);
     case 'select':
     case 'status':

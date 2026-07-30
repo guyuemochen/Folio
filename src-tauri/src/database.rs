@@ -35,6 +35,18 @@ pub struct PropertyDef {
     /// For number: 'integer' / 'decimal' / 'percent' / 'currency'.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub number_format: Option<String>,
+    /// For formula: the expression string (e.g. `prop("Price") * prop("Qty")`).
+    /// The computed value is never stored — evaluated client-side per row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula: Option<String>,
+    /// For formula: how the computed value is rendered — 'number' | 'percent'
+    /// | 'currency' | 'progress' | 'text' | 'checkbox'. NULL → 'number'.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula_display: Option<String>,
+    /// For type='date': whether the picker includes a time-of-day portion.
+    /// false (default) = date-only, true = date+time.
+    #[serde(default)]
+    pub date_include_time: bool,
     pub is_required: bool,
     pub order: f64,
     pub created_at: i64,
@@ -126,6 +138,13 @@ pub struct AddPropertyInput {
     pub options: Option<Vec<SelectOption>>,
     #[serde(default)]
     pub number_format: Option<String>,
+    #[serde(default)]
+    pub formula: Option<String>,
+    #[serde(default, rename = "formulaDisplay")]
+    pub formula_display: Option<String>,
+    /// For type='date': whether the picker includes a time-of-day portion.
+    #[serde(default)]
+    pub date_include_time: Option<bool>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -136,6 +155,13 @@ pub struct UpdatePropertyInput {
     pub options: Option<Vec<SelectOption>>,
     #[serde(default)]
     pub number_format: Option<String>,
+    #[serde(default)]
+    pub formula: Option<String>,
+    #[serde(default, rename = "formulaDisplay")]
+    pub formula_display: Option<String>,
+    /// For type='date': whether the picker includes a time-of-day portion.
+    #[serde(default)]
+    pub date_include_time: Option<bool>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -291,7 +317,7 @@ pub fn list_properties(
 ) -> Result<Vec<PropertyDef>> {
     let mut stmt = conn.prepare(
         "SELECT id, database_id, name, type, options, number_format, \
-                is_required, \"order\", created_at \
+                formula, formula_display, is_required, \"order\", created_at, date_include_time \
          FROM database_property WHERE database_id = ?1 ORDER BY \"order\" ASC",
     )?;
     let rows = stmt.query_map(params![database_id], map_property)?;
@@ -303,7 +329,8 @@ fn map_property(row: &rusqlite::Row<'_>) -> rusqlite::Result<PropertyDef> {
     let options = options_str
         .as_deref()
         .and_then(|s| serde_json::from_str::<Vec<SelectOption>>(s).ok());
-    let is_required: i64 = row.get(6)?;
+    let is_required: i64 = row.get(8)?;
+    let date_include_time: i64 = row.get(11)?;
     Ok(PropertyDef {
         id: row.get(0)?,
         database_id: row.get(1)?,
@@ -311,9 +338,12 @@ fn map_property(row: &rusqlite::Row<'_>) -> rusqlite::Result<PropertyDef> {
         r#type: row.get(3)?,
         options,
         number_format: row.get(5)?,
+        formula: row.get(6)?,
+        formula_display: row.get(7)?,
         is_required: is_required != 0,
-        order: row.get(7)?,
-        created_at: row.get(8)?,
+        date_include_time: date_include_time != 0,
+        order: row.get(9)?,
+        created_at: row.get(10)?,
     })
 }
 
@@ -336,8 +366,8 @@ pub fn add_property(conn: &rusqlite::Connection, input: AddPropertyInput) -> Res
 
     conn.execute(
         "INSERT INTO database_property \
-         (id, database_id, name, type, options, number_format, is_required, \"order\", created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8)",
+         (id, database_id, name, type, options, number_format, formula, formula_display, is_required, \"order\", created_at, date_include_time) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11)",
         params![
             &id,
             &input.database_id,
@@ -345,8 +375,11 @@ pub fn add_property(conn: &rusqlite::Connection, input: AddPropertyInput) -> Res
             &input.r#type,
             options_json,
             input.number_format.as_deref(),
+            input.formula.as_deref(),
+            input.formula_display.as_deref(),
             next_order,
             now,
+            input.date_include_time.unwrap_or(false),
         ],
     )?;
 
@@ -378,6 +411,27 @@ pub fn update_property(
         conn.execute(
             "UPDATE database_property SET number_format = ?1 WHERE id = ?2",
             params![fmt, property_id],
+        )?;
+    }
+    // Formula fields: `formula` may be set to Some(empty string) to clear an
+    // existing expression, so we branch on whether the key was provided
+    // (Some) rather than on truthiness.
+    if let Some(expr) = input.formula.as_deref() {
+        conn.execute(
+            "UPDATE database_property SET formula = ?1 WHERE id = ?2",
+            params![expr, property_id],
+        )?;
+    }
+    if let Some(display) = input.formula_display.as_deref() {
+        conn.execute(
+            "UPDATE database_property SET formula_display = ?1 WHERE id = ?2",
+            params![display, property_id],
+        )?;
+    }
+    if let Some(include_time) = input.date_include_time {
+        conn.execute(
+            "UPDATE database_property SET date_include_time = ?1 WHERE id = ?2",
+            params![include_time, property_id],
         )?;
     }
 
@@ -433,19 +487,31 @@ pub fn add_database_row(
 }
 
 /// Fetch a single database row (page summary + properties map).
+///
+/// `schema` lets a bulk caller (e.g. `query_database`) pass the already-fetched
+/// property list so computed columns (`created_time` / `last_edited_time`) are
+/// injected without re-querying the schema per row. `None` → fetched here.
 pub fn fetch_database_row(
     conn: &rusqlite::Connection,
     page_id: &str,
 ) -> Result<DatabaseRow> {
-    let summary = conn.query_row(
-        "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at, favorite, type \
+    fetch_database_row_with_schema(conn, page_id, None)
+}
+
+fn fetch_database_row_with_schema(
+    conn: &rusqlite::Connection,
+    page_id: &str,
+    schema: Option<&[PropertyDef]>,
+) -> Result<DatabaseRow> {
+    let (summary, created_at) = conn.query_row(
+        "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at, favorite, type, created_at \
          FROM page WHERE id = ?1",
         params![page_id],
         |row| {
             let is_trashed: i64 = row.get(5)?;
             let favorite: i64 = row.get(7)?;
             let page_type: String = row.get(8).unwrap_or_else(|_| "page".to_string());
-            Ok(PageSummary {
+            let summary = PageSummary {
                 id: row.get(0)?,
                 title: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
                 icon: row.get(2)?,
@@ -455,21 +521,35 @@ pub fn fetch_database_row(
                 is_trashed: is_trashed != 0,
                 updated_at: row.get(6)?,
                 favorite: favorite != 0,
-            })
+            };
+            Ok((summary, row.get::<_, i64>(9)?))
         },
     )?;
 
-    let properties = load_row_properties(conn, page_id)?;
+    let properties = load_row_properties(
+        conn,
+        page_id,
+        summary.parent_id.as_deref().unwrap_or(""),
+        created_at,
+        summary.updated_at,
+        schema,
+    )?;
     Ok(DatabaseRow {
         page: summary,
         properties,
     })
 }
 
-/// Build a JSON object { propertyId: value } for a row.
+/// Build a JSON object { propertyId: value } for a row, including computed
+/// columns (`created_time` / `last_edited_time`) whose values are derived from
+/// the page's `created_at` / `updated_at` rather than stored in `page_property`.
 fn load_row_properties(
     conn: &rusqlite::Connection,
     page_id: &str,
+    database_id: &str,
+    created_at: i64,
+    updated_at: i64,
+    schema: Option<&[PropertyDef]>,
 ) -> Result<serde_json::Value> {
     let mut stmt = conn.prepare(
         "SELECT property_id, value FROM page_property WHERE page_id = ?1",
@@ -488,11 +568,78 @@ fn load_row_properties(
             .unwrap_or(serde_json::Value::Null);
         map.insert(pid, parsed);
     }
+    drop(stmt);
+
+    // Inject computed (non-stored) columns. When a schema is supplied by the
+    // caller we reuse it; otherwise fetch it for single-row paths.
+    let owned_schema: Vec<PropertyDef>;
+    let schema: &[PropertyDef] = match schema {
+        Some(s) => s,
+        None => {
+            owned_schema = list_properties(conn, database_id)?;
+            &owned_schema
+        }
+    };
+    inject_computed_props(&mut map, schema, created_at, updated_at);
+
     Ok(serde_json::Value::Object(map))
+}
+
+/// Format an epoch-millis timestamp as a local naive `'YYYY-MM-DDTHH:mm'`
+/// string, matching the `datetime-local` serialization used by date cells.
+fn format_local_datetime(ms: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(ms)
+        .map(|utc| {
+            utc.with_timezone(&chrono::Local)
+                .format("%Y-%m-%dT%H:%M")
+                .to_string()
+        })
+        .unwrap_or_default()
+}
+
+/// Fill computed columns into the row's property map. `created_time` mirrors
+/// `created_at`, `last_edited_time` mirrors `updated_at`. Other property types
+/// are left untouched (their values come from `page_property`).
+fn inject_computed_props(
+    map: &mut serde_json::Map<String, serde_json::Value>,
+    schema: &[PropertyDef],
+    created_at: i64,
+    updated_at: i64,
+) {
+    for prop in schema {
+        let ts = match prop.r#type.as_str() {
+            "created_time" => created_at,
+            "last_edited_time" => updated_at,
+            _ => continue,
+        };
+        map.insert(
+            prop.id.clone(),
+            serde_json::Value::String(format_local_datetime(ts)),
+        );
+    }
 }
 
 /// Update a single cell. `value` is a JSON value already (string/number/array/null).
 pub fn update_cell(conn: &rusqlite::Connection, input: UpdateCellInput) -> Result<()> {
+    // Computed property types are derived from page metadata, never stored in
+    // page_property — reject writes so a stray edit can't desync them.
+    let prop_type: String = conn
+        .query_row(
+            "SELECT type FROM database_property WHERE id = ?1",
+            params![&input.property_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| Error::NotFound(format!("property {}", input.property_id)))?;
+    if matches!(
+        prop_type.as_str(),
+        "created_time" | "last_edited_time" | "formula"
+    ) {
+        return Err(Error::Other(format!(
+            "property type '{}' is computed and cannot be edited",
+            prop_type
+        )));
+    }
+
     let now = chrono::Utc::now().timestamp_millis();
     let value_str = serde_json::to_string(&input.value)
         .map_err(|e| Error::Other(format!("encode value: {e}")))?;
@@ -512,14 +659,7 @@ pub fn update_cell(conn: &rusqlite::Connection, input: UpdateCellInput) -> Resul
     }
 
     // If this is the title property, also update page.title for fast sidebar display
-    let prop_type: Option<String> = conn
-        .query_row(
-            "SELECT type FROM database_property WHERE id = ?1",
-            params![&input.property_id],
-            |row| row.get(0),
-        )
-        .ok();
-    if prop_type.as_deref() == Some("title") {
+    if prop_type == "title" {
         if let Some(s) = input.value.as_str() {
             conn.execute(
                 "UPDATE page SET title = ?1, updated_at = ?2 WHERE id = ?3",
@@ -545,6 +685,9 @@ pub fn query_database(
     conn: &rusqlite::Connection,
     database_id: &str,
 ) -> Result<Vec<DatabaseRow>> {
+    // Fetch the schema once so computed columns (created_time / last_edited_time)
+    // can be injected per row without re-querying database_property each time.
+    let schema = list_properties(conn, database_id)?;
     let mut stmt = conn.prepare(
         "SELECT id, title, icon, parent_id, parent_type, is_trashed, updated_at \
          FROM page \
@@ -558,7 +701,7 @@ pub fn query_database(
 
     let mut out = Vec::with_capacity(row_ids.len());
     for id in row_ids {
-        out.push(fetch_database_row(conn, &id)?);
+        out.push(fetch_database_row_with_schema(conn, &id, Some(&schema))?);
     }
     Ok(out)
 }
@@ -712,7 +855,7 @@ pub fn duplicate_property(
     property_id: &str,
 ) -> Result<PropertyDef> {
     let src = conn.query_row(
-        "SELECT id, database_id, name, type, options, number_format, \"order\" \
+        "SELECT id, database_id, name, type, options, number_format, formula, formula_display, \"order\", date_include_time \
          FROM database_property WHERE id = ?1",
         params![property_id],
         |row| {
@@ -723,7 +866,10 @@ pub fn duplicate_property(
                 row.get::<_, String>(3)?,
                 row.get::<_, Option<String>>(4)?,
                 row.get::<_, Option<String>>(5)?,
-                row.get::<_, f64>(6)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, f64>(8)?,
+                row.get::<_, i64>(9)?,
             ))
         },
     )?;
@@ -733,13 +879,13 @@ pub fn duplicate_property(
     let new_name = format!("{} copy", src.2);
     // Insert just after the source order, then nudge everything later down by
     // a small epsilon so order stays monotonic without rewriting the table.
-    let new_order = src.6 + 0.5;
+    let new_order = src.8 + 0.5;
 
     conn.execute(
         "INSERT INTO database_property \
-         (id, database_id, name, type, options, number_format, is_required, \"order\", created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8)",
-        params![&new_id, &src.1, &new_name, &src.3, &src.4, &src.5, new_order, now],
+         (id, database_id, name, type, options, number_format, formula, formula_display, is_required, \"order\", created_at, date_include_time) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11)",
+        params![&new_id, &src.1, &new_name, &src.3, &src.4, &src.5, &src.6, &src.7, new_order, now, src.9],
     )?;
 
     list_properties(conn, &src.1)?

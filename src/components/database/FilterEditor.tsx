@@ -334,7 +334,7 @@ function ValueInput({
     );
   }
 
-  if (type === 'date') {
+  if (type === 'date' || type === 'created_time' || type === 'last_edited_time') {
     return (
       <input
         type="date"

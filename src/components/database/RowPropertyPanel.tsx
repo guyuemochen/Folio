@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { memo, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../../lib/invoke';
-import type { PropertyDef } from '../../lib/types';
+import type { DatabaseRow, PropertyDef } from '../../lib/types';
 import { PropertyCell } from './PropertyCells';
 
 interface RowPropertyPanelProps {
@@ -13,6 +13,10 @@ interface RowPropertyPanelProps {
 interface PropertyRowProps {
   prop: PropertyDef;
   value: unknown;
+  /** Full row — needed by FormulaCell to resolve prop() references. */
+  row: DatabaseRow;
+  /** All database properties — needed by FormulaCell. */
+  schemaProperties: PropertyDef[];
   onCommit: (propId: string, value: unknown) => void;
 }
 
@@ -25,6 +29,8 @@ interface PropertyRowProps {
 const PropertyRow = memo(function PropertyRow({
   prop,
   value,
+  row,
+  schemaProperties,
   onCommit,
 }: PropertyRowProps) {
   const handleChange = useCallback(
@@ -38,6 +44,8 @@ const PropertyRow = memo(function PropertyRow({
         <PropertyCell
           value={value}
           property={prop}
+          row={row}
+          schemaProperties={schemaProperties}
           onChange={handleChange}
         />
       </div>
@@ -120,6 +128,8 @@ export const RowPropertyPanel = memo(function RowPropertyPanel({
               key={prop.id}
               prop={prop}
               value={row.properties[prop.id]}
+              row={row}
+              schemaProperties={schema.properties}
               onCommit={handleCommit}
             />
           ))}
