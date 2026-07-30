@@ -94,7 +94,7 @@ pub fn schemas() -> Vec<ToolSchema> {
         },
         ToolSchema {
             name: "add_database_property".into(),
-            description: "Add a new property (column) to a Folio database. Any type is supported (text/number/select/date/formula/...). For type='formula', pass the expression in `formula` — use prop(\"Column Name\") to reference other columns; the language supports + - * / %, comparisons (< <= > >= == !=), if(cond,a,b), round(), concat(), and more. For select/multi_select/status, pass `options` as [{value,color}]. Use query_database first to learn existing column names so formulas reference them correctly.".into(),
+            description: "Add a new property (column) to a Folio database. Any type is supported (text/number/select/date/formula/...). For type='formula', pass the expression in `formula` and pick a `formulaDisplay` ('number'/'percent'/'currency'/'progress'/'text'/'checkbox').\n\nFormula language (JS-like, case-sensitive):\n- Operators: `||` `&&` `!` (logic), `==` `!=` `<` `<=` `>` `>=` (compare), `+` `-` `*` `/` `%` (arith). There are NO `and`/`or`/`not`/`null` keywords — use the symbols only.\n- Truthiness: `null`, `\"\"`, `0`, `false` are falsy. Check empty cells with `!prop(\"X\")` (true when unset/blank). There is NO `empty()` function.\n- References: `prop(\"Column Name\")` — name must match exactly.\n- Functions: `if(cond, a, b)` (lazy), `round(x, digits?)`, `floor`, `ceil`, `abs`, `min(...)`, `max(...)`, `sum(...)`, `concat(...)`, `length(s)`, `tonumber`, `tostring`, `upper`, `lower`, `contains(haystack, needle)`.\n- Dates: `now()` returns an ISO string, and date columns resolve to ISO strings too — you MUST wrap them in `timestamp()` before any arithmetic. Helpers: `year(d)`, `month(d)`, `day(d)`, `timestamp(d)` (epoch ms).\n- Division by zero throws — guard with `if(denom == 0, 0, ...)`.\n\nExample — elapsed-time ratio between two date columns with empty-cell + div-zero guards, shown as a progress bar (formulaDisplay='progress'):\n  if(!prop(\"Start\") || !prop(\"End\"), 0, (timestamp(now()) - timestamp(prop(\"Start\"))) / (timestamp(prop(\"End\")) - timestamp(prop(\"Start\"))))\n\nFor select/multi_select/status, pass `options` as [{value,color}]. Use query_database first to learn existing column names so formulas reference them correctly.".into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -103,7 +103,7 @@ pub fn schemas() -> Vec<ToolSchema> {
                     "type": { "type": "string", "enum": ["rich_text","number","select","multi_select","status","date","created_time","last_edited_time","checkbox","url","formula"] },
                     "options": { "type": "array", "items": { "type": "object", "properties": { "value": { "type": "string" }, "color": { "type": "string" } } } },
                     "numberFormat": { "type": "string", "description": "number only: 'integer'/'decimal'/'percent'/'currency'." },
-                    "formula": { "type": "string", "description": "formula only: the expression." },
+                    "formula": { "type": "string", "description": "formula only: the expression. See the add_database_property description for the full formula language reference (operators, functions, date handling, gotchas)." },
                     "formulaDisplay": { "type": "string", "description": "formula only: 'number'/'percent'/'currency'/'progress'/'text'/'checkbox'." },
                     "dateIncludeTime": { "type": "boolean", "description": "date only: include time-of-day picker." }
                 },
@@ -112,7 +112,7 @@ pub fn schemas() -> Vec<ToolSchema> {
         },
         ToolSchema {
             name: "update_database_property".into(),
-            description: "Update an existing database property (column) by id — most often to set or change a formula expression, but also rename or adjust options/format. Only the fields you pass are changed. Find the property id via query_database (it returns each property's id).".into(),
+            description: "Update an existing database property (column) by id — most often to set or change a formula expression (see add_database_property for the formula language reference), but also rename or adjust options/format. Only the fields you pass are changed. Find the property id via query_database (it returns each property's id).".into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {

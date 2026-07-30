@@ -828,7 +828,7 @@ export function DatabaseView({
             drag={drag}
           />
         ) : (
-          <table aria-label={schema.title || t('database.table')} className="w-full border-collapse text-[13px] table-fixed">
+          <table aria-label={schema.title || t('database.table')} className="min-w-full border-collapse text-[13px] table-fixed">
             <TableHeaderRow
               visibleProps={visibleProps}
               widths={widths}
@@ -994,8 +994,9 @@ function TableHeaderRow({
   toggleHide,
   startResize,
 }: HeaderProps) {
+  const { t } = useTranslation();
   return (
-    <thead>
+    <thead className="sticky top-0 z-10">
       <tr className="bg-bg-section border-b border-border-hairline">
         {/* Spacer header for the drag-handle column (matches RowLine's
             leading w-7 cell). aria-hidden so screen readers skip it. */}
@@ -1009,19 +1010,33 @@ function TableHeaderRow({
               scope="col"
               aria-sort={sort ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
               style={{ width: w, minWidth: MIN_COL_WIDTH }}
-              className="relative text-left text-xs font-medium text-text-secondary px-3 py-2 cursor-pointer hover:bg-bg-hover border-b border-border-hairline group"
+              className={`relative text-left text-xs font-medium text-text-secondary px-3 py-1 cursor-pointer border-b border-border-hairline group ${
+                menuOpenFor && 'col' in menuOpenFor && menuOpenFor.col === prop.id
+                  ? 'bg-bg-hover'
+                  : 'hover:bg-bg-hover'
+              }`}
+              tabIndex={0}
               onClick={(e) =>
                 setMenuOpenFor({
                   col: prop.id,
                   anchorRect: e.currentTarget.getBoundingClientRect(),
                 })
               }
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setMenuOpenFor({
+                    col: prop.id,
+                    anchorRect: e.currentTarget.getBoundingClientRect(),
+                  });
+                }
+              }}
             >
               <div className="flex items-center gap-1.5 pr-2">
                 <TypeIcon type={prop.type} />
                 <span className="truncate">{prop.name}</span>
                 {sort && (
-                  <span className="text-text-tertiary">
+                  <span className="text-text-secondary">
                     {sort.direction === 'asc' ? '↑' : '↓'}
                     {sorts.length > 1 ? ` ${sorts.indexOf(sort) + 1}` : ''}
                   </span>
@@ -1029,7 +1044,10 @@ function TableHeaderRow({
               </div>
               {/* Resize handle */}
               <div
-                className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-accent/40"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t('database.resizeColumn', { name: prop.name })}
+                className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-accent/40 z-10"
                 onMouseDown={(e) => {
                   // Cap the column width so it can't exceed the visible table
                   // area. Reserve the non-resizable columns — the w-7 (28px)
@@ -1066,11 +1084,13 @@ function TableHeaderRow({
           );
         })}
         {/* Trailing column — intentionally has NO explicit width so it acts as
-            the table's slack absorber: in table-fixed + w-full, leftover
+            the table's slack absorber: in table-fixed + min-w-full, leftover
             horizontal space goes here instead of being distributed across the
             property columns (which would make them drift when one is resized).
             min-w-16 guarantees the ↗/× buttons always fit; the resize cap
-            reserves this 64px so widening a column can't squeeze it smaller. */}
+            reserves this 64px so widening a column can't squeeze it smaller.
+            When the column sum exceeds the container (many columns), the table
+            grows naturally and the trailing column clamps to its 64px min. */}
         <th aria-hidden className="min-w-16 border-b border-border-hairline" />
       </tr>
     </thead>
@@ -1278,7 +1298,7 @@ function GroupedTables({
                 they all read from the same `widths` map (auto-layout would
                 drift per-group based on cell content). */}
             {!collapsed && (
-              <table className="w-full border-collapse text-[13px] table-fixed">
+              <table className="min-w-full border-collapse text-[13px] table-fixed">
                 <TableHeaderRow
                   visibleProps={visibleProps}
                   widths={widths}
@@ -1575,6 +1595,7 @@ function NewRowMenu({
 // ============================================================================
 
 function TypeIcon({ type }: { type: PropertyDef['type'] }) {
+  const { t } = useTranslation();
   const map: Partial<Record<PropertyDef['type'], string>> = {
     title: 'T',
     rich_text: 'Aa',
@@ -1590,8 +1611,11 @@ function TypeIcon({ type }: { type: PropertyDef['type'] }) {
     formula: 'ƒx',
   };
   return (
-    <span className="inline-block w-3 text-center text-[10px] text-text-tertiary">
-      {map[type] ?? '•'}
+    <span
+      aria-label={t(`database.type.${type}`)}
+      className="inline-block w-3 text-center text-[10px] text-text-tertiary"
+    >
+      <span aria-hidden>{map[type] ?? '•'}</span>
     </span>
   );
 }
