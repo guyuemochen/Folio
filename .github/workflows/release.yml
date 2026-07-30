@@ -3,20 +3,26 @@ name: release
 # M9 — build, sign, and publish Folio installers + the updater manifest.
 #
 # Two release channels share this workflow:
-#   stable  : push tag v0.x.x            → rolling tag `stable-latest`
-#   nightly : schedule (daily 03:00 UTC) → rolling tag `nightly-latest`
+#   stable  : push tag v0.x.x            → own Release per version
+#   nightly : schedule (daily 03:00 UTC) → own Release per nightly build
 #
-# Each channel publishes to ONE rolling GitHub Release (e.g. `stable-latest`):
-# artifacts AND the `latest.json` updater manifest both land there.
-# `tauri-apps/tauri-action@v0` does NOT support splitting them across two
-# tags, so every build reuses the same rolling release. Caveat: tauri-action
-# only creates the rolling git tag + Release on its FIRST run; on every later
-# run it merely appends assets and does NOT move the rolling git tag pointer
-# or update the Release's name/body/target_commitish. The `finalize-rolling`
-# job below closes that gap by PATCHing the git ref and the Release after each
-# successful build, so the tag pointer, the release name (e.g. "v0.3.0
-# (stable)"), and the assets all stay in sync. The Tauri updater reads
-# `latest.json` from each channel's rolling tag.
+# Each build publishes its artifacts to its OWN version-tagged GitHub Release
+# (e.g. v0.4.0 / nightly-2026-07-30), so the Releases page shows every
+# version separately and historical assets never collide.
+#
+# The Tauri auto-updater, however, reads `latest.json` from a FIXED url
+# configured in tauri.conf.json:
+#   /releases/download/<channel>-latest/latest.json
+# `tauri-apps/tauri-action@v0` cannot publish the installer assets and the
+# updater manifest to two different tags in one run, so the manifest is
+# handled separately: after tauri-action builds the version-tagged Release,
+# the `publish-updater-manifest` job downloads `latest.json` from it and
+# re-uploads it to the channel's rolling Release (`stable-latest` /
+# `nightly-latest`), moves the rolling git tag to this commit, and strips
+# any legacy assets so the rolling Release carries ONLY `latest.json`.
+# The download URLs INSIDE `latest.json` still point at the version-tagged
+# Release's assets, so clients fetch the correct installer for the newest
+# version while the manifest URL stays stable.
 #
 # Code is hosted on GitLab and mirrored to GitHub; this workflow runs on the
 # GitHub mirror so it can publish to GitHub Releases. Set up push mirror in
@@ -45,8 +51,8 @@ on:
         options: ['stable', 'nightly']
         default: 'stable'
 
-# tauri-action creates the rolling GitHub Release + uploads artifacts via the
-# REST API using GITHUB_TOKEN. The token needs `contents: write` (and
+# tauri-action creates the per-version GitHub Release + uploads artifacts via
+# the REST API using GITHUB_TOKEN. The token needs `contents: write` (and
 # `packages: write` if you ever publish anything to GHCR). Without this block
 # the token falls back to the repo default, which is read-only on most repos
 # → "Resource not accessible by integration" on create-a-release.
@@ -96,7 +102,14 @@ jobs:
         shell: bash
         run: |
           CH="${{ github.event.inputs.channel || '' }}"
-          TAG="${GITHUB_REF#refs/tags/}"
+          # Only treat GITHUB_REF as a tag name when this run was actually
+          # triggered by a tag push. On schedule/dispatch, GITHUB_REF points
+          # at a branch (refs/heads/dev) and the prefix strip would leak the
+          # full branch ref into the release name. Guard against that.
+          TAG=""
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
           if [ -z "$CH" ]; then
             if [[ "$TAG" == nightly-* ]] || [ "${{ github.event_name }}" = "schedule" ]; then CH=nightly
             else CH=stable; fi
@@ -124,26 +137,34 @@ jobs:
           # AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           # AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         with:
-          # Rolling channel release (e.g. `stable-latest`). Both artifacts and
-          # latest.json land here; clients read
-          # /releases/download/<channel>-latest/latest.json. Every build
-          # overwrites the previous artifacts in this release.
-          tagName: ${{ steps.chan.outputs.rolling }}
+          # Version-tagged Release (e.g. `v0.4.0`, `nightly-2026-07-30`).
+          # Each build creates its own GitHub Release on the real version
+          # tag, so every version is visible separately on the Releases
+          # page and historical assets never collide. The updater manifest
+          # (`latest.json`) generated here is copied to the rolling Release
+          # afterwards by the `publish-updater-manifest` job so the updater
+          # endpoint in tauri.conf.json keeps working.
+          tagName: ${{ steps.chan.outputs.dated }}
           releaseName: '${{ steps.chan.outputs.dated }} (${{ steps.chan.outputs.channel }})'
           releaseBody: 'Folio ${{ steps.chan.outputs.channel }} build ${{ steps.chan.outputs.dated }}'
           releaseDraft: false
           prerelease: ${{ steps.chan.outputs.channel != 'stable' }}
           args: ${{ matrix.args }}
 
-  finalize-rolling:
-    # tauri-action only creates the rolling tag+release once; on every later
-    # build it just appends assets without moving the tag pointer or syncing
-    # the release metadata. This job runs after all matrix builds succeed and
-    # fixes both: (1) move the rolling git tag to this commit via the git-refs
-    # API, (2) PATCH the rolling release so name/body/target_commitish reflect
-    # the current build. Without this, the Releases page keeps showing the
-    # first-ever version name (e.g. "v0.1.0 (stable)") forever even though the
-    # assets and latest.json inside it have moved on.
+  publish-updater-manifest:
+    # tauri-action now publishes every build to its OWN version-tagged
+    # Release (v0.4.0, nightly-2026-07-30, ...). The Tauri updater, however,
+    # is hardcoded (in tauri.conf.json) to read `latest.json` from the
+    # channel's rolling tag:
+    #   /releases/download/<channel>-latest/latest.json
+    # This job keeps that endpoint alive: after all matrix builds succeed it
+    # (1) moves the rolling git tag (`stable-latest` / `nightly-latest`) to
+    # this commit, (2) ensures a rolling Release exists for that tag, and
+    # (3) copies `latest.json` from the just-built version Release into the
+    # rolling Release — overwriting any previous copy and stripping legacy
+    # assets so the rolling Release carries ONLY `latest.json`. The download
+    # URLs inside `latest.json` still point at the version-tagged assets, so
+    # clients fetch the right installer.
     needs: build
     runs-on: ubuntu-22.04
     steps:
@@ -152,7 +173,10 @@ jobs:
         shell: bash
         run: |
           CH="${{ github.event.inputs.channel || '' }}"
-          TAG="${GITHUB_REF#refs/tags/}"
+          TAG=""
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
           if [ -z "$CH" ]; then
             if [[ "$TAG" == nightly-* ]] || [ "${{ github.event_name }}" = "schedule" ]; then CH=nightly
             else CH=stable; fi
@@ -176,21 +200,13 @@ jobs:
           ROLLING="${{ steps.chan.outputs.rolling }}"
           SHA="${{ github.sha }}"
           # PATCH moves an existing lightweight tag. Fall back to POST (create)
-          # for the very first build of a channel where tauri-action has not
-          # created the tag yet (defensive — normally build already made it).
-          if ! curl -fsSL -X PATCH \
-               -H "Authorization: Bearer $GH_TOKEN" \
-               -H "Accept: application/vnd.github+json" \
-               "https://api.github.com/repos/$REPO/git/refs/tags/$ROLLING" \
-               -d "{\"sha\":\"$SHA\"}"; then
-            curl -fsSL -X POST \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/$REPO/git/refs" \
-              -d "{\"ref\":\"refs/tags/$ROLLING\",\"sha\":\"$SHA\"}"
+          # the first time a channel's rolling tag does not exist yet.
+          if ! gh api -X PATCH "repos/$REPO/git/refs/tags/$ROLLING" -f sha="$SHA"; then
+            gh api -X POST "repos/$REPO/git/refs" \
+              -f ref="refs/tags/$ROLLING" -f sha="$SHA"
           fi
 
-      - name: Sync rolling Release metadata
+      - name: Copy latest.json to the rolling Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -201,17 +217,32 @@ jobs:
           DATED="${{ steps.chan.outputs.dated }}"
           CH="${{ steps.chan.outputs.channel }}"
           SHA="${{ github.sha }}"
-          RID=$(curl -fsSL \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$REPO/releases/tags/$ROLLING" | jq -r '.id')
-          curl -fsSL -X PATCH \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/$REPO/releases/$RID" \
-            -d "{
-              \"tag_name\":\"$ROLLING\",
-              \"target_commitish\":\"$SHA\",
-              \"name\":\"$DATED ($CH)\",
-              \"body\":\"Folio $CH build $DATED\"
-            }"
+
+          # 1. Download latest.json from the just-built version Release.
+          gh release download "$DATED" --repo "$REPO" --pattern "latest.json" --clobber
+          test -s latest.json || { echo "ERROR: latest.json missing from $DATED" >&2; exit 1; }
+
+          # 2. Ensure the rolling Release exists; grab its id.
+          RID="$(gh api "repos/$REPO/releases/tags/$ROLLING" --jq '.id // empty' 2>/dev/null || true)"
+          if [ -z "$RID" ]; then
+            PRE=false
+            [ "$CH" != "stable" ] && PRE=true
+            RID="$(gh api -X POST "repos/$REPO/releases" \
+              -f tag_name="$ROLLING" \
+              -f target_commitish="$SHA" \
+              -f name="$ROLLING" \
+              -f body="Auto-updater manifest host for the \`$CH\` channel. Latest build: \`$DATED\`. This release carries ONLY \`latest.json\`; installers live in each version's own release." \
+              -F prerelease="$PRE" --jq '.id')"
+          fi
+
+          # 3. Strip any legacy assets — only latest.json belongs on this Release.
+          #    (Cleans up the previous single-rolling-release layout where every
+          #    version's installer assets piled into the same Release.)
+          for AID in $(gh api "repos/$REPO/releases/$RID" --jq '.assets[] | select(.name!="latest.json") | .id'); do
+            gh api -X DELETE "repos/$REPO/releases/assets/$AID" || true
+          done
+
+          # 4. Upload latest.json (--clobber replaces any previous copy).
+          gh release upload "$ROLLING" latest.json --repo "$REPO" --clobber
+
+          echo "Published latest.json to $ROLLING (release #$RID), pointing clients at $DATED."
