@@ -814,17 +814,6 @@ body {
   border-radius: 1px;
 }
 
-/* --- Multi-select marquee (§5.1.4) --------------------------------------- */
-.ln-block-marquee {
-  background: rgba(35, 131, 226, 0.10);
-  border: 1px solid rgba(35, 131, 226, 0.35);
-  pointer-events: none;
-}
-.ln-block-selected {
-  background: rgba(35, 131, 226, 0.08);
-  border-radius: 2px;
-}
-
 /* --- In-page find bar (§5.1.5) ------------------------------------------- */
 .ln-find-bar {
   position: fixed;
