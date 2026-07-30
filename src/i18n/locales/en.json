@@ -576,6 +576,8 @@
   "opening": "Opening…",
   "openDataFolderError": "Failed to open folder: {{error}}",
   "currentVersion": "Version",
+  "openUserManual": "User Manual",
+  "openUserManualError": "Failed to open user manual: {{error}}",
   "aiSection": "AI Assistant",
     "aiEnable": "Enable AI assistant",
     "aiEnableHint": "Off by default. When enabled, open the panel (Ctrl+J) to chat with AI.",
@@ -654,5 +656,82 @@
     "downloadInstall": "Download & install",
     "installing": "Installing…",
     "installingStatus": "Installing update…"
+  },
+
+  "manual": {
+    "title": "Folio User Manual",
+    "subtitle": "Local-first note-taking. All your data stays on your device.",
+    "toc": "Contents",
+    "gettingStarted": {
+      "title": "1. Getting Started",
+      "p1": "Folio is a local-first note app inspired by Notion. On first launch the sidebar is empty and the center shows a welcome screen.",
+      "b1": "Click \"+ New Page\" at the top of the sidebar, or press Ctrl+N, to create your first page.",
+      "b2": "Type below the title — your content is auto-saved to a local SQLite database.",
+      "b3": "Create more pages to start organizing your notes.",
+      "tip": "Tip: everything lives only on your machine — no account, no network."
+    },
+    "pages": {
+      "title": "2. Pages & Hierarchy",
+      "p1": "Folio organizes pages in a tree, much like folders.",
+      "b1": "Click the icon next to a page title to change its emoji; use \"+ Add cover\" below the title for a gradient cover.",
+      "b2": "Pages can nest sub-pages infinitely — type / inside the editor to insert a Sub-page block.",
+      "b3": "Pin frequently-used pages to Favorites at the top of the sidebar.",
+      "b4": "Drag pages in the sidebar to reorder or re-parent them."
+    },
+    "editor": {
+      "title": "3. The Editor",
+      "p1": "Folio's block editor is built on TipTap / ProseMirror and supports rich content types.",
+      "b1": "Type / to open the slash menu and insert headings, lists, quotes, code blocks, tables, equations and more.",
+      "b2": "Hover the left edge of a block to reveal the ⋮⋮ drag handle — drag to reorder, or click for the block menu (duplicate / turn into / delete).",
+      "b3": "Select text to bring up the bubble toolbar for bold, italic, color, and links.",
+      "b4": "Code blocks support syntax highlighting; equations render as LaTeX (KaTeX).",
+      "b5": "Tables auto-size to their content and hold any block inside cells."
+    },
+    "search": {
+      "title": "4. Global Search",
+      "p1": "Folio ships with full-text search (FTS5) — instant lookup across every page's title and content.",
+      "hint": "Press this shortcut anywhere to open the search box and type a query."
+    },
+    "database": {
+      "title": "5. Databases",
+      "p1": "A database is a special page that holds structured records, much like Notion's databases.",
+      "b1": "Create one from the sidebar, or via the / database command.",
+      "b2": "Property types include text, number, checkbox, URL, select, date and more.",
+      "b3": "Filter, sort, multi-select, resize columns, and import CSV directly."
+    },
+    "importExport": {
+      "title": "6. Import & Export",
+      "p1": "Folio is built for full data portability — no lock-in.",
+      "b1": "Import: Markdown, HTML, CSV, and Notion export zips.",
+      "b2": "Export: single-page Markdown/HTML, whole-workspace zip, or a full backup (SQLite + media).",
+      "b3": "Reach it via the menu at the bottom of the sidebar."
+    },
+    "ai": {
+      "title": "7. AI Assistant",
+      "p1": "Folio has a built-in AI assistant that can read and rewrite your notes (off by default; opt in).",
+      "b1": "Configure a provider (OpenAI / Anthropic / Ollama / custom) and API key under Settings → AI Assistant.",
+      "b2": "Press Ctrl+J to open the right-side panel and chat — ask it to search, summarize, or rewrite pages.",
+      "b3": "Write actions (e.g. editing a page) prompt for your approval — you stay in control.",
+      "privacy": "Privacy: LLM traffic goes directly from Folio's Rust core to your chosen provider; Folio does not proxy. Page content read by tools is sent to the provider as context."
+    },
+    "shortcuts": {
+      "title": "8. Keyboard Shortcuts",
+      "desc": "Common shortcuts (on macOS, swap Ctrl for Cmd):",
+      "newPage": "New page",
+      "search": "Global search",
+      "aiPanel": "Open AI assistant panel",
+      "editorFind": "Find in page",
+      "slashMenu": "Insert block (slash menu)",
+      "saveTitle": "Save title (in title field)",
+      "plainPaste": "Paste as plain text"
+    },
+    "dataPrivacy": {
+      "title": "9. Data & Privacy",
+      "p1": "Folio is local-first — your data belongs to you.",
+      "b1": "All notes live in a single SQLite file; see its path under Settings → Data → Storage location.",
+      "b2": "No account, no cloud sync, no telemetry. Update checks happen only when you click the button.",
+      "b3": "Use the full-backup export regularly to keep a zip archive as a safety net."
+    },
+    "footer": "Folio · local-first note app · Apache-2.0"
   }
 }

@@ -28,6 +28,7 @@ import {
   type EditorFontPref,
 } from '../lib/editorPrefs';
 import { api } from '../lib/invoke';
+import { openUserManual } from '../lib/openManual';
 import { AiSettings } from '../ai/AiSettings';
 
 interface SettingsModalProps {
@@ -181,6 +182,21 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
       );
     } finally {
       setOpeningFolder(false);
+    }
+  };
+
+  // Open the user manual in a standalone OS window (see lib/openManual.ts).
+  // Close the settings modal afterwards so the user lands on the manual.
+  const handleOpenManual = async () => {
+    try {
+      await openUserManual();
+      onClose();
+    } catch (err) {
+      window.dispatchEvent(
+        new CustomEvent('folio:toast', {
+          detail: t('settings.openUserManualError', { error: String(err) }),
+        }),
+      );
     }
   };
 
@@ -448,7 +464,14 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           )}
         </div>
 
-        <footer className="px-5 py-3 border-t border-border-hairline flex items-center justify-end">
+        <footer className="px-5 py-3 border-t border-border-hairline flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => void handleOpenManual()}
+            className="px-3 py-1 text-sm rounded border border-border-hairline hover:bg-bg-hover text-text-primary"
+          >
+            {t('settings.openUserManual')}
+          </button>
           <button
             type="button"
             onClick={onClose}
