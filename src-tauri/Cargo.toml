@@ -53,3 +53,36 @@ custom-protocol = ["tauri/custom-protocol"]
 
 [dev-dependencies]
 tempfile = "3"
+
+# ── Build performance ──────────────────────────────────────────────────────
+# Goal: faster dev iteration + smaller/faster release. See `docs/` and
+# `.cargo/config.toml` (LLD linker) for the full story.
+#
+# dev:
+#   - `debug = "line-tables-only"` keeps panic line numbers but drops the
+#     expensive variable / inline info that bloats object files (the #1 cause
+#     of slow MSVC links). Full `debug = 2` is rarely useful day-to-day.
+#   - `codegen-units = 256` lets LLVM compile crate-local code in parallel
+#     (default 16). Lower optimization quality is fine in dev.
+#   - `[profile.dev.package."*"]` forces dependencies (tauri, tokio, reqwest,
+#     rusqlite, scraper, ...) to `opt-level = 2`. First build pays a one-time
+#     cost, but every subsequent `tauri dev` rebuild only re-compiles *our*
+#     crates at O0 (fast) while the heavy deps stay cached at O2.
+#
+# release:
+#   - `debug = "line-tables-only"` so panics in shipped builds still point at
+#     a line in source (small PDB-like overhead).
+#   - `codegen-units = 1` + `lto = "thin"` for best runtime perf + smallest
+#     binary. Slower to build, but release builds are infrequent.
+[profile.dev]
+debug = "line-tables-only"
+codegen-units = 256
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+debug = "line-tables-only"
+codegen-units = 1
+lto = "thin"
+

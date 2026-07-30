@@ -1,0 +1,23 @@
+# Cargo build configuration — speeds up local + CI builds.
+#
+# Two big wins here:
+#   1. `rust-lld` instead of MSVC `link.exe` — Tauri produces huge symbol tables
+#      and LLD links them 30–50 % faster on Windows. `rust-lld` ships with
+#      rustup, no extra install needed.
+#   2. `sccache` (optional, comment in after `cargo install sccache`) caches
+#      compilation results across branch switches, `cargo clean`, and CI runs.
+#
+# See AGENTS.md / docs for the full rationale.
+
+[build]
+# Uncomment after `cargo install sccache` to cache compilation across
+# branches / cleans / CI.
+# rustc-wrapper = "sccache"
+
+# Use LLD as the linker on Windows MSVC target — large win for Tauri binaries.
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"
+
+# Same on Windows ARM64 (when cross-compiling for ARM devices).
+[target.aarch64-pc-windows-msvc]
+linker = "rust-lld"
