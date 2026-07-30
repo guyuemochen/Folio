@@ -392,6 +392,8 @@ function PropertyValueText({ prop, value }: { prop: PropertyDef; value: unknown 
       return <>{value === true ? '✓' : '✗'}</>;
 
     case 'date':
+    case 'created_time':
+    case 'last_edited_time':
       return <>{formatDate(typeof value === 'string' ? value : '')}</>;
 
     case 'select':

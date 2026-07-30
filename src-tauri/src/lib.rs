@@ -498,6 +498,21 @@ fn move_workspace(
         .ok_or_else(|| Error::NotFound(format!("workspace {workspace_id}")))
 }
 
+/// Open the active workspace's data folder in the OS file manager.
+///
+/// Surfaced from Settings → Data → "Open folder". Reuses the same OS-native
+/// opener as `plugins::plugin_open_dir` (no shell-plugin scope needed).
+#[tauri::command]
+fn open_workspace_folder(state: State<'_, AppState>) -> Result<()> {
+    let folder = plugins::active_workspace_folder(&state)?
+        .ok_or_else(|| Error::Other("no workspace open".into()))?;
+    // Best-effort: ensure the folder exists (it always should, but a missing
+    // folder would make explorer/xdg-open show an error dialog).
+    let _ = std::fs::create_dir_all(&folder);
+    plugins::open_dir_in_os(&folder).map_err(|e| Error::Other(format!("open dir failed: {e}")))?;
+    Ok(())
+}
+
 /// Switch to a different workspace at runtime (hot-swap).
 ///
 /// Opens the target DB, then atomically swaps it into AppState under the db
@@ -1729,6 +1744,8 @@ pub fn run() {
             plugins::plugin_open_dir,
             plugins::plugin_read_manifest,
             plugins::plugin_read_text,
+            // Workspace data folder opener (Settings → Data)
+            open_workspace_folder,
             // AI assistant (M10 P1)
             agent::ai_send,
             agent::ai_stop,

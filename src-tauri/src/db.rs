@@ -601,8 +601,38 @@ pub fn purge_old_trash(conn: &rusqlite::Connection, max_age_seconds: i64) -> Res
 /// Permanently delete every trashed page, regardless of age. The "Empty trash"
 /// action (PRD §5.2.4). Returns the number of pages removed. Non-trashed pages
 /// are never touched.
+///
+/// `trash_page` is non-recursive — a trashed page may still be referenced via
+/// `page.parent_id` (self-referencing FK, default `ON DELETE NO ACTION`) by
+/// other rows: either live children that were never trashed, or sibling trashed
+/// rows that SQLite hasn't reached yet while deleting row-by-row. With
+/// `foreign_keys = ON`, a bare `DELETE FROM page WHERE is_trashed = 1` therefore
+/// aborts with `FOREIGN KEY constraint failed` and the whole statement rolls
+/// back — the user sees the "Empty trash" button do nothing (the error is
+/// swallowed by the frontend's `.catch`). We fix this by, in one transaction:
+///   1. re-homing any live (non-trashed) child of a to-be-purged page to the
+///      workspace root (matching `restore_page`'s parent-fallback semantics), and
+///   2. nulling `parent_id` across all trashed rows so they no longer reference
+///      each other, then
+///   3. deleting every trashed row.
 pub fn empty_trash(conn: &rusqlite::Connection) -> Result<usize> {
-    let affected = conn.execute("DELETE FROM page WHERE is_trashed = 1", [])?;
+    let tx = conn.unchecked_transaction()?;
+    // 1. Promote live children of soon-to-be-purged pages to workspace root.
+    tx.execute(
+        "UPDATE page SET parent_id = NULL, parent_type = 'workspace' \
+         WHERE is_trashed = 0 \
+           AND parent_id IN (SELECT id FROM page WHERE is_trashed = 1)",
+        [],
+    )?;
+    // 2. Detach trashed rows from each other so the self-referencing FK can't
+    //    fire while rows are removed one at a time.
+    tx.execute(
+        "UPDATE page SET parent_id = NULL WHERE is_trashed = 1",
+        [],
+    )?;
+    // 3. Hard-delete every trashed page (block/page_doc/snapshots/etc. cascade).
+    let affected = tx.execute("DELETE FROM page WHERE is_trashed = 1", [])?;
+    tx.commit()?;
     Ok(affected)
 }
 

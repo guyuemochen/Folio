@@ -65,6 +65,9 @@ pub fn import_csv(
                     r#type: inferred.clone(),
                     options: infer_select_options(data, i, inferred),
                     number_format: None,
+                    formula: None,
+                    formula_display: None,
+                    date_include_time: None,
                 },
             )?;
             property_ids.push(Some(prop.id));

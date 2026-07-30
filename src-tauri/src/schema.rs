@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS database_property (
     type          TEXT NOT NULL,            -- 'title'/'rich_text'/'number'/'select'/'multi_select'/'status'/'date'/'person'/'checkbox'/'url'
     options       TEXT,                     -- JSON for select/multi_select/status: [{ value, color }]
     number_format TEXT,                     -- 'integer'/'decimal'/'percent'/'currency'
+    date_include_time INTEGER NOT NULL DEFAULT 0,  -- for type='date': 0=date-only, 1=date+time
     is_required   INTEGER NOT NULL DEFAULT 0,
     "order"       REAL NOT NULL,
     created_at    INTEGER NOT NULL,
@@ -274,6 +275,25 @@ fn apply_migrations(conn: &rusqlite::Connection) -> Result<()> {
     // Add `dashboard` to `database_view` for dashboard-view widget configs
     // (component list + grid layout). JSON; NULL for non-dashboard views.
     add_column_if_missing(conn, "database_view", "dashboard", "TEXT")?;
+    // Formula column: for type='formula' properties, the expression string
+    // (e.g. `prop("Price") * prop("Qty")`). NULL for non-formula properties.
+    // The computed value is never stored — it's evaluated client-side per
+    // row at render time (mirrors Notion's formula property).
+    add_column_if_missing(conn, "database_property", "formula", "TEXT")?;
+    // How a formula property's computed value is rendered:
+    // 'number' | 'percent' | 'currency' | 'progress' | 'text' | 'checkbox'.
+    // NULL falls back to 'number'.
+    add_column_if_missing(conn, "database_property", "formula_display", "TEXT")?;
+    // Date property: whether the picker includes a time-of-day portion.
+    // 0 (default) = date-only picker, 1 = datetime picker. Existing date
+    // properties become date-only, matching the property name and making
+    // time opt-in rather than forced.
+    add_column_if_missing(
+        conn,
+        "database_property",
+        "date_include_time",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     Ok(())
 }
 

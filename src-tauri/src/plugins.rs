@@ -84,7 +84,7 @@ const _STATIC_REGEX_DOC: &str = VALID_ID_REGEX; // documentation anchor
 
 /// Resolve the active workspace's folder path from app state. Returns None
 /// if no workspace is open (shouldn't happen — boot always opens one).
-fn active_workspace_folder(state: &AppState) -> Result<Option<PathBuf>> {
+pub(crate) fn active_workspace_folder(state: &AppState) -> Result<Option<PathBuf>> {
     let ws_id = {
         let db = state.db.lock();
         crate::db::get_or_create_workspace(&db)?.id
@@ -452,7 +452,7 @@ pub fn plugin_open_dir(
 
 /// Best-effort OS-native folder open. Uses the `open` crate implicitly via
 /// `std::process::Command` on each platform.
-fn open_dir_in_os(path: &Path) -> std::io::Result<()> {
+pub(crate) fn open_dir_in_os(path: &Path) -> std::io::Result<()> {
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer").arg(path).spawn()?;

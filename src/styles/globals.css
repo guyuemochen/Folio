@@ -217,7 +217,7 @@ body {
   outline: none;
   min-height: 320px;
   color: var(--color-text-primary);
-  font-size: 15px;
+  font-size: calc(15px * var(--editor-font-scale, 1));
   line-height: 1.6;
   caret-color: var(--color-accent);
 }
@@ -229,7 +229,7 @@ body {
 }
 
 .prose-mirror h1 {
-  font-size: 30px;
+  font-size: calc(30px * var(--editor-font-scale, 1));
   font-weight: 700;
   line-height: 1.25;
   letter-spacing: -0.018em;
@@ -237,7 +237,7 @@ body {
   margin-bottom: 6px;
 }
 .prose-mirror h2 {
-  font-size: 24px;
+  font-size: calc(24px * var(--editor-font-scale, 1));
   font-weight: 700;
   line-height: 1.3;
   letter-spacing: -0.012em;
@@ -245,7 +245,7 @@ body {
   margin-bottom: 4px;
 }
 .prose-mirror h3 {
-  font-size: 19px;
+  font-size: calc(19px * var(--editor-font-scale, 1));
   font-weight: 600;
   line-height: 1.35;
   margin-top: 16px;
