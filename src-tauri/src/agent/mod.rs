@@ -730,6 +730,22 @@ pub fn ai_save_config(
     Ok(())
 }
 
+/// Flip just the master-enable flag, without touching the rest of the config
+/// or resetting conversation memory. Used by the Settings panel so the enable
+/// checkbox persists immediately (matching the General tab's other toggles),
+/// while the provider/key/model/baseUrl fields still go through the explicit
+/// Save button (and its Test → Save workflow).
+#[tauri::command]
+pub fn ai_set_enabled(
+    state: State<'_, crate::AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    let db = state.db.lock();
+    crate::db::ai_set_setting(&db, "enabled", if enabled { "true" } else { "false" })
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Send a tiny "hi" request with the supplied settings (does NOT persist
 /// them) and verify the provider responds. Used by the Settings UI's "Test
 /// connection" button before the user commits to Save.

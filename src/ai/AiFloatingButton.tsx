@@ -1,13 +1,13 @@
 /**
  * Floating launcher button for the AI assistant panel.
  *
- * Always visible (except when the panel is already open) so the user has a
+ * Shown only when AI is enabled in Settings and the panel is closed —
+ * App.tsx guards the mount with `aiEnabled && !aiOpen`. Gives the user a
  * mouse-driven way to open the AI assistant in addition to the Cmd/Ctrl+J
  * keyboard shortcut (PRD M10+ — "悬浮窗的小按钮打开而不只是 Ctrl+J").
  *
  * Rendered in App.tsx as a sibling of <AiPanel/> — App owns the open/close
- * state, this component just calls onOpen when clicked and stays hidden
- * while the panel is mounted.
+ * state, this component just calls onOpen when clicked.
  */
 
 import { useTranslation } from 'react-i18next';

@@ -1,9 +1,10 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sidebar } from './components/Sidebar';
 import { useWorkspaceStore } from './store/workspaceStore';
 import { useTheme } from './lib/theme';
 import { perf } from './lib/perf';
+import { api } from './lib/invoke';
 import type { SnapshotSource } from './lib/types';
 
 // M6 perf: every component below is rendered conditionally, so we lazy-load
@@ -66,11 +67,37 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  // Whether AI is enabled in Settings. Drives the floating launcher
+  // visibility + the Cmd/Ctrl+J shortcut. The ref mirrors the state so the
+  // window-level keydown listener (bound once) can read the latest value
+  // without re-binding on every toggle.
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const aiEnabledRef = useRef(false);
 
   // M6 perf: end the cold-start timer once the shell has mounted.
   useEffect(() => {
     perf.end('cold-start-shell');
   }, []);
+
+  // Keep `aiEnabled` in sync with the persisted setting. Runs on mount
+  // (settingsOpen starts false → initial query) and again whenever Settings
+  // closes, so a toggle made inside the Settings panel is reflected here.
+  // When AI gets disabled while the panel is open, close the panel too —
+  // the launcher button and the Cmd/Ctrl+J shortcut hide right after.
+  useEffect(() => {
+    if (settingsOpen) return;
+    api
+      .aiGetConfig()
+      .then((c) => {
+        setAiEnabled(c.enabled);
+        aiEnabledRef.current = c.enabled;
+        if (!c.enabled) setAiOpen(false);
+      })
+      .catch(() => {
+        setAiEnabled(false);
+        aiEnabledRef.current = false;
+      });
+  }, [settingsOpen]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -92,7 +119,8 @@ export default function App() {
 
       // Cmd/Ctrl+J — M10 AI assistant panel (R5 verified: same window-level
       // keydown path as Cmd+K; works even when TipTap editor is focused).
-      if (mod && (e.key === 'j' || e.key === 'J')) {
+      // No-op when AI is disabled in Settings, matching the floating launcher.
+      if (aiEnabledRef.current && mod && (e.key === 'j' || e.key === 'J')) {
         e.preventDefault();
         setAiOpen((v) => !v);
       }
@@ -216,9 +244,10 @@ export default function App() {
           <AiPanel onClose={() => setAiOpen(false)} />
         </Suspense>
       )}
-      {/* Floating launcher — visible whenever the panel is closed. Clicking
-          it opens the panel (same effect as Cmd/Ctrl+J). */}
-      {!aiOpen && <AiFloatingButton onOpen={() => setAiOpen(true)} />}
+      {/* Floating launcher — visible only when AI is enabled in Settings and
+          the panel is closed. Clicking it opens the panel (same effect as
+          Cmd/Ctrl+J). */}
+      {aiEnabled && !aiOpen && <AiFloatingButton onOpen={() => setAiOpen(true)} />}
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[1200] px-4 py-2 rounded-md bg-bg-section border border-border-hairline shadow-popover text-[13px] text-text-primary">
           {toast}

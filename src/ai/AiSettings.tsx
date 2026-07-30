@@ -70,6 +70,28 @@ export function AiSettings() {
     setTest({ state: 'idle' });
   };
 
+  /**
+   * Toggle the master-enable flag and persist it immediately. Unlike the
+   * other fields (which wait for the explicit Save button), the enable
+   * switch saves on toggle — matching the General tab's toggles and ensuring
+   * the user's choice survives closing the dialog without clicking Save.
+   * On failure the checkbox rolls back so the UI never lies about stored
+   * state. Only the `enabled` field is touched; provider/key/model/baseUrl
+   * are left for the Save button.
+   */
+  const handleToggleEnabled = async (next: boolean): Promise<void> => {
+    const prev = settings.enabled;
+    setSettings({ ...settings, enabled: next });
+    setTest({ state: 'idle' });
+    try {
+      await api.aiSetEnabled(next);
+    } catch (e) {
+      // Roll back the optimistic flip on failure.
+      setSettings((s) => (s ? { ...s, enabled: prev } : s));
+      setTest({ state: 'fail', error: String(e) });
+    }
+  };
+
   const handleSave = async (): Promise<void> => {
     setSave('saving');
     try {
@@ -95,13 +117,15 @@ export function AiSettings() {
 
   return (
     <div className="space-y-5">
-      {/* Enable */}
+      {/* Enable — persisted immediately on toggle (unlike the other fields,
+          which wait for the explicit Save button), so closing Settings
+          without Save still keeps the master switch. */}
       <section>
         <label className="flex items-start gap-2.5 cursor-pointer">
           <input
             type="checkbox"
             checked={settings.enabled}
-            onChange={(e) => update({ enabled: e.target.checked })}
+            onChange={(e) => void handleToggleEnabled(e.target.checked)}
             className="mt-0.5 accent-accent"
           />
           <span className="flex-1">

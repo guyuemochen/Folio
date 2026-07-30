@@ -297,6 +297,11 @@ export const api = {
   aiGetConfig: (): Promise<AiSettings> => invoke('ai_get_config'),
   aiSaveConfig: (settings: AiSettings): Promise<void> =>
     invoke('ai_save_config', { settings }),
+  // Persist only the master-enable flag, immediately. The enable checkbox in
+  // Settings saves on toggle (like the General tab's toggles); the other
+  // fields still go through aiSaveConfig via the explicit Save button.
+  aiSetEnabled: (enabled: boolean): Promise<void> =>
+    invoke('ai_set_enabled', { enabled }),
   aiTestConnection: (settings: AiSettings): Promise<string> =>
     invoke('ai_test_connection', { settings }),
 

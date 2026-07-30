@@ -1753,6 +1753,7 @@ pub fn run() {
             // AI assistant (M10 P3 — Settings UI)
             agent::ai_get_config,
             agent::ai_save_config,
+            agent::ai_set_enabled,
             agent::ai_test_connection,
             // AI assistant — session history (M10+)
             agent::ai_list_sessions,
