@@ -74,7 +74,10 @@ export const KeyboardShortcuts = Extension.create<KeyboardShortcutsOptions>({
         }
         const url = window.prompt('Link URL:');
         if (url) {
-          this.editor.chain().focus().setLink({ href: url.trim() }).run();
+          const trimmed = url.trim();
+          // Block dangerous protocols that could execute scripts.
+          if (/^\s*(javascript|data|vbscript):/i.test(trimmed)) return true;
+          this.editor.chain().focus().setLink({ href: trimmed }).run();
         }
         return true;
       },
