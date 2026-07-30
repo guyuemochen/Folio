@@ -2,6 +2,9 @@ import { open, save } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import type {
   AddPropertyInput,
+  AiSessionSummary,
+  AiSessionWithMessages,
+  AiSettings,
   AttachmentInfo,
   CreateDatabaseInput,
   CreatePageInput,
@@ -30,6 +33,7 @@ import type {
   ViewConfig,
   Workspace,
 } from './types';
+import type { PluginListEntry } from '../plugins/types';
 
 // ============================================================================
 // All backend invoke wrappers live here so call sites get one consistent
@@ -241,6 +245,71 @@ export const api = {
 
   saveBinaryFile: (path: string, contentB64: string): Promise<void> =>
     invoke('save_binary_file', { path, contentB64 }),
+
+  // --- Plugins (dashboard widget plugin system) -------------------------
+  pluginGetDirs: (): Promise<{ global: string; workspace: string | null }> =>
+    invoke('plugin_get_dirs'),
+
+  pluginList: (): Promise<PluginListEntry[]> => invoke('plugin_list'),
+
+  pluginInstallFile: (srcPath: string): Promise<string> =>
+    invoke('plugin_install_file', { srcPath }),
+
+  pluginUninstall: (path: string): Promise<void> => invoke('plugin_uninstall', { path }),
+
+  pluginOpenDir: (scope: 'global' | 'workspace'): Promise<void> =>
+    invoke('plugin_open_dir', { scope }),
+
+  pluginReadManifest: (dirPath: string): Promise<unknown> =>
+    invoke('plugin_read_manifest', { dirPath }),
+
+  /** Read a plugin file's text content. The loader uses this to fetch `.js`
+   *  source for Blob-URL import (bypasses asset-protocol/fs-scope limitations
+   *  for workspace plugins in arbitrary user folders). */
+  pluginReadText: (path: string): Promise<string> => invoke('plugin_read_text', { path }),
+
+  pluginStorageGet: (pluginId: string, key: string): Promise<unknown> =>
+    invoke('plugin_storage_get', { pluginId, key }),
+
+  pluginStorageSet: (pluginId: string, key: string, value: unknown): Promise<void> =>
+    invoke('plugin_storage_set', { pluginId, key, value }),
+
+  pluginStorageDelete: (pluginId: string, key: string): Promise<void> =>
+    invoke('plugin_storage_delete', { pluginId, key }),
+
+  pluginStorageKeys: (pluginId: string): Promise<string[]> =>
+    invoke('plugin_storage_keys', { pluginId }),
+
+  // --- AI assistant (M10) -------------------------------------------------
+  // Streamed replies arrive via Tauri events: `ai-token`, `ai-thought`,
+  // `ai-tool`, `ai-done`, `ai-error`, `ai-permission` (P2 tool approval).
+  // See src-tauri/src/agent/mod.rs for the event contract.
+  aiSend: (message: string): Promise<void> => invoke('ai_send', { message }),
+  aiStop: (): Promise<void> => invoke('ai_stop'),
+  aiPermissionRespond: (approve: boolean): Promise<void> =>
+    invoke('ai_permission_respond', { approve }),
+
+  // AI assistant config (M10 P3 — Settings UI). Settings persist in the
+  // workspace DB (ai_settings table) so they follow the data folder.
+  aiGetConfig: (): Promise<AiSettings> => invoke('ai_get_config'),
+  aiSaveConfig: (settings: AiSettings): Promise<void> =>
+    invoke('ai_save_config', { settings }),
+  aiTestConnection: (settings: AiSettings): Promise<string> =>
+    invoke('ai_test_connection', { settings }),
+
+  // AI assistant — session history (M10+). Sessions persist in the workspace
+  // DB so the user can reopen past conversations. The active session is
+  // tracked server-side; ai_send appends to it lazily (creating a row on
+  // first send), and ai_load_session swaps the in-memory conversation
+  // memory to the chosen past session.
+  aiListSessions: (): Promise<AiSessionSummary[]> => invoke('ai_list_sessions'),
+  aiLoadSession: (sessionId: string): Promise<AiSessionWithMessages> =>
+    invoke('ai_load_session', { sessionId }),
+  aiNewSession: (): Promise<void> => invoke('ai_new_session'),
+  aiDeleteSession: (sessionId: string): Promise<void> =>
+    invoke('ai_delete_session', { sessionId }),
+  aiRenameSession: (sessionId: string, title: string): Promise<void> =>
+    invoke('ai_rename_session', { sessionId, title }),
 } as const;
 
 // Re-export dialog helpers for convenience.

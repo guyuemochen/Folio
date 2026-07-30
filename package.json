@@ -1,7 +1,7 @@
 {
   "name": "folio",
   "private": true,
-  "version": "0.3.1",
+  "version": "0.4.0",
   "license": "Apache-2.0",
   "type": "module",
   "description": "Folio — local-first Notion-like desktop note app",
@@ -50,7 +50,8 @@
     "react-grid-layout": "^2.2.3",
     "react-i18next": "^17.0.8",
     "react-router-dom": "^7.18.1",
-    "zustand": "^5.0.14"
+    "zustand": "^5.0.14",
+    "@folio/plugin-sdk": "workspace:*"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.2",

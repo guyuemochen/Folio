@@ -105,14 +105,14 @@ function detectProvider(url: string): Provider {
   } catch {
     return '';
   }
-  if (host.includes('youtube') || host.includes('youtu.be')) return 'youtube';
-  if (host.includes('vimeo.com')) return 'vimeo';
-  if (host.includes('figma.com')) return 'figma';
-  if (host.includes('codepen.io')) return 'codepen';
-  if (host.includes('gist.github.com') || host.includes('github.com')) return 'gist';
-  if (host.includes('loom.com')) return 'loom';
-  if (host.includes('spotify.com')) return 'spotify';
-  if (host.includes('soundcloud.com')) return 'soundcloud';
+  if (host === 'youtube.com' || host === 'm.youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be') return 'youtube';
+  if (host === 'vimeo.com' || host.endsWith('.vimeo.com')) return 'vimeo';
+  if (host === 'figma.com' || host.endsWith('.figma.com')) return 'figma';
+  if (host === 'codepen.io' || host.endsWith('.codepen.io')) return 'codepen';
+  if (host === 'gist.github.com' || host === 'github.com') return 'gist';
+  if (host === 'loom.com' || host.endsWith('.loom.com')) return 'loom';
+  if (host === 'spotify.com' || host.endsWith('.spotify.com')) return 'spotify';
+  if (host === 'soundcloud.com' || host.endsWith('.soundcloud.com')) return 'soundcloud';
   return '';
 }
 

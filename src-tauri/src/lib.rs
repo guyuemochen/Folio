@@ -13,8 +13,12 @@ mod db;
 mod database;
 mod export;
 mod import;
+// M10 AI assistant (v2 built-in agent): HTTPS + SSE + provider trait, no
+// external subprocess. See docs/m10-ai-assistant-plan.md.
+mod agent;
 #[allow(dead_code)] // media helpers — used by notion_zip import + future features
 mod media;
+mod plugins;
 mod prosemirror;
 mod registry;
 mod schema;
@@ -157,6 +161,12 @@ pub struct MovePageInput {
 pub struct AppState {
     pub registry: Arc<Mutex<Connection>>,
     pub db: Arc<Mutex<Connection>>,
+    /// Plugin watcher (file watcher for hot reload). Lives for app lifetime
+    /// once started in `app.setup()`.
+    pub plugins: Arc<plugins::PluginWatcherState>,
+    /// M10 AI assistant state — conversation memory + busy flag. Owned by
+    /// AppState so commands and spawned tasks can reach it via State<_>.
+    pub agent: Arc<agent::AgentState>,
 }
 
 // =============================================================================
@@ -474,6 +484,11 @@ fn move_workspace(
             registry::get_by_id(&reg, &workspace_id)?
                 .ok_or_else(|| Error::NotFound(format!("workspace {workspace_id}")))?
         };
+        // Re-attach plugin watcher to the moved workspace's plugins/ dir.
+        state.plugins.attach_workspace(
+            &app,
+            Some(PathBuf::from(&updated.folder_path).join("plugins")),
+        );
         let _ = app.emit("folio:workspace-switched", &updated);
         return Ok(updated);
     }
@@ -533,6 +548,12 @@ fn switch_workspace(
         registry::get_by_id(&reg, &workspace_id)?
             .ok_or_else(|| Error::NotFound(format!("workspace {workspace_id}")))?
     };
+
+    // Re-attach the plugin hot-reload watcher to the new workspace's
+    // plugins/ dir (detaches the previous one inside attach_workspace).
+    state
+        .plugins
+        .attach_workspace(&app, Some(PathBuf::from(&updated.folder_path).join("plugins")));
 
     // Notify the frontend.
     let _ = app.emit("folio:workspace-switched", &updated);
@@ -1551,6 +1572,10 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
+        // Plugins feature: filesystem plugin backs the asset-protocol scope
+        // (so convertFileSrc() URLs resolve for plugin .js files) and
+        // provides scoped read APIs the loader uses as a fallback.
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             // Resolve data directory: APPDATA\Folio on Windows,
             // ~/Library/Application Support/Folio on macOS,
@@ -1592,9 +1617,22 @@ pub fn run() {
                 Err(e) => eprintln!("[folio] failed to purge old trash: {}", e),
             }
 
+            // Start the plugin hot-reload watcher before constructing state
+            // (AppState owns it via Arc).
+            let plugin_watcher = plugins::init_watcher(app.handle(), &app_data_dir);
+
+            // Resolve the initial workspace folder so the watcher attaches to
+            // its plugins/ dir too.
+            plugin_watcher.attach_workspace(
+                app.handle(),
+                Some(PathBuf::from(&boot_ws.folder_path).join("plugins")),
+            );
+
             let state = AppState {
                 registry: Arc::new(Mutex::new(registry_conn)),
                 db: Arc::new(Mutex::new(conn)),
+                plugins: plugin_watcher,
+                agent: Arc::new(agent::AgentState::new()),
             };
             app.manage(state);
 
@@ -1679,6 +1717,32 @@ pub fn run() {
             // Updater (M9)
             check_for_update_with_channel,
             install_update_with_channel,
+            // Plugins — storage, dir management, hot reload
+            plugins::plugin_storage_get,
+            plugins::plugin_storage_set,
+            plugins::plugin_storage_delete,
+            plugins::plugin_storage_keys,
+            plugins::plugin_get_dirs,
+            plugins::plugin_list,
+            plugins::plugin_install_file,
+            plugins::plugin_uninstall,
+            plugins::plugin_open_dir,
+            plugins::plugin_read_manifest,
+            plugins::plugin_read_text,
+            // AI assistant (M10 P1)
+            agent::ai_send,
+            agent::ai_stop,
+            agent::ai_permission_respond,
+            // AI assistant (M10 P3 — Settings UI)
+            agent::ai_get_config,
+            agent::ai_save_config,
+            agent::ai_test_connection,
+            // AI assistant — session history (M10+)
+            agent::ai_list_sessions,
+            agent::ai_load_session,
+            agent::ai_new_session,
+            agent::ai_delete_session,
+            agent::ai_rename_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Folio");

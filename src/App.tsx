@@ -30,6 +30,12 @@ const SettingsModal = lazy(() =>
 const WorkspaceSwitcherModal = lazy(() =>
   import('./components/WorkspaceSwitcherModal').then((m) => ({ default: m.WorkspaceSwitcherModal })),
 );
+// M10 AI assistant — lazy so the panel + its event listeners only mount on
+// Cmd/Ctrl+J. Cold-start bundle stays untouched when AI is unused.
+const AiPanel = lazy(() => import('./ai/AiPanel'));
+// Floating launcher button is small + static — eager import is fine and lets
+// it appear instantly on app load without a Suspense fallback flicker.
+import { AiFloatingButton } from './ai/AiFloatingButton';
 
 /**
  * App shell:
@@ -59,6 +65,7 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
 
   // M6 perf: end the cold-start timer once the shell has mounted.
   useEffect(() => {
@@ -81,6 +88,13 @@ export default function App() {
       if (mod && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault();
         setSearchOpen((v) => !v);
+      }
+
+      // Cmd/Ctrl+J — M10 AI assistant panel (R5 verified: same window-level
+      // keydown path as Cmd+K; works even when TipTap editor is focused).
+      if (mod && (e.key === 'j' || e.key === 'J')) {
+        e.preventDefault();
+        setAiOpen((v) => !v);
       }
 
       // Cmd/Ctrl+\ — toggle sidebar (deferred — no state for this yet)
@@ -197,6 +211,14 @@ export default function App() {
           <WorkspaceSwitcherModal onClose={() => setWorkspaceSwitcherOpen(false)} />
         </Suspense>
       )}
+      {aiOpen && (
+        <Suspense fallback={null}>
+          <AiPanel onClose={() => setAiOpen(false)} />
+        </Suspense>
+      )}
+      {/* Floating launcher — visible whenever the panel is closed. Clicking
+          it opens the panel (same effect as Cmd/Ctrl+J). */}
+      {!aiOpen && <AiFloatingButton onOpen={() => setAiOpen(true)} />}
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[1200] px-4 py-2 rounded-md bg-bg-section border border-border-hairline shadow-popover text-[13px] text-text-primary">
           {toast}

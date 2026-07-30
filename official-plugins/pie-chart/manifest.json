@@ -1,0 +1,10 @@
+{
+  "id": "pie-chart",
+  "name": "Pie Chart",
+  "version": "1.0.0",
+  "description": "Count rows by a property's values and render the distribution as a pie chart.",
+  "author": "Folio",
+  "main": "index.js",
+  "defaultLayout": { "w": 5, "h": 6, "minW": 3, "minH": 4 },
+  "permissions": []
+}

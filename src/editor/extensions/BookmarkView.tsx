@@ -22,18 +22,18 @@ interface BookmarkNodeData {
  */
 export function BookmarkView({ node, updateAttributes, selected }: ReactNodeViewProps) {
   const attrs = node.attrs as BookmarkNodeData;
-  const fetchedRef = useRef(false);
+  const fetchedUrlRef = useRef<string>('');
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(attrs.title);
 
   useEffect(() => {
-    if (fetchedRef.current) return;
-    if (!attrs.loading) return;
-    fetchedRef.current = true;
+    if (!attrs.url) return;
+    if (fetchedUrlRef.current === attrs.url) return;
+    fetchedUrlRef.current = attrs.url;
     void fetchBookmarkMetadata(attrs.url).then((meta) => {
       updateAttributes({ ...meta, loading: false });
     });
-  }, [attrs.url, attrs.loading, updateAttributes]);
+  }, [attrs.url, updateAttributes]);
 
   // Keep local draft in sync when external edits change the title.
   useEffect(() => {

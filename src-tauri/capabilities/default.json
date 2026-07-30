@@ -6,9 +6,25 @@
   "permissions": [
     "core:default",
     "core:window:allow-set-title",
+    "core:event:default",
     "shell:allow-open",
     "dialog:default",
     "updater:default",
-    "process:default"
+    "process:default",
+    "fs:default",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$APPDATA/plugins/**" },
+        { "path": "$APPDATA/plugin-storage/**" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [
+        { "path": "$APPDATA/plugins/**" },
+        { "path": "$APPDATA/plugin-storage/**" }
+      ]
+    }
   ]
 }

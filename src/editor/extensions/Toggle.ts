@@ -104,32 +104,43 @@ export const Toggle = Node.create<ToggleOptions>({
     return [
       new Plugin({
         key: toggleClickPluginKey,
-        view: () => ({
-          init: () => {
-            // Defer to next tick so the editor DOM exists.
-            queueMicrotask(() => {
-              const dom = editor.view.dom as HTMLElement;
-              const handler = (e: MouseEvent) => {
-                const target = e.target as HTMLElement | null;
-                if (!target) return;
-                const toggle = target.closest('.ln-toggle') as HTMLElement | null;
-                if (!toggle) return;
-                const rect = toggle.getBoundingClientRect();
-                const isChevronArea = e.clientX - rect.left < 28;
-                const summary = toggle.firstElementChild;
-                const isInSummary = !!(summary && summary.contains(target));
-                if (!isChevronArea && !isInSummary) return;
-                e.preventDefault();
-                e.stopPropagation();
-                editor.commands.toggleToggleOpen();
-              };
-              dom.addEventListener('click', handler, true);
-            });
-          },
-          destroy: () => {
-            // The editor's view.dom is destroyed by TipTap itself; nothing to clean.
-          },
-        }),
+        view: () => {
+          let destroyed = false;
+          let registeredHandler: ((e: MouseEvent) => void) | null = null;
+          let dom: HTMLElement | null = null;
+          return {
+            init: () => {
+              // Defer to next tick so the editor DOM exists.
+              queueMicrotask(() => {
+                if (destroyed) return;
+                dom = editor.view.dom as HTMLElement;
+                const handler = (e: MouseEvent) => {
+                  const target = e.target as HTMLElement | null;
+                  if (!target) return;
+                  const toggle = target.closest('.ln-toggle') as HTMLElement | null;
+                  if (!toggle) return;
+                  const rect = toggle.getBoundingClientRect();
+                  const isChevronArea = e.clientX - rect.left < 28;
+                  const summary = toggle.firstElementChild;
+                  const isInSummary = !!(summary && summary.contains(target));
+                  if (!isChevronArea && !isInSummary) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  editor.commands.toggleToggleOpen();
+                };
+                registeredHandler = handler;
+                dom.addEventListener('click', handler, true);
+              });
+            },
+            destroy: () => {
+              destroyed = true;
+              if (registeredHandler && dom) {
+                dom.removeEventListener('click', registeredHandler, true);
+                registeredHandler = null;
+              }
+            },
+          };
+        },
       }),
     ];
   },

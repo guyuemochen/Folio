@@ -209,7 +209,14 @@ export interface DashboardLayoutItem {
   maxH?: number;
 }
 
-/** Discriminated union of widget configs. `id` is the join key with layout. */
+/** Discriminated union of widget configs. `id` is the join key with layout.
+ *
+ *  The union is closed over the `type` discriminator — `stat` and
+ *  `recent_rows` are built-in widgets shipped with Folio; `plugin` delegates
+ *  rendering to an externally-loaded dashboard plugin (see `src/plugins/`).
+ *  Adding a new built-in kind requires (a) a branch in `defaultComponentFor`
+ *  and (b) a matching case in `DashboardView`'s render switch. Plugin widgets
+ *  are open-ended: their `pluginId` references the runtime plugin registry. */
 export type DashboardComponent =
   | {
       id: string;
@@ -230,6 +237,27 @@ export type DashboardComponent =
       sort?: SortEntry[] | null;
       /** How many rows to display. Defaults to 10. */
       limit?: number;
+    }
+  | {
+      id: string;
+      type: 'plugin';
+      /** Foreign key into the runtime plugin registry (`manifest.id`).
+        *  Survives plugin file renames; queried to find the loaded plugin. */
+      pluginId: string;
+      /** Which widget contribution within the plugin renders this cell.
+       *  Omitted for dashboards saved against the legacy single-`component`
+       *  plugin shape (resolved to the plugin's only widget). For unified
+       *  plugins that ship multiple widgets, this disambiguates them;
+       *  changing it after save repoints the cell to a different widget. */
+      widgetId?: string;
+      /** Optional card title override; falls back to the widget contribution's
+       *  `name` (then the plugin manifest's `name`) when empty/undefined. */
+      title?: string;
+      /** Opaque, plugin-defined configuration. The host NEVER interprets,
+       *  validates, or migrates this value — it stores and passes it back
+       *  verbatim. Plugins must default-handle `undefined` / old shapes.
+       *  Persisted as a JSON value in the view row. */
+      config?: unknown;
     };
 
 export interface DashboardConfig {
@@ -239,11 +267,31 @@ export interface DashboardConfig {
   layout: DashboardLayoutItem[];
 }
 
+/** The closed set of view types shipped with Folio. Plugins cannot add to
+ *  this set — they add new types via the open {@link ViewType} string space
+ *  (prefixed `plugin:<pluginId>:<type>` at runtime). */
+export type BuiltinViewType =
+  | 'table'
+  | 'board'
+  | 'calendar'
+  | 'timeline'
+  | 'gallery'
+  | 'list'
+  | 'dashboard';
+
+/** Every possible view type: a built-in OR a plugin-provided type string.
+ *  Plugin types are namespaced as `plugin:<pluginId>:<viewType>` (see
+ *  `pluginViewTypeId` in `src/plugins/store.ts`). The `string & {}` suffix
+ *  keeps IDE autocomplete biased toward the built-ins while still accepting
+ *  arbitrary plugin type strings. Persisted as TEXT in SQLite — no migration
+ *  is needed to add plugin view types. */
+export type ViewType = BuiltinViewType | (string & {});
+
 export interface ViewConfig {
   id: string;
   databaseId: string;
   name: string;
-  type: 'table' | 'board' | 'calendar' | 'timeline' | 'gallery' | 'list' | 'dashboard';
+  type: ViewType;
   filter?: FilterNode | null;
   sort?: SortEntry[] | null;
   group?: GroupConfig | null;
@@ -353,7 +401,7 @@ export interface UpdateCellInput {
 export interface CreateViewInput {
   databaseId: string;
   name: string;
-  type?: 'table' | 'board' | 'calendar' | 'timeline' | 'gallery' | 'list' | 'dashboard';
+  type?: ViewType;
 }
 
 export interface UpdateViewInput {
@@ -474,4 +522,68 @@ export interface ImportResult {
   pagesCreated: number;
   warnings: string[];
   errors: string[];
+}
+
+// =============================================================================
+// M10 AI assistant
+// =============================================================================
+
+/**
+ * AI provider configuration. Mirrors `agent::AiSettings` in
+ * `src-tauri/src/agent/mod.rs` (camelCase via serde rename). Persisted in the
+ * workspace DB so it follows the data folder.
+ *
+ * `provider` values:
+ *   - "openai"    — OpenAI official API (default base_url).
+ *   - "anthropic" — Anthropic Messages API (P2, not yet wired).
+ *   - "ollama"    — Local Ollama server (default base_url http://localhost:11434/v1).
+ *   - "custom"    — Any OpenAI-compatible endpoint at a user-supplied base_url.
+ *
+ * `apiKey` is stored plaintext in the DB for now; P4 will evaluate moving it
+ * to the OS keyring (plan §7.1).
+ */
+export interface AiSettings {
+  enabled: boolean;
+  provider: 'openai' | 'anthropic' | 'ollama' | 'custom';
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+}
+
+/**
+ * Summary of one persisted AI conversation session. Mirrors
+ * `agent::storage::AiSessionSummary` in `src-tauri/src/agent/storage.rs`
+ * (camelCase via serde rename). Used in the panel's session picker list.
+ */
+export interface AiSessionSummary {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  /** Row count in ai_message — UI hint for "is this empty?". */
+  messageCount: number;
+}
+
+/**
+ * One stored message in a session. Mirrors
+ * `agent::storage::AiStoredMessage`. The `contentJson` shape is the same
+ * produced by `serialize_message` on the backend:
+ *   - `{ text: string }` for plain-text turns (most user / assistant-text messages)
+ *   - `{ blocks: Block[] }` for tool_use / tool_result turns
+ *
+ * The frontend only reads `text` and assistant text blocks for display;
+ * the rest is for round-tripping conversation memory on resume.
+ */
+export interface AiStoredMessage {
+  id: string;
+  sessionId: string;
+  seq: number;
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  contentJson: { text?: string; blocks?: unknown[] };
+  createdAt: number;
+}
+
+/** Full session with all messages — returned by `ai_load_session`. */
+export interface AiSessionWithMessages extends AiSessionSummary {
+  messages: AiStoredMessage[];
 }

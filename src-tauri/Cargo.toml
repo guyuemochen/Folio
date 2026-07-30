@@ -1,6 +1,6 @@
 [package]
 name = "folio"
-version = "0.3.1"
+version = "0.4.0"
 description = "Folio — local-first Notion-like desktop note app"
 authors = ["Folio"]
 edition = "2021"
@@ -15,11 +15,17 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# Plugins feature — filesystem plugin (asset protocol scope for plugin .js
+# loading via convertFileSrc) and notify (file watcher for plugin hot reload).
+# Debounce is implemented in-house (notify-debouncer-* adds a dep & version
+# churn for ~30 lines of timer logic we already need to tune).
+tauri-plugin-fs = "2"
+notify = "8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.40", features = ["bundled"] }
@@ -33,6 +39,13 @@ scraper = "0.26"
 zip = "2"
 base64 = "0.22"
 url = "2"
+# M10 AI assistant (v2 built-in agent): HTTPS + SSE streaming for LLM providers.
+# rustls-tls (not native-tls) avoids OpenSSL on Windows; default-features off
+# drops the default native-tls backend so only rustls ships.
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+eventsource-stream = "0.2"
+futures = "0.3"
+async-trait = "0.1"
 
 [features]
 # this feature is used for production builds or when `devUrl` points to the filesystem
