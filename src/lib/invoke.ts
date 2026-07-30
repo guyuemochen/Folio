@@ -49,6 +49,9 @@ export const api = {
 
   getCurrentWorkspace: (): Promise<RegisteredWorkspace> => invoke('get_current_workspace'),
 
+  /** Open the active workspace's data folder in the OS file manager. */
+  openWorkspaceFolder: (): Promise<void> => invoke('open_workspace_folder'),
+
   createWorkspace: (folderPath: string, name: string): Promise<RegisteredWorkspace> =>
     invoke('create_workspace', { folderPath, name }),
 

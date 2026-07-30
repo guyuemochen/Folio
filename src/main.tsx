@@ -14,11 +14,15 @@ import './styles/globals.css';
 // font families). Vite's manualChunks routes katex to its own vendor chunk.
 import 'katex/dist/katex.min.css';
 import { initTheme } from './lib/theme';
+import { initEditorPrefs } from './lib/editorPrefs';
 
 // Apply the OS color scheme before React renders, to avoid a flash of the
 // wrong theme (PRD §10.4 prefers-color-scheme). The runtime listener lives
 // in <App/> via useTheme().
 initTheme();
+// Apply the persisted editor font scale before React renders, so the editor
+// paints at the right size on first mount.
+initEditorPrefs();
 
 // Expose the host React instance BEFORE any plugin dynamic-import resolves.
 // Plugins proxy React through `globalThis.__FOLIO__.react` (see

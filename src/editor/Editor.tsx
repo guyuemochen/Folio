@@ -50,6 +50,7 @@ import { BlockDragHandle } from './components/BlockDragHandle';
 import { FindBar } from './components/FindBar';
 import { api } from '../lib/invoke';
 import type { PageWithDoc } from '../lib/types';
+import { getSpellcheckPref } from '../lib/editorPrefs';
 
 interface EditorProps {
   pageId: string;
@@ -248,7 +249,7 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
     editorProps: {
       attributes: {
         class: 'prose-mirror',
-        spellcheck: 'true',
+        spellcheck: getSpellcheckPref() ? 'true' : 'false',
         role: 'textbox',
         'aria-label': t('editor.regionLabel'),
         'aria-multiline': 'true',
@@ -322,6 +323,19 @@ export function Editor({ pageId, initialDoc, onReady }: EditorProps) {
       editor.storage.folioPageId = pageId;
     }
   }, [editor, pageId]);
+
+  // Live-update the spellcheck attribute when the user toggles the preference
+  // in Settings (no re-mount needed). ProseMirror reads spellcheck from the
+  // editable DOM node's attribute, so a direct setAttribute is enough.
+  useEffect(() => {
+    if (!editor) return;
+    const apply = () => {
+      editor.view.dom.setAttribute('spellcheck', getSpellcheckPref() ? 'true' : 'false');
+    };
+    apply();
+    window.addEventListener('folio:editor-prefs-changed', apply);
+    return () => window.removeEventListener('folio:editor-prefs-changed', apply);
+  }, [editor]);
 
   // Flush unsaved doc changes on unmount. Without this, the 200ms debounce
   // timer is simply discarded and the last edit (e.g. a linked-database
