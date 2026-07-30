@@ -370,21 +370,19 @@ export default function AiPanel({ onClose }: Props) {
     let active = true;
     const unlisteners: Array<() => void> = [];
 
-    (async () => {
-      const u1 = await listen<string>('ai-token', (e) => {
+    // Fire all listen() calls concurrently (not sequentially via await) to
+    // minimize the registration window. Each resolves to an UnlistenFn.
+    const promises = [
+      listen<string>('ai-token', (e) => {
         if (!active) return;
         setLoading(false); // first token clears the "waiting" indicator
         streamBufRef.current += e.payload;
-      });
-      unlisteners.push(() => u1());
-
-      const u2 = await listen<string>('ai-thought', (e) => {
+      }),
+      listen<string>('ai-thought', (e) => {
         if (!active) return;
         thinkBufRef.current += e.payload;
-      });
-      unlisteners.push(() => u2());
-
-      const u3 = await listen<void>('ai-done', () => {
+      }),
+      listen<void>('ai-done', () => {
         if (!active) return;
         const finalText = streamBufRef.current;
         const finalThought = thinkBufRef.current;
@@ -407,33 +405,36 @@ export default function AiPanel({ onClose }: Props) {
         // updated_at. Refresh the dropdown so the title (set from the first
         // user message) and ordering are correct.
         void refreshSessions();
-      });
-      unlisteners.push(() => u3());
-
-      const u4 = await listen<string>('ai-error', (e) => {
+      }),
+      listen<string>('ai-error', (e) => {
         if (!active) return;
         const raw = e.payload || 'unknown error';
         setError({ kind: classifyError(raw), raw });
         setLoading(false);
-      });
-      unlisteners.push(() => u4());
-
-      const u5 = await listen<string>('ai-tool', (e) => {
+      }),
+      listen<string>('ai-tool', (e) => {
         if (!active) return;
         setLastTool(e.payload || '');
-      });
-      unlisteners.push(() => u5());
-
-      const u6 = await listen<Permission>('ai-permission', (e) => {
+      }),
+      listen<Permission>('ai-permission', (e) => {
         if (!active) return;
         setPermission(e.payload);
-      });
-      unlisteners.push(() => u6());
-    })();
+      }),
+    ];
+
+    promises.forEach((p) =>
+      p.then((u) => {
+        if (active) unlisteners.push(u);
+      }),
+    );
 
     return () => {
       active = false;
+      // Unregister listeners that resolved before cleanup.
       unlisteners.forEach((u) => u());
+      // Unregister listeners that resolve after cleanup (race: unmount
+      // happened while listen() was still pending).
+      promises.forEach((p) => p.then((u) => u()));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -470,15 +471,22 @@ export default function AiPanel({ onClose }: Props) {
 
   function stop(): void {
     void api.aiStop();
+    // Clear buffers so late-arriving tokens don't corrupt the next turn
+    // or get appended as a partial assistant message by ai-done.
+    streamBufRef.current = '';
+    thinkBufRef.current = '';
+    setStreaming('');
+    setThinking('');
     setLoading(false);
   }
 
   async function respondPermission(approve: boolean): Promise<void> {
-    setPermission(null);
     try {
       await api.aiPermissionRespond(approve);
+      setPermission(null);
     } catch (e) {
       setError({ kind: classifyError(String(e)), raw: String(e) });
+      // Keep the permission prompt visible on error so the user can retry.
     }
   }
 
