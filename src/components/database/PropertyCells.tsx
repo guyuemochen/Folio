@@ -1,8 +1,10 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { open } from '@tauri-apps/plugin-dialog';
 import { api } from '../../lib/invoke';
-import type { AttachmentInfo, PropertyDef, SelectOption } from '../../lib/types';
+import type { AttachmentInfo, DatabaseRow, PropertyDef, SelectOption } from '../../lib/types';
+import { buildRowResolver } from '../../lib/formula/context';
+import { evalFormula, FormulaError } from '../../lib/formula/evaluator';
 import { Popover } from '../ui/Popover';
 
 // ============================================================================
@@ -11,6 +13,7 @@ import { Popover } from '../ui/Popover';
 //   - `property`: schema (type + options + numberFormat)
 //   - `onChange(newVal)`: commit (immediately calls backend)
 // FilesCell additionally uses `pageId` + `databaseId` to copy the picked file.
+// FormulaCell additionally uses `row` + `schemaProperties` to compute its value.
 // ============================================================================
 
 interface CellProps {
@@ -23,6 +26,10 @@ interface CellProps {
   databaseId?: string;
   /** Called after FilesCell persists so the parent can refetch. */
   onAfterCommit?: () => void;
+  /** Full row — needed by FormulaCell to resolve prop() references. */
+  row?: DatabaseRow;
+  /** All database properties — needed by FormulaCell to build its resolver. */
+  schemaProperties?: PropertyDef[];
 }
 
 /** Cell types that don't need the property schema (property is optional, used only for aria-label). */
@@ -36,6 +43,8 @@ export const PropertyCell = memo(function PropertyCell({
   pageId,
   databaseId,
   onAfterCommit,
+  row,
+  schemaProperties,
 }: CellProps) {
   switch (property.type) {
     case 'title':
@@ -59,6 +68,9 @@ export const PropertyCell = memo(function PropertyCell({
       );
     case 'date':
       return <DateCell value={value} property={property} onChange={onChange} />;
+    case 'created_time':
+    case 'last_edited_time':
+      return <TimestampCell value={value} property={property} />;
     case 'person':
       return <PersonCell value={value} property={property} onChange={onChange} />;
     case 'files':
@@ -71,6 +83,10 @@ export const PropertyCell = memo(function PropertyCell({
           databaseId={databaseId}
           onAfterCommit={onAfterCommit}
         />
+      );
+    case 'formula':
+      return (
+        <FormulaCell property={property} row={row} schemaProperties={schemaProperties} />
       );
     default:
       return <PlaceholderCell label={property.type} />;
@@ -354,15 +370,58 @@ const SelectCell = memo(function SelectCell({
 
 const DateCell = memo(function DateCell({ value, property, onChange }: SimpleCellProps) {
   const { t } = useTranslation();
-  const iso = typeof value === 'string' ? value : '';
+  const includeTime = !!property?.dateIncludeTime;
+  const raw = typeof value === 'string' ? value : '';
+  // `date` inputs take 'YYYY-MM-DD'; `datetime-local` take 'YYYY-MM-DDTHH:mm'.
+  // Truncate legacy datetime values for date-only pickers so the browser
+  // doesn't reject them. The stored value is never mutated here — only on edit.
+  const iso = includeTime ? raw : raw.slice(0, 10);
   return (
     <input
-      type="datetime-local"
+      type={includeTime ? 'datetime-local' : 'date'}
       aria-label={property?.name ?? t('database.typeDate')}
       value={iso}
       onChange={(e) => onChange(e.target.value || null)}
       className="bg-transparent outline-none text-sm text-text-primary"
     />
+  );
+});
+
+/**
+ * Read-only cell for computed timestamp columns (created_time / last_edited_time).
+ * The value is injected by the backend from the page's created_at / updated_at as
+ * a local-naive 'YYYY-MM-DDTHH:mm' string — never editable, so no onChange.
+ */
+const TimestampCell = memo(function TimestampCell({
+  value,
+  property,
+}: {
+  value: unknown;
+  property?: PropertyDef;
+}) {
+  const iso = typeof value === 'string' ? value : '';
+  if (!iso) {
+    return <span className="text-sm text-text-placeholder">—</span>;
+  }
+  // datetime-local shape parses as local time; format locale-aware, no seconds.
+  const d = new Date(iso);
+  const text = Number.isNaN(d.getTime())
+    ? iso.replace('T', ' ')
+    : d.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+  return (
+    <span
+      className="text-sm text-text-secondary tabular-nums cursor-default select-none"
+      aria-label={property?.name}
+      title={text}
+    >
+      {text}
+    </span>
   );
 });
 
@@ -489,6 +548,129 @@ function toAttachment(value: unknown): AttachmentShape | null {
 const PlaceholderCell = memo(function PlaceholderCell({ label }: { label: string }) {
   return <span className="text-xs text-text-tertiary italic">{label}</span>;
 });
+
+// ---------------------------------------------------------------------------
+// FormulaCell — read-only, computes its value from other columns at render.
+// ---------------------------------------------------------------------------
+
+interface FormulaCellProps {
+  property: PropertyDef;
+  row?: DatabaseRow;
+  schemaProperties?: PropertyDef[];
+}
+
+const FormulaCell = memo(function FormulaCell({
+  property,
+  row,
+  schemaProperties,
+}: FormulaCellProps) {
+  const { t } = useTranslation();
+  const formula = property.formula ?? '';
+  const display = property.formulaDisplay ?? 'number';
+
+  // Compute (and memoize) the value. Recomputes only when the inputs that
+  // affect the result change — `row.properties` is a stable reference per
+  // fetch, so editing an unrelated column won't recompute every formula cell.
+  const { value, error } = useMemo(() => {
+    if (!formula.trim() || !row || !schemaProperties) {
+      return { value: null as ReturnType<typeof evalFormula>, error: null as string | null };
+    }
+    try {
+      return { value: evalFormula(formula, buildRowResolver(schemaProperties, row)), error: null };
+    } catch (e) {
+      return { value: null, error: e instanceof FormulaError ? e.message : String(e) };
+    }
+  }, [formula, row, schemaProperties]);
+
+  if (error) {
+    return (
+      <span
+        className="text-xs text-status-red italic"
+        title={error}
+      >
+        ⚠ {t('database.formulaError')}
+      </span>
+    );
+  }
+
+  return <FormulaValue value={value} display={display} />;
+});
+
+/** Render a computed formula value according to its display format. */
+const FormulaValue = memo(function FormulaValue({
+  value,
+  display,
+}: {
+  value: ReturnType<typeof evalFormula>;
+  display: NonNullable<PropertyDef['formulaDisplay']>;
+}) {
+  if (value === null || value === '') {
+    return <span className="text-text-tertiary" />;
+  }
+  switch (display) {
+    case 'text':
+      return <span className="text-sm text-text-primary truncate">{String(value)}</span>;
+    case 'checkbox':
+      // truthy → checkmark, falsy → empty box (read-only, no toggle)
+      return (
+        <span className="text-sm text-text-primary" aria-label={value ? 'checked' : 'unchecked'}>
+          {value === true || value === 1 || value === 'true' ? '✓' : '·'}
+        </span>
+      );
+    case 'percent': {
+      const n = toFinite(value);
+      if (n === null) return <span className="text-text-tertiary" />;
+      const pct = Math.round(n * 1000) / 10; // 1 decimal
+      return <span className="text-sm text-text-primary tabular-nums">{pct}%</span>;
+    }
+    case 'currency': {
+      const n = toFinite(value);
+      if (n === null) return <span className="text-text-tertiary" />;
+      return (
+        <span className="text-sm text-text-primary tabular-nums">
+          ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </span>
+      );
+    }
+    case 'progress': {
+      const n = toFinite(value);
+      if (n === null) return <span className="text-text-tertiary" />;
+      const ratio = Math.max(0, Math.min(1, n)); // clamp 0–1
+      return (
+        <div className="flex items-center gap-2" title={`${Math.round(ratio * 100)}%`}>
+          <div className="flex-1 h-1.5 rounded-full bg-border-control overflow-hidden min-w-[40px]">
+            <div
+              className="h-full rounded-full bg-accent transition-[width] duration-150"
+              style={{ width: `${Math.round(ratio * 100)}%` }}
+            />
+          </div>
+          <span className="text-[11px] text-text-tertiary tabular-nums">
+            {Math.round(ratio * 100)}%
+          </span>
+        </div>
+      );
+    }
+    case 'number':
+    default: {
+      const n = toFinite(value);
+      if (n === null) return <span className="text-sm text-text-primary truncate">{String(value)}</span>;
+      // Trim to a sane precision without trailing-zero noise.
+      const shown = Math.round(n * 1e6) / 1e6;
+      return <span className="text-sm text-text-primary tabular-nums">{shown}</span>;
+    }
+  }
+});
+
+/** Coerce a formula value to a finite number, or null if not numeric. */
+function toFinite(v: ReturnType<typeof evalFormula>): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
 
 // ============================================================================
 // Helpers — Notion semantic color → bg/dot classes

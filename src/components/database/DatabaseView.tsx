@@ -19,6 +19,7 @@ import type {
   SelectOption,
   SortEntry,
   ViewConfig,
+  FormulaDisplay,
 } from '../../lib/types';
 import { PropertyCell } from './PropertyCells';
 import { PropertyMenu } from './PropertyMenu';
@@ -354,6 +355,9 @@ export function DatabaseView({
     type: PropertyDef['type'];
     options?: PropertyDef['options'];
     numberFormat?: string;
+    formula?: string;
+    formulaDisplay?: FormulaDisplay;
+    dateIncludeTime?: boolean;
   }) => {
     await api.addProperty({
       databaseId,
@@ -361,6 +365,9 @@ export function DatabaseView({
       type: input.type,
       options: input.options,
       numberFormat: input.numberFormat,
+      formula: input.formula,
+      formulaDisplay: input.formulaDisplay,
+      dateIncludeTime: input.dateIncludeTime,
     });
     setMenuOpenFor(null);
     refetchSchema();
@@ -373,12 +380,18 @@ export function DatabaseView({
       type: PropertyDef['type'];
       options?: PropertyDef['options'];
       numberFormat?: string;
+      formula?: string;
+      formulaDisplay?: FormulaDisplay;
+      dateIncludeTime?: boolean;
     },
   ) => {
     await api.updateProperty(propId, {
       name: input.name,
       options: input.options,
       numberFormat: input.numberFormat,
+      formula: input.formula,
+      formulaDisplay: input.formulaDisplay,
+      dateIncludeTime: input.dateIncludeTime,
     }).catch(() => {});
     // updateProperty needs the property id — re-fetch via schema; the menu passes prop.
     setMenuOpenFor(null);
@@ -788,6 +801,7 @@ export function DatabaseView({
             groups={groupedRows}
             groupProp={groupProp}
             visibleProps={visibleProps}
+            schemaProperties={allProps}
             widths={widths}
             sorts={sorts}
             menuOpenFor={menuOpenFor}
@@ -835,6 +849,7 @@ export function DatabaseView({
               <FlatBody
                 rows={displayedRows}
                 visibleProps={visibleProps}
+                schemaProperties={allProps}
                 selectedRowIds={selectedRowIds}
                 onRowClick={onRowClick}
                 onRowContextMenu={onRowContextMenu}
@@ -1068,6 +1083,9 @@ function TableHeaderRow({
 
 interface BodyProps {
   visibleProps: PropertyDef[];
+  /** Full property list (incl. hidden) — FormulaCell resolves prop() refs
+   *  against this so formulas can reference hidden columns too. */
+  schemaProperties: PropertyDef[];
   selectedRowIds: Set<string>;
   onRowClick: (e: React.MouseEvent, rowId: string) => void;
   onRowContextMenu: (e: React.MouseEvent, rowId: string) => void;
@@ -1103,6 +1121,7 @@ interface RowDragProps {
 function FlatBody({
   rows,
   visibleProps,
+  schemaProperties,
   selectedRowIds,
   onRowClick,
   onRowContextMenu,
@@ -1159,6 +1178,7 @@ function FlatBody({
             key={row.id}
             row={row}
             visibleProps={visibleProps}
+            schemaProperties={schemaProperties}
             selected={selectedRowIds.has(row.id)}
             onRowClick={onRowClick}
             onRowContextMenu={onRowContextMenu}
@@ -1183,6 +1203,7 @@ function GroupedTables({
   groups,
   groupProp,
   visibleProps,
+  schemaProperties,
   widths,
   sorts,
   menuOpenFor,
@@ -1210,6 +1231,7 @@ function GroupedTables({
 }: HeaderProps & {
   groups: { key: string; label: string; color: string; rows: DatabaseRow[] }[];
   groupProp: PropertyDef;
+  schemaProperties: PropertyDef[];
   collapsedGroups: Set<string>;
   selectedRowIds: Set<string>;
   onToggleCollapse: (key: string) => void;
@@ -1279,6 +1301,7 @@ function GroupedTables({
                       key={row.id}
                       row={row}
                       visibleProps={visibleProps}
+                      schemaProperties={schemaProperties}
                       selected={selectedRowIds.has(row.id)}
                       onRowClick={onRowClick}
                       onRowContextMenu={onRowContextMenu}
@@ -1303,6 +1326,7 @@ function GroupedTables({
 function RowLine({
   row,
   visibleProps,
+  schemaProperties,
   selected,
   onRowClick,
   onRowContextMenu,
@@ -1391,6 +1415,8 @@ function RowLine({
             property={prop}
             pageId={row.id}
             databaseId={databaseId}
+            row={row}
+            schemaProperties={schemaProperties}
             onAfterCommit={onAfterCellCommit}
             onChange={(v) => onCellChange(row, prop, v)}
           />
@@ -1561,6 +1587,7 @@ function TypeIcon({ type }: { type: PropertyDef['type'] }) {
     checkbox: '☑',
     url: '🔗',
     files: '📎',
+    formula: 'ƒx',
   };
   return (
     <span className="inline-block w-3 text-center text-[10px] text-text-tertiary">

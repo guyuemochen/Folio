@@ -53,7 +53,13 @@ export function Popover({
   const [pos, setPos] = useState<ComputedPos | null>(null);
   const popRef = useRef<HTMLDivElement>(null);
 
-  useLayoutEffect(() => {
+  // Measure + place the popover. Extracted so it can run both on mount/dep
+  // change (useLayoutEffect) AND when the popover's own height changes later
+  // (ResizeObserver). Without the re-measure, a popover whose content grows
+  // after open — e.g. PropertyMenu switching to the Formula editor — keeps its
+  // initial (short-content) `top`, so the capped box spills past the viewport
+  // bottom and the footer (Save/Cancel) becomes unreachable.
+  const recompute = () => {
     const padding = 8;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -110,6 +116,21 @@ export function Popover({
     if (left + width > vw - padding) left = vw - padding - width;
 
     setPos({ top, left });
+  };
+
+  useLayoutEffect(recompute, [anchorRect, placement, offset, width]);
+
+  // Re-place when the popover's size changes after open (content added/removed,
+  // e.g. picking a different property type that reveals an editor section).
+  useEffect(() => {
+    const el = popRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => recompute());
+    ro.observe(el);
+    return () => ro.disconnect();
+    // recompute is recreated each render via the deps above; re-subscribing is
+    // cheap and keeps the observer bound to the latest positioning inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchorRect, placement, offset, width]);
 
   // Close on Escape

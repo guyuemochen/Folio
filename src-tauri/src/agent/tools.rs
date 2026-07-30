@@ -13,6 +13,8 @@
 //!   - update_page(pageId, markdown)   — WRITE (agent loop asks user first)
 //!   - list_databases(parentId?)       — read  (M10+ — table access)
 //!   - query_database(databaseId)      — read  (M10+ — schema + rows)
+//!   - add_database_property(...)      — WRITE (add a column, incl. formulas)
+//!   - update_database_property(...)   — WRITE (edit a column, incl. formulas)
 //!
 //! `is_write_tool()` lets the agent loop decide whether to emit
 //! `ai-permission` and block on user approval before dispatching.
@@ -90,13 +92,51 @@ pub fn schemas() -> Vec<ToolSchema> {
                 "required": ["databaseId"]
             }),
         },
+        ToolSchema {
+            name: "add_database_property".into(),
+            description: "Add a new property (column) to a Folio database. Any type is supported (text/number/select/date/formula/...). For type='formula', pass the expression in `formula` — use prop(\"Column Name\") to reference other columns; the language supports + - * / %, comparisons (< <= > >= == !=), if(cond,a,b), round(), concat(), and more. For select/multi_select/status, pass `options` as [{value,color}]. Use query_database first to learn existing column names so formulas reference them correctly.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "databaseId": { "type": "string" },
+                    "name": { "type": "string", "description": "Column name." },
+                    "type": { "type": "string", "enum": ["rich_text","number","select","multi_select","status","date","created_time","last_edited_time","checkbox","url","formula"] },
+                    "options": { "type": "array", "items": { "type": "object", "properties": { "value": { "type": "string" }, "color": { "type": "string" } } } },
+                    "numberFormat": { "type": "string", "description": "number only: 'integer'/'decimal'/'percent'/'currency'." },
+                    "formula": { "type": "string", "description": "formula only: the expression." },
+                    "formulaDisplay": { "type": "string", "description": "formula only: 'number'/'percent'/'currency'/'progress'/'text'/'checkbox'." },
+                    "dateIncludeTime": { "type": "boolean", "description": "date only: include time-of-day picker." }
+                },
+                "required": ["databaseId", "name", "type"]
+            }),
+        },
+        ToolSchema {
+            name: "update_database_property".into(),
+            description: "Update an existing database property (column) by id — most often to set or change a formula expression, but also rename or adjust options/format. Only the fields you pass are changed. Find the property id via query_database (it returns each property's id).".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "propertyId": { "type": "string" },
+                    "name": { "type": "string" },
+                    "options": { "type": "array", "items": { "type": "object", "properties": { "value": { "type": "string" }, "color": { "type": "string" } } } },
+                    "numberFormat": { "type": "string" },
+                    "formula": { "type": "string" },
+                    "formulaDisplay": { "type": "string" },
+                    "dateIncludeTime": { "type": "boolean" }
+                },
+                "required": ["propertyId"]
+            }),
+        },
     ]
 }
 
 /// Whether a tool modifies user data (vs. read-only). The agent loop uses
 /// this to gate the call behind a user-approval prompt (`ai-permission`).
 pub fn is_write_tool(name: &str) -> bool {
-    matches!(name, "update_page")
+    matches!(
+        name,
+        "update_page" | "add_database_property" | "update_database_property"
+    )
 }
 
 // =============================================================================
@@ -118,6 +158,8 @@ pub fn dispatch(name: &str, args: &Value, conn: &Connection) -> Result<String, S
         "update_page" => tool_update_page(conn, args),
         "list_databases" => tool_list_databases(conn, args),
         "query_database" => tool_query_database(conn, args),
+        "add_database_property" => tool_add_database_property(conn, args),
+        "update_database_property" => tool_update_database_property(conn, args),
         other => Err(format!("unknown tool: {other}")),
     }
 }
@@ -255,6 +297,90 @@ fn tool_query_database(conn: &Connection, args: &Value) -> Result<String, String
         "rowCount": rows.len(),
     });
     serde_json::to_string_pretty(&out).map_err(|e| e.to_string())
+}
+
+/// Add a property (column) to a database. Delegates to `database::add_property`
+/// so the same validation / ordering as the UI path applies. Covers every type,
+/// including `formula` (pass the expression via `formula`).
+fn tool_add_database_property(conn: &Connection, args: &Value) -> Result<String, String> {
+    let database_id = args
+        .get("databaseId")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "databaseId required".to_string())?;
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "name required".to_string())?;
+    let prop_type = args
+        .get("type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "type required".to_string())?;
+
+    let input = crate::database::AddPropertyInput {
+        database_id: database_id.to_string(),
+        name: name.to_string(),
+        r#type: prop_type.to_string(),
+        options: parse_select_options(args.get("options")),
+        number_format: args
+            .get("numberFormat")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        formula: args
+            .get("formula")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        formula_display: args
+            .get("formulaDisplay")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        date_include_time: args.get("dateIncludeTime").and_then(|v| v.as_bool()),
+    };
+    let prop = crate::database::add_property(conn, input).map_err(|e| e.to_string())?;
+    Ok(format!(
+        "Added column '{}' (type='{}', id={}). It appears in the table after a refresh.",
+        prop.name, prop.r#type, prop.id
+    ))
+}
+
+/// Update a property — chiefly to set/change a formula expression, but also to
+/// rename or tweak options/format. Delegates to `database::update_property`,
+/// which only touches the fields actually provided.
+fn tool_update_database_property(conn: &Connection, args: &Value) -> Result<String, String> {
+    let property_id = args
+        .get("propertyId")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "propertyId required".to_string())?;
+
+    let input = crate::database::UpdatePropertyInput {
+        name: args.get("name").and_then(|v| v.as_str()).map(String::from),
+        options: parse_select_options(args.get("options")),
+        number_format: args
+            .get("numberFormat")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        formula: args
+            .get("formula")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        formula_display: args
+            .get("formulaDisplay")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        date_include_time: args.get("dateIncludeTime").and_then(|v| v.as_bool()),
+    };
+    let prop = crate::database::update_property(conn, property_id, input).map_err(|e| e.to_string())?;
+    Ok(format!(
+        "Updated column '{}' (id={}, type='{}').",
+        prop.name, prop.id, prop.r#type
+    ))
+}
+
+/// Parse an `options` JSON array `[{value,color}]` into SelectOption. Returns
+/// None when absent or not an array, so a malformed value doesn't fail the
+/// whole property create — the column is added without options instead.
+fn parse_select_options(v: Option<&Value>) -> Option<Vec<crate::database::SelectOption>> {
+    let arr = v.filter(|x| x.is_array())?;
+    serde_json::from_value(arr.clone()).ok()
 }
 
 // =============================================================================

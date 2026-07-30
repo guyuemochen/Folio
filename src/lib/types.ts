@@ -121,10 +121,22 @@ export type PropertyType =
   | 'multi_select'
   | 'status'
   | 'date'
+  | 'created_time'
+  | 'last_edited_time'
   | 'person'
   | 'checkbox'
   | 'url'
-  | 'files';
+  | 'files'
+  | 'formula';
+
+/** How a `formula` property's computed value is rendered. */
+export type FormulaDisplay =
+  | 'number'
+  | 'percent'
+  | 'currency'
+  | 'progress'
+  | 'text'
+  | 'checkbox';
 
 export interface SelectOption {
   value: string;
@@ -139,6 +151,14 @@ export interface PropertyDef {
   type: PropertyType;
   options?: SelectOption[];
   numberFormat?: 'integer' | 'decimal' | 'percent' | 'currency' | null;
+  /** For type='formula': the expression, e.g. `prop("Price") * prop("Qty")`.
+   *  The value is computed client-side at render time — never stored per row. */
+  formula?: string | null;
+  /** For type='formula': how the computed value is displayed. Defaults to 'number'. */
+  formulaDisplay?: FormulaDisplay | null;
+  /** For type='date': whether the picker includes a time-of-day portion.
+   *  false/undefined = date-only, true = date+time. */
+  dateIncludeTime?: boolean | null;
   isRequired: boolean;
   order: number;
   createdAt: number;
@@ -384,12 +404,18 @@ export interface AddPropertyInput {
   type: PropertyType;
   options?: SelectOption[];
   numberFormat?: string;
+  formula?: string;
+  formulaDisplay?: FormulaDisplay;
+  dateIncludeTime?: boolean;
 }
 
 export interface UpdatePropertyInput {
   name?: string;
   options?: SelectOption[];
   numberFormat?: string;
+  formula?: string;
+  formulaDisplay?: FormulaDisplay;
+  dateIncludeTime?: boolean;
 }
 
 export interface UpdateCellInput {
