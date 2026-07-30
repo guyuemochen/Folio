@@ -491,6 +491,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   emptyTrash: async () => {
     await api.emptyTrash();
     set({ trashedPages: [] });
+    // Trashed pages may include database rows — bust the rows cache so the
+    // table view refreshes immediately (matches trashPage/deletePermanently).
+    queryClient.invalidateQueries({ queryKey: ['database-rows'] });
   },
 }));
 
