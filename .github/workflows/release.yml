@@ -222,22 +222,34 @@ jobs:
           gh release download "$DATED" --repo "$REPO" --pattern "latest.json" --clobber
           test -s latest.json || { echo "ERROR: latest.json missing from $DATED" >&2; exit 1; }
 
-          # 2. Ensure the rolling Release exists; grab its id.
-          RID="$(gh api "repos/$REPO/releases/tags/$ROLLING" --jq '.id // empty' 2>/dev/null || true)"
-          if [ -z "$RID" ]; then
-            PRE=false
-            [ "$CH" != "stable" ] && PRE=true
-            RID="$(gh api -X POST "repos/$REPO/releases" \
-              -f tag_name="$ROLLING" \
-              -f target_commitish="$SHA" \
-              -f name="$ROLLING" \
-              -f body="Auto-updater manifest host for the \`$CH\` channel. Latest build: \`$DATED\`. This release carries ONLY \`latest.json\`; installers live in each version's own release." \
-              -F prerelease="$PRE" --jq '.id')"
+          # 2. Ensure the rolling Release exists. Use `gh release view` (reliable
+          #    0/1 exit code) instead of `gh api ... --jq '.id // empty'` — the
+          #    latter can leak the 404 JSON body to stdout in some gh versions
+          #    (cli/cli#10797), so RID captures the whole error body, the
+          #    `[ -z "$RID" ]` guard passes, the create-release POST is skipped,
+          #    and every later `releases/$RID` call becomes
+          #    `releases/{"message":"Not Found",...}` →
+          #    `Get "...": unsupported protocol scheme ""` /
+          #    `release not found`. `gh release view` never parses the body
+          #    into a variable, so it is immune to that leak.
+          if ! gh release view "$ROLLING" --repo "$REPO" >/dev/null 2>&1; then
+            PRE_FLAG=""
+            if [ "$CH" != "stable" ]; then PRE_FLAG="--prerelease"; fi
+            gh release create "$ROLLING" \
+              --repo "$REPO" \
+              --target "$SHA" \
+              --title "$ROLLING" \
+              --notes "Auto-updater manifest host for the \`$CH\` channel. Latest build: \`$DATED\`. This release carries ONLY \`latest.json\`; installers live in each version's own release." \
+              $PRE_FLAG
           fi
 
           # 3. Strip any legacy assets — only latest.json belongs on this Release.
           #    (Cleans up the previous single-rolling-release layout where every
-          #    version's installer assets piled into the same Release.)
+          #    version's installer assets piled into the same Release.) Safe now:
+          #    the release definitely exists (created above if missing), so the
+          #    tag lookup returns 200 and --jq runs on a real release object
+          #    instead of a 404 body.
+          RID="$(gh api "repos/$REPO/releases/tags/$ROLLING" --jq '.id')"
           for AID in $(gh api "repos/$REPO/releases/$RID" --jq '.assets[] | select(.name!="latest.json") | .id'); do
             gh api -X DELETE "repos/$REPO/releases/assets/$AID" || true
           done
